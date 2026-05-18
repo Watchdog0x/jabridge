@@ -2,7 +2,6 @@ package main
 
 /*
 #cgo CFLAGS: -Iheaders
-#cgo LDFLAGS: -Llib -ljabra
 
 #include "Common.h"
 #include "JabraDeviceConfig.h"
@@ -36,6 +35,7 @@ type jabra_DeviceInfo struct {
 	featureFlags           *featureFlags
 	batteryStatus          *batteryStatus
 	pairingList            *pairingList
+	deviceSettings         *deviceSettings
 }
 
 type batteryComponent int
@@ -262,6 +262,13 @@ func deviceAttachedFunc(deviceInfo C.Jabra_DeviceInfo) {
 		} else {
 			goDeviceInfo.batteryStatus = battery
 		}
+
+		ds, err := getDeviceSettings(goDeviceInfo.deviceID)
+		if err != nil {
+			fmt.Printf("Get Device Settings for %s: %s\n", goDeviceInfo.deviceName, err)
+		} else {
+			goDeviceInfo.deviceSettings = ds
+		}
 	} else {
 		if goDeviceInfo.featureFlags.pairingList {
 			goDeviceInfo.pairingList = getPairingList(goDeviceInfo.deviceID)
@@ -409,9 +416,9 @@ func updateStartMenu() {
 	// 	startMenu = append(startMenu, menuItem{id: 3, label: "Switch Device"})
 	// }
 
-	// if device, deviceexists := deviceManager[selectedHeadset]; deviceexists {
-	// 	startMenu = append(startMenu, menuItem{id: 4, label: fmt.Sprintf("%s Settings", device.deviceName)})
-	// }
+	if headset, ok := deviceManager[selectedHeadset]; ok && headset.deviceSettings != nil {
+		startMenu = append(startMenu, menuItem{id: 4, label: fmt.Sprintf("%s Settings", headset.deviceName)})
+	}
 
 	startMenu = append(startMenu, menuItem{id: 5, label: "Exit"})
 
@@ -489,6 +496,16 @@ func (d *devices) add(deviceInfo *jabra_DeviceInfo) {
 func (d *devices) removed(deviceID uint16) {
 	if *d == nil {
 		return
+	}
+
+	// Free C memory for the device being removed.
+	for i := 0; i < len(*d); i++ {
+		device, exists := (*d)[i]
+		if exists && device.deviceID == deviceID {
+			freeDeviceSettings(device.deviceSettings)
+			device.deviceSettings = nil
+			break
+		}
 	}
 
 	var (
