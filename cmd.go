@@ -32,6 +32,7 @@ var (
 
 	// screens size
 	width, height = 0, 0
+	boxDrawn      = false
 
 	// For Navigation
 	resetCurrentSelection = false
@@ -51,10 +52,10 @@ var (
 	// hsDisplay is the flat, scrollable list shown on screen. It is built
 	// from deviceSettings.items once per visit and reset to nil on exit so
 	// that re-entering always shows the freshest data.
-	hsDisplay    []hsDisplayItem
-	hsCurSel     int // cursor row in hsDisplay (skips header rows)
-	hsSaveFlash  int // countdown frames to show "Saved!" banner
-	hsErrStr     string
+	hsDisplay   []hsDisplayItem
+	hsCurSel    int // cursor row in hsDisplay (skips header rows)
+	hsSaveFlash int // countdown frames to show "Saved!" banner
+	hsErrStr    string
 	// hsEditIdx >= 0 means we are in the value-picker sub-view for that
 	// hsDisplay row; hsEditOptSel is the highlighted option inside it.
 	hsEditIdx    int = -1
@@ -323,6 +324,14 @@ func clearScreen() {
 	fmt.Print("\033[H")  // Move the cursor to the top-left corner
 }
 
+func clearLine(row int) {
+	if row < 1 {
+		return
+	}
+	moveCursor(row, 1)
+	fmt.Print("\033[2K")
+}
+
 func getScreenSize() {
 	getWidth, getHeight, err := term.GetSize(1)
 	if err != nil {
@@ -332,6 +341,9 @@ func getScreenSize() {
 }
 
 func drawingBox() {
+	if boxDrawn {
+		return
+	}
 
 	calcHeight := height - 4
 	calcWidth := (width - 11) * 3
@@ -356,6 +368,7 @@ func drawingBox() {
 	moveCursor(calcHeight, 5)
 	fmt.Printf("%s%s%s", leftCornerBottom, horizontalLine[:(width-11)*3], rightCornerBottom)
 
+	boxDrawn = true
 }
 
 func header() {
@@ -413,8 +426,8 @@ func menu(width int) {
 		mid := (width - len(option.label)) / 2
 
 		if i == currentSelection {
-			moveCursor(5+i, mid-1)
-			fmt.Println("\033[42m", option.label, "\033[0m")
+			moveCursor(5+i, mid)
+			fmt.Printf("\033[42m%s\033[0m", option.label)
 		} else {
 			moveCursor(5+i, mid)
 			fmt.Println(option.label)
@@ -456,7 +469,7 @@ func menuSearchForNewDevices() {
 			moveCursor(4+i, 10)
 			device := fmt.Sprintf("%d %s", i+1, pairedDevice.deviceName)
 			if i == currentSelection {
-				fmt.Println("\033[42m", device, "\033[0m")
+				fmt.Printf("\033[42m%s\033[0m", device)
 			} else {
 				fmt.Println(device)
 			}
@@ -468,13 +481,13 @@ func menuSearchForNewDevices() {
 		moveCursor(height-3, 7+calcWidth)
 
 		if i == selectedItemsSearchForNewDevices {
-			fmt.Println("\033[44m", item, "\033[0m")
+			fmt.Printf("\033[44m%s\033[0m", item)
 			go func() { // selected animation
 				time.Sleep(time.Millisecond * 200)
 				selectedItemsSearchForNewDevices = -1
 			}()
 		} else {
-			fmt.Println("\033[42m", item, "\033[0m")
+			fmt.Printf("\033[42m%s\033[0m", item)
 		}
 		calcWidth += len(item) + 3 // Add the item's width plus a space for separation
 	}
@@ -497,7 +510,7 @@ func menuPairedDevices() {
 				device += " (Connected)"
 			}
 			if i == currentSelection {
-				fmt.Println("\033[42m", device, "\033[0m")
+				fmt.Printf("\033[42m%s\033[0m", device)
 			} else {
 				fmt.Println(device)
 			}
@@ -508,13 +521,13 @@ func menuPairedDevices() {
 			moveCursor(height-3, 7+calcWidth)
 
 			if i == selectedItemsPairedDevices {
-				fmt.Println("\033[44m", item, "\033[0m")
+				fmt.Printf("\033[44m%s\033[0m", item)
 				go func() { // selected animation
 					time.Sleep(time.Millisecond * 200)
 					selectedItemsPairedDevices = -1
 				}()
 			} else {
-				fmt.Println("\033[42m", item, "\033[0m")
+				fmt.Printf("\033[42m%s\033[0m", item)
 			}
 			calcWidth += len(item) + 3 // Add the item's width plus a space for separation
 		}
@@ -535,8 +548,8 @@ func dongleSettigns() {
 	for i, item := range dongleSettignsMenu {
 
 		if i == currentSelection {
-			moveCursor(4+i, 9)
-			fmt.Println("\033[42m", item.label, "\033[0m")
+			moveCursor(4+i, 10)
+			fmt.Printf("\033[42m%s\033[0m", item.label)
 		} else {
 			moveCursor(4+i, 10)
 			fmt.Println(item.label)
@@ -544,7 +557,7 @@ func dongleSettigns() {
 	}
 
 	moveCursor(height-3, 7)
-	fmt.Println("\033[42m", "Q Back", "\033[0m")
+	fmt.Print("\033[42mQ Back\033[0m")
 }
 
 func startUi() {
@@ -553,13 +566,24 @@ func startUi() {
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	}()
 
+	lastWidth, lastHeight := -1, -1
+	lastStartMenuSelected := -2
+	lastHsEditIdx := -2
 	for {
 		select {
 		case <-sigChan:
 			return
 		default:
-			clearScreen()
 			getScreenSize()
+			if width != lastWidth || height != lastHeight || startMenuSelected != lastStartMenuSelected || hsEditIdx != lastHsEditIdx {
+				clearScreen()
+				boxDrawn = false
+				lastWidth, lastHeight = width, height
+				lastStartMenuSelected = startMenuSelected
+				lastHsEditIdx = hsEditIdx
+			}
+
+			clearLine(2)
 			header()
 
 			if startMenuSelected != -1 {
