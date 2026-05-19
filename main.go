@@ -2,7 +2,7 @@ package main
 
 /*
 #cgo CFLAGS: -Iheaders
-#cgo LDFLAGS: -Llib -ljabra
+#cgo LDFLAGS: -L${SRCDIR}/lib -Wl,-rpath,${SRCDIR}/lib -ljabra -l:libcurl.so.4
 
 #include "Common.h"
 #include "GoWrapper.h"
