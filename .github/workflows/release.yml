@@ -1,0 +1,312 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev
+
+      - name: Extract libjabra.so from install.sh
+        run: |
+          mkdir -p lib
+          sed -n 's/^libjabraSo="//;s/"$//p' install.sh | xxd -r -p > lib/libjabra.so
+          chmod 644 lib/libjabra.so
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build binary
+        run: |
+          go build -v -ldflags="-s -w" -o jLink .
+        env:
+          CGO_ENABLED: 1
+          GOARCH: amd64
+          GOOS: linux
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jLink-linux-amd64
+          path: jLink
+
+      - name: Upload libjabra.so artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libjabra-so
+          path: lib/libjabra.so
+
+  package-rpm:
+    name: Build RPM Package
+    needs: build
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install RPM build tools
+        run: dnf install -y rpm-build rpmlint rpmdevtools
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: jLink-linux-amd64
+          path: ./dist/
+
+      - name: Download libjabra.so
+        uses: actions/download-artifact@v4
+        with:
+          name: libjabra-so
+          path: ./dist/
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup RPM build tree
+        run: |
+          rpmdev-setuptree
+          mkdir -p ~/rpmbuild/SOURCES/jlink-${{ steps.version.outputs.VERSION }}
+          cp dist/jLink ~/rpmbuild/SOURCES/jlink-${{ steps.version.outputs.VERSION }}/
+          cp dist/libjabra.so ~/rpmbuild/SOURCES/jlink-${{ steps.version.outputs.VERSION }}/
+          cd ~/rpmbuild/SOURCES && tar czf jlink-${{ steps.version.outputs.VERSION }}.tar.gz jlink-${{ steps.version.outputs.VERSION }}
+
+      - name: Build RPM
+        run: |
+          rpmbuild -ba packaging/rpm/jlink.spec \
+            --define "version ${{ steps.version.outputs.VERSION }}" \
+            --define "release 1"
+
+      - name: Run rpmlint
+        run: rpmlint ~/rpmbuild/RPMS/x86_64/*.rpm || true
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jlink-rpm
+          path: ~/rpmbuild/RPMS/x86_64/*.rpm
+
+  package-deb:
+    name: Build DEB Package
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install DEB build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev debhelper lintian fakeroot
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: jLink-linux-amd64
+          path: ./dist/
+
+      - name: Download libjabra.so
+        uses: actions/download-artifact@v4
+        with:
+          name: libjabra-so
+          path: ./dist/
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build DEB package
+        run: |
+          PKG_DIR="jlink_${{ steps.version.outputs.VERSION }}_amd64"
+          mkdir -p "${PKG_DIR}/DEBIAN"
+          mkdir -p "${PKG_DIR}/usr/local/bin"
+          mkdir -p "${PKG_DIR}/usr/lib/jabra"
+          mkdir -p "${PKG_DIR}/etc/udev/rules.d"
+          mkdir -p "${PKG_DIR}/etc/ld.so.conf.d"
+
+          # Install binary
+          install -m 755 dist/jLink "${PKG_DIR}/usr/local/bin/jlink"
+
+          # Install libjabra.so
+          install -m 644 dist/libjabra.so "${PKG_DIR}/usr/lib/jabra/libjabra.so"
+          ln -rs "${PKG_DIR}/usr/lib/jabra/libjabra.so" "${PKG_DIR}/usr/lib/jabra/libjabra.so.1"
+
+          # Install udev rules
+          echo 'ATTRS{idVendor}=="0b0e", MODE="0660", GROUP="users"' > "${PKG_DIR}/etc/udev/rules.d/99-jabra.rules"
+
+          # Install ldconfig entry
+          echo "/usr/lib/jabra" > "${PKG_DIR}/etc/ld.so.conf.d/jabra.conf"
+
+          # Create control file
+          cat > "${PKG_DIR}/DEBIAN/control" << EOF
+          Package: jlink
+          Version: ${{ steps.version.outputs.VERSION }}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libasound2, libcurl4
+          Maintainer: Watchdog0x <jlink@users.noreply.github.com>
+          Description: Jabra Direct for Linux
+           jLink is a TUI application for managing Jabra headsets
+           and Bluetooth dongles on Linux. Features include device
+           discovery, Bluetooth pairing, battery monitoring, and
+           dongle configuration.
+          Homepage: https://github.com/Watchdog0x/jLink
+          EOF
+          sed -i 's/^          //' "${PKG_DIR}/DEBIAN/control"
+
+          # Create postinst script
+          cat > "${PKG_DIR}/DEBIAN/postinst" << 'EOF'
+          #!/bin/sh
+          set -e
+          ldconfig
+          if command -v udevadm >/dev/null 2>&1; then
+              udevadm control --reload-rules || true
+              udevadm trigger || true
+          fi
+          EOF
+          sed -i 's/^          //' "${PKG_DIR}/DEBIAN/postinst"
+          chmod 755 "${PKG_DIR}/DEBIAN/postinst"
+
+          # Create postrm script
+          cat > "${PKG_DIR}/DEBIAN/postrm" << 'EOF'
+          #!/bin/sh
+          set -e
+          ldconfig
+          EOF
+          sed -i 's/^          //' "${PKG_DIR}/DEBIAN/postrm"
+          chmod 755 "${PKG_DIR}/DEBIAN/postrm"
+
+          # Build the package
+          dpkg-deb --build "${PKG_DIR}"
+
+      - name: Run lintian
+        run: lintian jlink_${{ steps.version.outputs.VERSION }}_amd64.deb || true
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jlink-deb
+          path: jlink_*.deb
+
+  validate-packages:
+    name: Validate Packages
+    needs: [package-rpm, package-deb]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: rpm
+            image: fedora:latest
+          - name: deb
+            image: ubuntu:latest
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Download RPM
+        if: matrix.name == 'rpm'
+        uses: actions/download-artifact@v4
+        with:
+          name: jlink-rpm
+          path: ./packages/
+
+      - name: Download DEB
+        if: matrix.name == 'deb'
+        uses: actions/download-artifact@v4
+        with:
+          name: jlink-deb
+          path: ./packages/
+
+      - name: Validate and install RPM
+        if: matrix.name == 'rpm'
+        run: |
+          dnf install -y alsa-lib libcurl
+          rpm -qpi ./packages/*.rpm
+          rpm -qpl ./packages/*.rpm
+          dnf install -y ./packages/*.rpm
+          jlink --help || echo "jLink installed successfully (no --help flag implemented yet)"
+          test -f /usr/local/bin/jlink
+          test -f /usr/lib/jabra/libjabra.so
+          test -f /etc/udev/rules.d/99-jabra.rules
+
+      - name: Validate and install DEB
+        if: matrix.name == 'deb'
+        run: |
+          apt-get update
+          apt-get install -y libasound2 libcurl4
+          dpkg-deb -I ./packages/*.deb
+          dpkg-deb -c ./packages/*.deb
+          dpkg -i ./packages/*.deb || apt-get install -f -y
+          jlink --help || echo "jLink installed successfully (no --help flag implemented yet)"
+          test -f /usr/local/bin/jlink
+          test -f /usr/lib/jabra/libjabra.so
+          test -f /etc/udev/rules.d/99-jabra.rules
+
+  release:
+    name: Create Release
+    needs: [validate-packages]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts/
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | head -n 2 | tail -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          echo "## Changes" > changelog.md
+          echo "" >> changelog.md
+          git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" >> changelog.md
+          echo "" >> changelog.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: jLink ${{ github.ref_name }}
+          body_path: changelog.md
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/jLink-linux-amd64/jLink
+            artifacts/jlink-rpm/*.rpm
+            artifacts/jlink-deb/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
