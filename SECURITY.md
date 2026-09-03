@@ -1,44 +1,32 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-| Version | Supported |
-|---------|-----------|
-| 0.1.x   | Yes       |
+| Version | Status |
+| --- | --- |
+| 1.0.x | Native-Go preview; security fixes accepted |
+| 0.1.x | Legacy and unsupported |
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability in jLink, please report it responsibly.
+Use a [private GitHub security advisory](https://github.com/Watchdog0x/jabridge/security/advisories/new).
+Do not publish device serial numbers, firmware, proprietary vendor binaries,
+credentials, or sensitive logs in a public issue.
 
-### How to Report
+Please include:
 
-1. **GitHub Security Advisory** (preferred): Use [GitHub's private security advisory feature](https://github.com/Watchdog0x/jLink/security/advisories/new)
-2. **GitHub Issue**: Open an issue with the `[SECURITY]` prefix in the title
+- affected Jabridge version and commit;
+- device model and VID:PID, with serial numbers redacted;
+- whether the issue is read-only, a device write, or a firmware update;
+- reproducible steps using a fake/replay transport when possible;
+- impact and any known recovery path.
 
-### What to Include
+## Device safety
 
-- jLink version affected
-- Description of the vulnerability
-- Steps to reproduce
-- Impact assessment
-- Suggested fix (if any)
+Protocol writes and firmware updates can make hardware unusable. A passing unit
+test, CI build, or simulated transport does not establish hardware safety.
+Hardware-write features remain disabled by default until independently
+validated on replaceable devices.
 
-## Response Timeline
-
-- **Acknowledgment**: Within 48 hours
-- **Initial Assessment**: Within 1 week
-- **Fix Timeline**: Depends on severity
-
-## Disclosure Policy
-
-We follow coordinated disclosure:
-
-1. Reporter submits vulnerability privately
-2. We acknowledge and assess the report
-3. We develop and test a fix
-4. Fix is released
-5. Public disclosure after the fix is available
-
-## Jabra SDK Note
-
-jLink depends on the proprietary Jabra SDK (`libjabra.so`) provided by GN Audio. Security vulnerabilities specific to the Jabra SDK should be reported directly to [GN Audio / Jabra](https://www.jabra.com/) rather than to this project.
+Jabra SDKs, Device Connector, firmware, and updater vulnerabilities should also
+be reported to Jabra through its official security process.

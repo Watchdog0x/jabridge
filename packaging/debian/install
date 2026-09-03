@@ -1,5 +1,4 @@
-usr/local/bin/jlink
-usr/lib/jabra/libjabra.so
-usr/lib/jabra/libjabra.so.1
-etc/udev/rules.d/99-jabra.rules
-etc/ld.so.conf.d/jabra.conf
+usr/bin/jabridge
+usr/bin/jafw
+usr/share/bash-completion/completions/jabridge
+usr/share/bash-completion/completions/jafw

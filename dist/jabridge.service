@@ -1,0 +1,16 @@
+[Unit]
+Description=Jabridge — Jabra headset manager daemon
+Documentation=https://github.com/Watchdog0x/jabridge
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/jabridge --daemon
+Restart=on-failure
+RestartSec=5
+
+# Cleanup socket on stop (in case of crash)
+ExecStopPost=/bin/rm -f %t/jabridge.sock %t/jabridge.pid
+
+[Install]
+WantedBy=default.target

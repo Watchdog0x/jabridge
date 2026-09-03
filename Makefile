@@ -1,59 +1,52 @@
-BINARY_NAME := jLink
-GO := go
-GOFLAGS := -v
-LDFLAGS := -s -w
-LIB_DIR := lib
-INSTALL_PREFIX := /usr/local/bin
-JABRA_LIB_DIR := /usr/lib/jabra
+BINARY_NAME := jabridge
+UPDATER_NAME := jafw
+VERSION ?= 1.0.0
+GO ?= go
+BUILD_DIR ?= dist/bin
+PREFIX ?= /usr/local
+MODULE_PATH := github.com/Watchdog0x/jabridge
+LDFLAGS := -s -w -X $(MODULE_PATH)/internal/buildinfo.Version=$(VERSION)
 
-.PHONY: all build clean extract-lib lint vet fmt test install uninstall help
+.PHONY: all build check clean completion-check fmt install test test-static uninstall vet
 
-all: extract-lib build ## Build the project (default)
+all: check build
 
-build: ## Build the binary
-	$(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY_NAME) .
+build:
+	mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) .
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(UPDATER_NAME) ./cmd/jafw
 
-clean: ## Remove build artifacts
-	rm -f $(BINARY_NAME)
-	rm -rf $(LIB_DIR)
-
-extract-lib: ## Extract libjabra.so from install.sh
-	@mkdir -p $(LIB_DIR)
-	@if [ ! -f $(LIB_DIR)/libjabra.so ]; then \
-		echo "Extracting libjabra.so from install.sh..."; \
-		sed -n 's/^libjabraSo="//;s/"$$//p' install.sh | xxd -r -p > $(LIB_DIR)/libjabra.so; \
-		chmod 644 $(LIB_DIR)/libjabra.so; \
-		echo "Done."; \
-	else \
-		echo "$(LIB_DIR)/libjabra.so already exists, skipping extraction."; \
-	fi
-
-lint: ## Run golangci-lint
-	golangci-lint run
-
-vet: ## Run go vet
-	$(GO) vet ./...
-
-fmt: ## Check code formatting
-	@unformatted=$$(gofmt -l .); \
+fmt:
+	@unformatted="$$(gofmt -l .)"; \
 	if [ -n "$$unformatted" ]; then \
-		echo "Unformatted files:"; \
-		echo "$$unformatted"; \
-		echo "Run 'gofmt -w .' to fix."; \
+		printf 'Unformatted files:\n%s\n' "$$unformatted"; \
 		exit 1; \
 	fi
 
-test: ## Run tests
-	$(GO) test -v -race ./...
+vet:
+	CGO_ENABLED=0 $(GO) vet ./...
 
-install: build ## Install jLink to system
-	sudo install -Dm755 $(BINARY_NAME) $(INSTALL_PREFIX)/jlink
-	@echo "Installed to $(INSTALL_PREFIX)/jlink"
+test:
+	$(GO) test -race ./...
 
-uninstall: ## Remove jLink from system
-	sudo rm -f $(INSTALL_PREFIX)/jlink
-	@echo "Removed $(INSTALL_PREFIX)/jlink"
+test-static:
+	CGO_ENABLED=0 $(GO) test ./...
 
-help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+completion-check:
+	bash -n internal/completion/jabridge.bash internal/completion/jafw.bash
+
+check: fmt vet test test-static completion-check
+
+install: build
+	install -Dm755 $(BUILD_DIR)/$(BINARY_NAME) $(DESTDIR)$(PREFIX)/bin/$(BINARY_NAME)
+	install -Dm755 $(BUILD_DIR)/$(UPDATER_NAME) $(DESTDIR)$(PREFIX)/bin/$(UPDATER_NAME)
+	install -Dm644 internal/completion/jabridge.bash $(DESTDIR)$(PREFIX)/share/bash-completion/completions/jabridge
+	install -Dm644 internal/completion/jafw.bash $(DESTDIR)$(PREFIX)/share/bash-completion/completions/jafw
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(BINARY_NAME) $(DESTDIR)$(PREFIX)/bin/$(UPDATER_NAME)
+	rm -f $(DESTDIR)$(PREFIX)/share/bash-completion/completions/jabridge
+	rm -f $(DESTDIR)$(PREFIX)/share/bash-completion/completions/jafw
+
+clean:
+	rm -f $(BUILD_DIR)/$(BINARY_NAME) $(BUILD_DIR)/$(UPDATER_NAME)

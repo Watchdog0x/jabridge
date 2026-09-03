@@ -1,63 +1,172 @@
 package main
 
-/*
-#cgo CFLAGS: -Iheaders
-#cgo LDFLAGS: -L${SRCDIR}/lib -Wl,-rpath,${SRCDIR}/lib -ljabra -l:libcurl.so.4
-
-#include "Common.h"
-#include "GoWrapper.h"
-#include <stdlib.h>
-*/
-import "C"
 import (
+	"encoding/hex"
 	"fmt"
-	"log"
 	"os"
-	"unsafe"
+
+	"github.com/Watchdog0x/jabridge/daemon"
+	"github.com/Watchdog0x/jabridge/daemon/ipc"
+	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 )
 
-// sudo apt install libasound2 libcurl4
 func main() {
-
-	oldSettings, err := enableRawMode()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Failed to enable raw mode:", err)
+	if len(os.Args) == 1 {
+		if err := runTUI(); err != nil {
+			fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
-	defer restoreTerminal(oldSettings)
-	go startKeysPressedListener()
 
-	appId := C.CString("JabraLink")
-	C.Jabra_SetAppID(appId)
-	defer C.free(unsafe.Pointer(appId))
-
-	// Callback parameters: FirstScanForDevicesDoneFunc, DeviceAttachedFunc, DeviceRemovedFunc,
-	// ButtonInDataRawHidFunc, ButtonInDataTranslatedFunc, nonJabraDeviceDetection, configParams
-	if init := C.Jabra_InitializeV2(
-		(*[0]byte)(C.firstScanForDevicesDone), // Callback when USB scan is complete
-		(*[0]byte)(C.deviceAttachedFunc),       // Callback for when a device is attached
-		(*[0]byte)(C.deviceRemovedFunc),        // Callback for when a device is removed
-		nil,                                    // Callback for raw HID button input (not used here)
-		nil,                                    // Callback for translated button input (not used here)
-		false,                                  // nonJabraDeviceDetection (not used here)
-		nil,                                    // Additional configuration parameters (not used here)
-	); !init {
-		log.Fatalln("Failed to initialize Jabra SDK")
+	var err error
+	switch os.Args[1] {
+	case "--help", "-h", "help":
+		printUsage()
+	case "--version", "-v", "version":
+		fmt.Printf("%s %s\n", buildinfo.Name, buildinfo.Version)
+	case "status":
+		err = runStatus()
+	case "--daemon", "-d", "daemon":
+		err = runDaemon()
+	case "update":
+		err = runUpdate(os.Args[2:])
+	case "completion":
+		err = runCompletion(os.Args[2:])
+	default:
+		err = fmt.Errorf("unknown command %q; run jabridge --help", os.Args[1])
 	}
-	defer uninitialize()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-	// The current callback behavior is inconsistent. While the charging status updates as expected,
-	// the `levelInPercent` callback is sometimes delayed. This causes issues with timely updates.
-	// We need to ensure that the callback is triggered in a more predictable and consistent manner.
-	// C.Jabra_RegisterBatteryStatusUpdateCallbackV2((*[0]byte)(unsafe.Pointer(C.batteryStatusUpdate)))
+func printUsage() {
+	fmt.Println(`jabridge — Linux control for supported Jabra devices
+
+Usage:
+  jabridge             open the terminal UI; talks directly to the device
+  jabridge status      show connected USB devices
+  jabridge update      update the app
+  jabridge --help      show help
+
+More:
+  jabridge --daemon           run the local service
+  jabridge completion bash    print Bash completion
+
+The TUI does not use the service yet. Run only one at a time.`)
+}
+
+func runDaemon() error {
+	cfg := daemon.DefaultConfig()
+	cfg.BusylightSender = &jabraBusylightSender{}
+	return daemon.Start(cfg, pollDevices, &jabraAPIBridge{})
+}
+
+func runTUI() error {
+	oldSettings, err := enableRawMode()
+	if err != nil {
+		return fmt.Errorf("enable raw mode: %w", err)
+	}
+	defer restoreTerminal(oldSettings)
+
+	updateStartMenu()
+	stopPoll := make(chan struct{})
+	go pollDevices(stopPoll)
+
+	fmt.Print("\x1b[?1049h\x1b[?25l")
+	defer fmt.Print("\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
+
 	defer close(stopUpdateBattery)
 	defer close(stopUpdatePairingList)
+	defer close(stopPoll)
 
-	fmt.Print("\x1b[?25l")       // Hide cursor
-	defer fmt.Print("\x1b[?25h") // Show cursor again
 	clearScreen()
 	startUi()
-
-	fmt.Println("\n\nThank you for using jlink! (ʘ‿ʘ)╯")
-
+	return nil
 }
+
+// jabraAPIBridge adapts the jabraApi.go global functions to the ipc.API interface.
+type jabraAPIBridge struct{}
+
+func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
+	var out []ipc.DeviceInfo
+	for _, dev := range deviceManager {
+		d := ipc.DeviceInfo{
+			Name:     dev.deviceName,
+			PID:      dev.productID,
+			Serial:   dev.serialNumber,
+			IsDongle: dev.isDongle,
+			Firmware: getFirmwareVersion(dev.deviceID),
+		}
+		if dev.batteryStatus != nil {
+			d.Battery = &ipc.BatteryInfo{
+				Level:     dev.batteryStatus.levelInPercent,
+				Charging:  dev.batteryStatus.charging,
+				Low:       dev.batteryStatus.batteryLow,
+				Component: int(dev.batteryStatus.component),
+			}
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+func (j *jabraAPIBridge) GetBattery() (*ipc.BatteryInfo, error) {
+	bs, err := getBatteryStatus(0)
+	if err != nil {
+		return nil, err
+	}
+	return &ipc.BatteryInfo{
+		Level:     bs.levelInPercent,
+		Charging:  bs.charging,
+		Low:       bs.batteryLow,
+		Component: int(bs.component),
+	}, nil
+}
+
+func (j *jabraAPIBridge) GetFirmware() string {
+	return getFirmwareVersion(0)
+}
+
+func (j *jabraAPIBridge) GetFeatures() ipc.FeatureInfo {
+	var ff *featureFlags
+	if dev := deviceForID(0); dev != nil && dev.featureFlags != nil {
+		ff = dev.featureFlags
+	} else {
+		ff = &featureFlags{}
+	}
+	return ipc.FeatureInfo{
+		BusyLight:    ff.busyLight,
+		FactoryReset: ff.factoryReset,
+		PairingList:  ff.pairingList,
+		RemoteMMI:    ff.remoteMMI,
+		MusicEQ:      ff.musicEqualizer,
+		OnHeadDetect: ff.onHeadDetection,
+	}
+}
+
+func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
+	pl := getPairingList(0)
+	if pl == nil {
+		return nil
+	}
+	var out []ipc.PairedDeviceInfo
+	for _, pd := range pl.pairedDevices {
+		out = append(out, ipc.PairedDeviceInfo{
+			Name:      pd.deviceName,
+			Addr:      hex.EncodeToString(pd.deviceBTAddr[:]),
+			Connected: pd.isConnected,
+		})
+	}
+	return out
+}
+
+func (j *jabraAPIBridge) SearchNewDevices() error            { return searchForNewDevices() }
+func (j *jabraAPIBridge) SetBTPairing(e bool) error          { return setDongleInBTPairing(e) }
+func (j *jabraAPIBridge) GetAutoPairing() (bool, error)      { return getAutoPairing() }
+func (j *jabraAPIBridge) SetAutoPairing(e bool) error        { return setAutoPairing(e) }
+func (j *jabraAPIBridge) FactoryReset() error                { return factoryReset(0) }
+func (j *jabraAPIBridge) SetBusylightMode(mode string) error { return nil } // wired in daemon
+func (j *jabraAPIBridge) GetBusylightMode() string           { return "auto" }

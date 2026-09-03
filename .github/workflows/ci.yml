@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "codex/**"]
   pull_request:
     branches: [main]
 
@@ -10,8 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,65 +20,43 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Extract libjabra.so from install.sh
-        run: |
-          mkdir -p lib
-          sed -n 's/^libjabraSo="//;s/"$//p' install.sh | xxd -r -p > lib/libjabra.so
-          chmod 644 lib/libjabra.so
+          cache: true
 
       - name: Check formatting
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
-            echo "The following files are not formatted:"
-            echo "$unformatted"
+            printf 'Unformatted files:\n%s\n' "$unformatted"
             exit 1
           fi
 
-      - name: Run go vet
+      - name: Vet
         run: go vet ./...
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      - name: Race tests
+        run: go test -race ./...
+
+      - name: Static tests
+        run: go test ./...
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Check Bash completion
+        run: bash -n internal/completion/jabridge.bash internal/completion/jafw.bash
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install system dependencies
+      - name: Build static binaries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev
-
-      - name: Extract libjabra.so from install.sh
-        run: |
-          mkdir -p lib
-          sed -n 's/^libjabraSo="//;s/"$//p' install.sh | xxd -r -p > lib/libjabra.so
-          chmod 644 lib/libjabra.so
-
-      - name: Build
-        run: go build -v -ldflags="-s -w" -o jLink .
+          mkdir -p dist/bin
+          go build -trimpath -ldflags="-s -w" -o dist/bin/jabridge .
+          go build -trimpath -ldflags="-s -w" -o dist/bin/jafw ./cmd/jafw
         env:
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
 
-      - name: Upload binary
+      - name: Upload review binaries
         uses: actions/upload-artifact@v4
         with:
-          name: jLink-linux-amd64
-          path: jLink
+          name: jabridge-linux-amd64-review
+          path: dist/bin/
           retention-days: 7

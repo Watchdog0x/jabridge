@@ -27,8 +27,9 @@
 
 - [ ] Tested with a Jabra device (specify which: ___________)
 - [ ] Built successfully with `make build` or `go build`
-- [ ] Ran linter with `make lint` (no new warnings)
+- [ ] Ran `make check`
 - [ ] Ran `make fmt` (code is properly formatted)
+- [ ] Identified whether tests used real hardware or a fake/replay transport
 
 ## Checklist
 
@@ -38,6 +39,8 @@
 - [ ] My changes do not introduce new warnings
 - [ ] I have used [conventional commit](/.github/COMMIT_CONVENTION.md) format for my commit messages
 - [ ] I have tested my changes on Linux
+- [ ] I have not committed firmware, vendor binaries, device serials, or credentials
+- [ ] Hardware writes fail closed unless explicitly enabled
 
 ## Screenshots / Terminal Output
 

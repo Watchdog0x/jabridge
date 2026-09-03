@@ -1,17 +1,11 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: jLink
-Upstream-Contact: https://github.com/Watchdog0x/jLink/issues
-Source: https://github.com/Watchdog0x/jLink
+Upstream-Name: Jabridge
+Upstream-Contact: https://github.com/Watchdog0x/jabridge/issues
+Source: https://github.com/Watchdog0x/jabridge
 
 Files: *
 Copyright: 2024 Watchdog0x
 License: Apache-2.0
-
-Files: headers/*
-Copyright: 2018-2021 GN Audio A/S
-License: Proprietary
- The Jabra SDK header files are provided by GN Audio A/S.
- See the individual header files for specific terms.
 
 License: Apache-2.0
  Licensed under the Apache License, Version 2.0 (the "License");

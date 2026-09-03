@@ -1,12 +1,12 @@
 name: Feature Request
-description: Suggest a new feature or enhancement for jLink
+description: Suggest a new feature or enhancement for Jabridge
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for suggesting an improvement to jLink. Please describe your idea below.
+        Thank you for suggesting an improvement to Jabridge. Please describe your idea below.
 
   - type: dropdown
     id: category

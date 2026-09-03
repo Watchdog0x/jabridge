@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug or unexpected behavior in jLink
+description: Report a bug or unexpected behavior in Jabridge
 title: "[Bug]: "
 labels: ["bug", "triage"]
 body:
@@ -11,9 +11,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: jLink Version
-      description: What version of jLink are you running?
-      placeholder: "e.g., 0.1.1"
+      label: Jabridge Version
+      description: What version or commit of Jabridge are you running?
+      placeholder: "e.g., 1.0.0 or a commit SHA"
     validations:
       required: true
 
@@ -52,11 +52,20 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: usb-id
+    attributes:
+      label: VID:PID and connection type
+      description: Include VID:PID and USB/dongle/BT connection type. Redact serial numbers.
+      placeholder: "e.g., 0b0e:24c7, USB dongle"
+    validations:
+      required: true
+
   - type: dropdown
     id: install-method
     attributes:
       label: Installation Method
-      description: How did you install jLink?
+      description: How did you install Jabridge?
       options:
         - curl/wget installer (install.sh)
         - RPM package
@@ -81,7 +90,7 @@ body:
       label: Steps to Reproduce
       description: Steps to reproduce the behavior.
       placeholder: |
-        1. Run jLink
+        1. Run jabridge
         2. Navigate to '...'
         3. Press '...'
         4. See error

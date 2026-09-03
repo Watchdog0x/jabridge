@@ -1,175 +1,163 @@
-# jLink: Jabra Direct for Linux
+# Jabridge
 
-[![CI](https://github.com/Watchdog0x/jLink/actions/workflows/ci.yml/badge.svg)](https://github.com/Watchdog0x/jLink/actions/workflows/ci.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/Watchdog0x/jLink)](https://github.com/Watchdog0x/jLink/releases)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/Watchdog0x/jLink/blob/main/LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Watchdog0x/jLink)](https://goreportcard.com/report/github.com/Watchdog0x/jLink)
+Jabridge is a Linux tool for supported Jabra headsets and USB dongles. Version
+1.0.0 is a new Go rewrite of the old `jLink` project. It does not use CGo or
+`libjabra.so`.
 
+Download the compiled files and run them. You do not need to install Jabridge,
+Go, GCC, .NET, Node.js, the Jabra SDK, or Jabra Device Connector.
 
-## 🔧 Update Incoming!
+> [!WARNING]
+> Version 1.0.0 is still a hardware test preview. Safe, read-only checks pass on
+> one Link 380 dongle. We have not tested a replacement headset. Pairing
+> changes, reset, busylight changes, and firmware flashing are not ready for
+> normal use and stay blocked by default.
 
-Hey everyone just a heads-up:
+The new name avoids confusion with SEGGER J-Link, which also uses the `jlink`
+name on Linux.
 
-An update for **JLink** is coming soon, and you’ll be able to upgrade your firmware easily.
-I’ve completed the first step using the firmware updater. Here's a quick demo of updating my Jabra Evolve2 85 headset from version 1.3.8 to 1.5.4 (the latest):
+## Download and run
+
+Download the Linux x86-64 archive and checksum from
+[Releases](https://github.com/Watchdog0x/jabridge/releases).
+
 ```bash
-./update ~/jabraFirmware/new/Firmware/Jabra_Evolve2_85-v1.5.4-ev285t-vector.zip 
-  100% complete                              1.3.8 -> 1.5.4   [0b0e:24ba] Jabra Evolve2 85 UC Data
+sha256sum -c jabridge_1.0.0-rc.1_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.1_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.1_linux_amd64
+./jabridge --version
+./jafw list
+./jabridge
 ```
 
+The two programs are static files. You can copy them to another compatible
+Linux computer and run them there.
 
+Linux must still allow your user account to open the Jabra `hidraw` device. If
+you get a permission error, report it. Do not run the whole app as root.
 
-jLink is your go-to tool for managing **Jabra headsets and dongles** on Linux. Think of it as **Jabra Direct for Linux**. <br>
-Now you can finally manage your Jabra devices on Linux with ease.
-jLink brings the power of Jabra device management to your Linux system.
+## Update Jabridge
 
-<div align="center">
-  <img src="./src/image.png" alt="How jLink look" style="max-width: 100%; height: auto;">
-</div>
+Check for a newer app release:
 
-## Features
-    - Basic Control: Manage basic functions of your Jabra headset.
-    - Device Discovery: Search for new devices and manage connections.
-    - Paired Devices: View the list of paired devices.
-    - Battery Status: Check the battery status of your headset
-
-## Building from Source
-
-### Prerequisites
-
-- Go 1.23.2 or later
-- GCC (C compiler for CGo)
-- `xxd` (hex dump utility)
-- `libasound2-dev` / `alsa-lib-devel`
-- `libcurl4-openssl-dev` / `libcurl-devel`
-
-**Ubuntu/Debian:**
 ```bash
-sudo apt-get install build-essential libasound2-dev libcurl4-openssl-dev xxd
+./jabridge update --check
 ```
 
-**Fedora/RHEL:**
+Install the latest app release:
+
 ```bash
-sudo dnf install gcc alsa-lib-devel libcurl-devel vim-common
+./jabridge update
 ```
 
-### Build
+Testers can include release candidates with `./jabridge update --prerelease`.
+The command verifies the release checksum and replaces both `jabridge` and
+`jafw`. It only updates these app files. It never updates a headset or dongle.
+
+## Bash completion
+
+Enable completion in the current Bash session without installing anything:
 
 ```bash
-# Extract libjabra.so from install.sh (first time only)
-make extract-lib
+source <(./jabridge completion bash)
+source <(./jafw completion bash)
+```
 
-# Build the binary
+The source installer, DEB, and RPM install the same completion files for future
+shell sessions.
+
+## How the TUI and service work
+
+There are three modes today:
+
+- `./jabridge` opens the terminal UI (TUI). It talks directly to the device.
+- `./jabridge --daemon` starts the background service. It also talks directly
+  to the device and gives other apps a local JSON-RPC socket.
+- `./jafw` is our separate firmware information tool.
+
+The TUI does **not** use the service yet. Run the TUI or the service, not both
+at the same time. The planned design is for the service to own the device and
+for the TUI to connect to the service.
+
+PipeWire is optional. The service uses it only to detect meetings and control
+automatic busylight behavior.
+
+## What works now
+
+- Finds supported Jabra USB devices and dongles.
+- Shows a clear dongle-only screen when no headset is connected.
+- Reads Link 380 firmware information.
+- Reads Link 380 auto-pairing state and saved pairing records.
+- Checks that a firmware file matches the attached device model.
+- Runs as a TUI or a local background service.
+- Builds as two static Linux programs.
+- Updates both app files with an explicit checksum-checked CLI command.
+- Includes Bash completion for both commands.
+- Tests firmware-update code with fake devices.
+
+## What still needs testing
+
+- Real headsets connected by USB or through a dongle.
+- Headset connect, disconnect, battery, and reconnect behavior.
+- Bluetooth pairing changes.
+- Device reset and busylight changes.
+- Interrupted firmware updates and recovery.
+- Firmware flashing on replaceable test hardware.
+
+No Jabra program, shared library, or firmware file is included in this project.
+
+## Safe firmware checks
+
+`jafw` is our own Go program. It is not an official Jabra tool. These
+commands do not flash a device:
+
+```bash
+./jafw version
+./jafw list
+./jafw check 24c7
+./jafw download 24c7 1.16.0 --out ./firmware
+./jafw detect ./firmware/Jabra_Link_380-v1.16.0-l380a-vector.zip
+./jafw manifest ./firmware/Jabra_Link_380-v1.16.0-l380a-vector.zip
+./jafw verify ./firmware/Jabra_Link_380-v1.16.0-l380a-vector.zip
+```
+
+`verify` checks that the firmware file and attached device have the same product
+ID. It does not install the firmware.
+
+Do not use `flash`, `all`, `bccmd-test`, pairing, reset, or busylight commands
+for community testing. Hardware writes are for controlled development only.
+
+## Build from source
+
+Only developers building the programs need Go 1.23.2 or newer:
+
+```bash
+make check
 make build
-
-# Run
-LD_LIBRARY_PATH=./lib ./jLink
 ```
 
-See the [Makefile](Makefile) for all available targets (`make help`).
+The compiled files are placed in `dist/bin/`:
 
-## Navigation
+- `dist/bin/jabridge` — TUI and background service
+- `dist/bin/jafw` — firmware information tool
 
-| Key             | Action                  |
-|------------------|-------------------------|
-| `w` or `↑`      | Move up                |
-| `s` or `↓`      | Move down              |
-| `Enter`         | Select an option       |
+## Help test Jabridge
 
-### Side Menu
+Read [HARDWARE_TESTING.md](HARDWARE_TESTING.md) and report your result in
+[hardware test issue #34](https://github.com/Watchdog0x/jabridge/issues/34).
+Never post a device serial number or Bluetooth address.
 
-| Key             | Action                  |
-|------------------|-------------------------|
-| `1`, `2`, `3`, `4` | Select an option      |
-| `q`             | Go back                |
+For code changes, read [CONTRIBUTING.md](CONTRIBUTING.md). Passing CI proves the
+software builds and its automated tests pass. It does not prove a hardware
+write is safe.
 
+Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
+## Independent project
 
-## Alternative: Build with setup-lib.sh
+Jabridge is an independent community project. It is not made, approved, or
+supported by GN Audio A/S. Jabra is a trademark of GN Audio A/S. Product names
+are used only to say which hardware may be compatible.
 
-The Jabra SDK shared library is not committed to git (`lib/` is local only). You can also use `setup-lib.sh` to set up the build environment:
-
-```bash
-./setup-lib.sh          # creates lib/libjabra.so (or copies from /usr/lib/jabra if you ran install.sh)
-go build -o jLink .
-./jLink
-```
-
-On Fedora, `setup-lib.sh` also downloads a compatible `libcurl.so.4` (Ubuntu build with `CURL_OPENSSL_4`) because Fedora's system libcurl does not match the embedded Jabra SDK. Requires `curl`, `zstd`, and `ar` (binutils).
-
-## Installation and Update
-
-<div align="center">
-  <img src="./src/install.png" alt="How jLink look" style="max-width: 100%; height: auto;">
-</div>
-
-### Option 1: RPM Package (Fedora/RHEL/CentOS)
-
-Download the latest `.rpm` from [GitHub Releases](https://github.com/Watchdog0x/jLink/releases) and install:
-```bash
-sudo dnf install ./jlink-*.rpm
-```
-
-### Option 2: DEB Package (Ubuntu/Debian)
-
-Download the latest `.deb` from [GitHub Releases](https://github.com/Watchdog0x/jLink/releases) and install:
-```bash
-sudo dpkg -i ./jlink_*.deb
-sudo apt-get install -f  # resolve dependencies if needed
-```
-
-### Option 3: Using `curl`
-Run the following command in your terminal:
-```bash
-curl -so- https://raw.githubusercontent.com/Watchdog0x/jLink/main/install.sh | sudo bash
-```
-
-### Option 4: Using `wget`
-Run the following command in your terminal:
-
-```bash
-wget -qO- https://raw.githubusercontent.com/Watchdog0x/jLink/main/install.sh | sudo bash
-```
-
-## Tested Devices:
-
-- jabra Link 380 with Jabra Evolve2 85
-
-## TODO
-
-    1. Code Cleanup: Improve the current codebase, which is in need of refactoring.
-    2.  Device Switching: Add support for switching between multiple connected devices.
-    3. ~~Headset Settings: Implement features for configuring advanced headset settings.~~ ✓ Done
-    4. Sound Control: Integrate with PipeWire for precise sound management.
-    5. Daemon Service: Create a background service using IPC shared memory for seamless operation
-
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on:
-
-- Development setup and prerequisites
-- Coding standards
-- Commit message conventions ([Conventional Commits](.github/COMMIT_CONVENTION.md))
-- Pull request process
-
-Quick ways to help:
-  - **Refactor and Clean Up**: Improve the existing codebase.
-  - **Implement New Features**: Tackle items from the TODO list.
-  - **Report Bugs**: [Open a bug report](https://github.com/Watchdog0x/jLink/issues/new?template=bug_report.yml).
-  - **Suggest Enhancements**: [Request a feature](https://github.com/Watchdog0x/jLink/issues/new?template=feature_request.yml).
-
-## Community
-
-- [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Security Policy](SECURITY.md)
-- [Changelog](CHANGELOG.md)
-
-
-## Keywords
-  - Jabra Direct Linux
-  - Jabra headset Linux support
-  - Jabra Linux command-line tool
-  - Manage Jabra devices on Linux
-  - Jabra Link 380 Linux
-  - Jabra Evolve2 85 Linux
-
+Jabridge source is licensed under Apache-2.0. Vendor SDKs, Device Connector,
+`jfwu`, and firmware stay under their own terms and are not redistributed here.

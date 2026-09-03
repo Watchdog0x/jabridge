@@ -4,20 +4,15 @@
 	dh $@
 
 override_dh_auto_build:
-	# Binary is pre-built and provided in dist/
-	@echo "Skipping build - using pre-built binary"
+	mkdir -p dist/bin
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/bin/jabridge .
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/bin/jafw ./cmd/jafw
 
 override_dh_auto_install:
-	install -Dm755 dist/jLink debian/jlink/usr/local/bin/jlink
-	install -Dm644 dist/libjabra.so debian/jlink/usr/lib/jabra/libjabra.so
-	ln -rs debian/jlink/usr/lib/jabra/libjabra.so debian/jlink/usr/lib/jabra/libjabra.so.1
-	install -dm755 debian/jlink/etc/udev/rules.d
-	echo 'ATTRS{idVendor}=="0b0e", MODE="0660", GROUP="users"' > debian/jlink/etc/udev/rules.d/99-jabra.rules
-	install -dm755 debian/jlink/etc/ld.so.conf.d
-	echo "/usr/lib/jabra" > debian/jlink/etc/ld.so.conf.d/jabra.conf
+	install -Dm755 dist/bin/jabridge debian/jabridge/usr/bin/jabridge
+	install -Dm755 dist/bin/jafw debian/jabridge/usr/bin/jafw
+	install -Dm644 internal/completion/jabridge.bash debian/jabridge/usr/share/bash-completion/completions/jabridge
+	install -Dm644 internal/completion/jafw.bash debian/jabridge/usr/share/bash-completion/completions/jafw
 
 override_dh_auto_test:
-	@echo "Skipping tests"
-
-override_dh_shlibdeps:
-	@echo "Skipping shlibdeps for pre-built binary"
+	CGO_ENABLED=0 go test ./...

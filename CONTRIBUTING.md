@@ -1,187 +1,65 @@
-# Contributing to jLink
+# Contributing to Jabridge
 
-Thank you for your interest in contributing to jLink! This guide will help you get started.
+Thank you for helping maintain Jabridge.
 
-## Table of Contents
+## Development setup
 
-- [Getting Started](#getting-started)
-- [Development Setup](#development-setup)
-- [Making Changes](#making-changes)
-- [Commit Messages](#commit-messages)
-- [Pull Request Process](#pull-request-process)
-- [Coding Standards](#coding-standards)
-- [Reporting Bugs](#reporting-bugs)
-- [Requesting Features](#requesting-features)
+Requirements:
 
-## Getting Started
+- Go 1.23.2 or newer
+- Linux for device-facing code
+- PipeWire tools for meeting-detection integration tests
 
-1. Fork the repository on GitHub
-2. Clone your fork locally:
-   ```bash
-   git clone https://github.com/<your-username>/jLink.git
-   cd jLink
-   ```
-3. Add the upstream remote:
-   ```bash
-   git remote add upstream https://github.com/Watchdog0x/jLink.git
-   ```
+    git clone https://github.com/<your-username>/jabridge.git
+    cd jabridge
+    git remote add upstream https://github.com/Watchdog0x/jabridge.git
+    make check
+    make build
 
-## Development Setup
+The project builds with CGO_ENABLED=0; no Jabra shared library is required.
 
-### Prerequisites
+The TUI and service currently open the device in separate modes. Do not run
+them together. The planned design makes the service the only device owner and
+the TUI a client of that service.
 
-- **Go** 1.23.2 or later
-- **GCC** (C compiler for CGo)
-- **xxd** (for extracting libjabra.so)
-- **libasound2-dev** / **alsa-lib-devel** (ALSA development headers)
-- **libcurl4-openssl-dev** / **libcurl-devel** (cURL development headers)
+## Pull requests
 
-### Installing Dependencies
+1. Create a focused branch from main.
+2. Add tests for changed behavior.
+3. Run make check and make build.
+4. Document the tested device model, VID:PID, connection type, and Linux
+   distribution.
+5. Distinguish unit/fake-transport results from real hardware results.
 
-**Ubuntu/Debian:**
-```bash
-sudo apt-get install build-essential libasound2-dev libcurl4-openssl-dev xxd
-```
+Do not commit firmware, vendor executables, shared libraries, device serial
+numbers, logs containing personal data, or credentials.
 
-**Fedora/RHEL:**
-```bash
-sudo dnf install gcc alsa-lib-devel libcurl-devel vim-common
-```
+Use [HARDWARE_TESTING.md](HARDWARE_TESTING.md) for safe, read-only device tests.
 
-**Arch Linux:**
-```bash
-sudo pacman -S base-devel alsa-lib curl xxd
-```
+## Hardware-write safety
 
-### Building
+GNP commands and firmware updates can leave hardware unusable. New device-write
+code must:
 
-```bash
-# Extract the Jabra SDK library (first time only)
-make extract-lib
+- fail closed unless its target device and firmware are identified exactly;
+- use a fake or replay transport in automated tests;
+- remain disabled by default until validated on replaceable hardware;
+- include recovery and interruption tests before release;
+- never infer support from a successful build alone.
 
-# Build the binary
-make build
+The explicit development opt-in is not a safety certification:
 
-# Or do both at once
-make
-```
+    export JABRIDGE_ENABLE_EXPERIMENTAL_WRITES=I_ACCEPT_THE_BRICK_RISK
+    export JAFW_ENABLE_HARDWARE_WRITES=I_ACCEPT_THE_BRICK_RISK
 
-### Running
+## Code style
 
-```bash
-# The binary needs libjabra.so in the library path
-LD_LIBRARY_PATH=./lib ./jLink
-```
+- Run gofmt.
+- Handle errors explicitly.
+- Keep transport, protocol, and UI concerns separate.
+- Preserve raw protocol captures as redacted test fixtures rather than device
+  identifiers or personal serial numbers.
+- Follow [Conventional Commits](.github/COMMIT_CONVENTION.md).
 
-### Linting and Formatting
-
-```bash
-# Run the linter
-make lint
-
-# Check code formatting
-make fmt
-
-# Run go vet
-make vet
-```
-
-## Making Changes
-
-1. Create a feature branch from `main`:
-   ```bash
-   git checkout main
-   git pull upstream main
-   git checkout -b feature/your-feature-name
-   ```
-
-2. Make your changes. Keep commits focused and atomic.
-
-3. Ensure your code builds and passes lint checks:
-   ```bash
-   make
-   make lint
-   make fmt
-   ```
-
-4. Push your branch:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-## Commit Messages
-
-We use [Conventional Commits](https://www.conventionalcommits.org/). See our [Commit Convention](.github/COMMIT_CONVENTION.md) for full details.
-
-**Quick reference:**
-```
-feat: add new feature
-fix: resolve a bug
-docs: update documentation
-ci: change CI configuration
-build: change build system
-refactor: restructure code without changing behavior
-```
-
-## Pull Request Process
-
-1. Update documentation if your changes affect user-facing behavior
-2. Ensure CI passes (lint, build)
-3. Fill in the [PR template](.github/PULL_REQUEST_TEMPLATE.md) completely
-4. Request review from maintainers
-5. Address review feedback with new commits (do not force-push during review)
-6. Once approved, a maintainer will merge your PR
-
-### PR Checklist
-
-- [ ] Branch is based on latest `main`
-- [ ] Code builds successfully (`make build`)
-- [ ] Linter passes (`make lint`)
-- [ ] Code is formatted (`make fmt`)
-- [ ] Commit messages follow conventional commits
-- [ ] Documentation is updated if needed
-
-## Coding Standards
-
-### Go Code
-
-- Follow standard Go conventions and idioms
-- Use `gofmt` for formatting (enforced by CI)
-- Keep functions focused and reasonably sized
-- Add comments for exported functions and complex logic
-- Handle errors explicitly; do not ignore them
-- Use meaningful variable and function names
-
-### CGo Code
-
-- All CGo interop is in `jabraApi.go`
-- Free C-allocated memory using the appropriate Jabra SDK free functions
-- Document unsafe pointer operations with comments explaining the cast
-
-### TUI Code
-
-- UI rendering logic is in `cmd.go`
-- Use ANSI escape codes consistently
-- Test UI changes with different terminal sizes
-
-## Reporting Bugs
-
-Use the [Bug Report template](https://github.com/Watchdog0x/jLink/issues/new?template=bug_report.yml) to report bugs. Please include:
-
-- Your jLink version
-- Your Linux distribution and kernel version
-- The Jabra device(s) you are using
-- Steps to reproduce the issue
-- Expected vs actual behavior
-
-## Requesting Features
-
-Use the [Feature Request template](https://github.com/Watchdog0x/jLink/issues/new?template=feature_request.yml) to suggest new features. Check the [TODO list](README.md#todo) for already planned features.
-
-## Code of Conduct
-
-This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
-
-## License
-
-By contributing to jLink, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+By contributing, you agree that your source contribution is licensed under
+[Apache-2.0](LICENSE).
