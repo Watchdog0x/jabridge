@@ -154,10 +154,11 @@ Simple service controls are:
 ./jabridge service stop
 ```
 
-The easy IPC commands and copy-paste examples are in
-[IPC.md](docs/IPC.md). Legacy direct CLI hardware commands temporarily pause
-the service and start it again when finished, so two processes never own the
-device at the same time.
+The easy IPC commands and copy-paste examples are in the
+[online IPC guide](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/IPC.md).
+The same `IPC.md` is available beside each new release archive. Legacy direct
+CLI hardware commands temporarily pause the service and start it again when
+finished, so two processes never own the device at the same time.
 
 ## What is tested
 

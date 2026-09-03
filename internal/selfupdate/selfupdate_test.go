@@ -173,6 +173,20 @@ func TestExtractBinariesRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestExtractBinariesAllowsIPCGuide(t *testing.T) {
+	archive := makeArchive(t, map[string][]byte{
+		"jabridge_1.0.0_linux_amd64/jabridge":    []byte("binary"),
+		"jabridge_1.0.0_linux_amd64/docs/IPC.md": []byte("guide"),
+	})
+	files, err := extractBinaries(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(files["jabridge"]) != "binary" {
+		t.Fatalf("extracted binary = %q", files["jabridge"])
+	}
+}
+
 func TestValidateELFAcceptsPIE(t *testing.T) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("ELF fixture uses the current Linux amd64 test binary")

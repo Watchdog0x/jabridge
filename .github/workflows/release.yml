@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v1.0.0-rc.6
+        description: Release tag, for example v1.0.0-rc.7
         required: true
         type: string
       prerelease:
@@ -62,14 +62,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           package="jabridge_${VERSION}_linux_amd64"
-          mkdir -p "release/$package/completions" "release/$package/system" "release/$package/docs"
+          mkdir -p "release/$package/completions" "release/$package/system"
           CGO_ENABLED=0 go build -trimpath \
             -ldflags="-s -w -X github.com/Watchdog0x/jabridge/internal/buildinfo.Version=${VERSION}" \
             -o "release/$package/jabridge" .
           test "$("release/$package/jabridge" --version)" = "Jabridge ${VERSION}"
           install -m 0644 README.md HARDWARE_TESTING.md CHANGELOG.md LICENSE "release/$package/"
           install -m 0644 internal/completion/jabridge.bash "release/$package/completions/"
-          install -m 0644 docs/IPC.md "release/$package/docs/"
           install -m 0644 dist/jabridge.service dist/70-jabridge.rules "release/$package/system/"
           tar --sort=name --owner=0 --group=0 --numeric-owner \
             --mtime="@$(git show -s --format=%ct HEAD)" \
@@ -106,10 +105,13 @@ jobs:
             existing_target=$(gh release view "$RELEASE_TAG" --json targetCommitish --jq .targetCommitish)
             archive_digest=$(gh release view "$RELEASE_TAG" --json assets \
               --jq ".assets[] | select(.name == \"$package.tar.gz\") | .digest")
+            guide_digest=$(gh release view "$RELEASE_TAG" --json assets \
+              --jq '.assets[] | select(.name == "IPC.md") | .digest')
             asset_count=$(gh release view "$RELEASE_TAG" --json assets \
-              --jq "[.assets[] | select(.name == \"$package.tar.gz\" or .name == \"$package.tar.gz.sha256\" or .name == \"$package.tar.gz.sig\")] | length")
+              --jq "[.assets[] | select(.name == \"$package.tar.gz\" or .name == \"$package.tar.gz.sha256\" or .name == \"$package.tar.gz.sig\" or .name == \"IPC.md\")] | length")
             expected_digest="sha256:$(sha256sum "release/$package.tar.gz" | cut -d' ' -f1)"
-            if [[ "$existing_target" == "$GITHUB_SHA" && "$archive_digest" == "$expected_digest" && "$asset_count" == "3" ]]; then
+            expected_guide_digest="sha256:$(sha256sum docs/IPC.md | cut -d' ' -f1)"
+            if [[ "$existing_target" == "$GITHUB_SHA" && "$archive_digest" == "$expected_digest" && "$guide_digest" == "$expected_guide_digest" && "$asset_count" == "4" ]]; then
               echo "Release already exists with the expected commit and signed assets: $RELEASE_TAG"
               exit 0
             fi
@@ -120,6 +122,7 @@ jobs:
             "release/$package.tar.gz"
             "release/$package.tar.gz.sha256"
             "release/$package.tar.gz.sig"
+            "docs/IPC.md"
             --target "$GITHUB_SHA"
             --title "Jabridge ${RELEASE_TAG#v}"
             --notes "Signed Jabridge application release. Hardware writes remain subject to the validation status documented in the repository.")

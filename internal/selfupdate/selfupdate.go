@@ -415,6 +415,7 @@ func extractBinaries(archive []byte) (map[string][]byte, error) {
 		"jabridge.bash":       true,
 		"jabridge.service":    true,
 		"70-jabridge.rules":   true,
+		"IPC.md":              true,
 	}
 	files := make(map[string][]byte, len(wanted))
 	reader := tar.NewReader(gz)
