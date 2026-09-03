@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -227,6 +228,18 @@ var (
 /*                             C CALLBACKS	                                */
 /****************************************************************************/
 
+// isAccessory returns true if the device name matches known non-headset
+// accessories that should not be treated as the primary headset.
+func isAccessory(name string) bool {
+	lower := strings.ToLower(name)
+	for _, pattern := range []string{"deskstand", "charger", "cradle", "busy light", "busylight"} {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 // Reminder: If you plan to use this function, make sure to update the `goWrapper.h` file accordingly.
 // //export firstScanForDevicesDone
 // func firstScanForDevicesDone() {
@@ -255,6 +268,14 @@ func deviceAttachedFunc(deviceInfo C.Jabra_DeviceInfo) {
 	}
 	goDeviceInfo.deviceEventsMask = getDeviceEventsMask(goDeviceInfo.deviceID)
 	goDeviceInfo.featureFlags = getSupportedFeature(goDeviceInfo.deviceID)
+
+	// Skip known non-headset accessories (deskstands, chargers, cradles)
+	// to prevent them from being assigned as the primary headset (#29)
+	if !goDeviceInfo.isDongle && isAccessory(goDeviceInfo.deviceName) {
+		fmt.Fprintf(os.Stderr, "Skipping accessory device: %s\n", goDeviceInfo.deviceName)
+		C.Jabra_FreeDeviceInfo(deviceInfo)
+		return
+	}
 
 	if !goDeviceInfo.isDongle {
 		battery, err := getBatteryStatus(goDeviceInfo.deviceID)
