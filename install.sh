@@ -79,7 +79,7 @@ check_dependencies() {
         fi
 
         case "$ID" in
-            ubuntu|debian)
+            ubuntu|debian|linuxmint)
                 dpkg -l | grep -qw "$lib"
                 return $?
                 ;;
@@ -108,7 +108,7 @@ check_dependencies() {
 
     for lib in libcurl4 libasound2; do
         case "$ID" in
-            ubuntu|debian)
+            ubuntu|debian|linuxmint)
                 pkg="$lib"
                 ;;
             fedora|centos|rhel)
@@ -154,7 +154,7 @@ installing_dependencies() {
 
     # Update package list based on the distribution
     case "$ID" in
-        ubuntu|debian)
+        ubuntu|debian|linuxmint)
             apt-get update
             package_manager="apt-get"
             install_cmd="install -y"
