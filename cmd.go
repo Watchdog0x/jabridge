@@ -32,6 +32,7 @@ var (
 
 	// screens size
 	width, height = 0, 0
+	boxDrawn      = false
 
 	// For Navigation
 	resetCurrentSelection = false
@@ -45,6 +46,20 @@ var (
 
 	selectedItemsSearchForNewDevices = -1
 	menuItemsSearchForNewDevices     = [2]string{"Q Back", "1 Connect"}
+
+	// Headset Settings state
+	//
+	// hsDisplay is the flat, scrollable list shown on screen. It is built
+	// from deviceSettings.items once per visit and reset to nil on exit so
+	// that re-entering always shows the freshest data.
+	hsDisplay   []hsDisplayItem
+	hsCurSel    int // cursor row in hsDisplay (skips header rows)
+	hsSaveFlash int // countdown frames to show "Saved!" banner
+	hsErrStr    string
+	// hsEditIdx >= 0 means we are in the value-picker sub-view for that
+	// hsDisplay row; hsEditOptSel is the highlighted option inside it.
+	hsEditIdx    int = -1
+	hsEditOptSel int
 )
 
 const (
@@ -53,6 +68,14 @@ const (
 	batteryWidth        = 10
 	lowBatteryThreshold = 20
 )
+
+// hsDisplayItem is one row in the headset-settings screen.
+// Group-name headers (isHeader == true) are rendered but not selectable.
+type hsDisplayItem struct {
+	isHeader bool
+	header   string // group name when isHeader
+	settIdx  int    // index into deviceSettings.items when !isHeader
+}
 
 func enableRawMode() (*unix.Termios, error) {
 
@@ -192,11 +215,71 @@ func startKeysPressedListener() {
 			case 'q': // Back To Start Menu
 				startMenuSelected = -1
 			}
+		// ############# Headset Settings ##################
+		case 5:
+			if hsEditIdx >= 0 && hsDisplay != nil && hsEditIdx < len(hsDisplay) {
+				// ---- value-picker sub-view ----
+				item := hsDisplay[hsEditIdx]
+				headset, hExists := deviceManager[selectedHeadset]
+				if !hExists || headset.deviceSettings == nil {
+					hsEditIdx = -1
+					break
+				}
+				s := headset.deviceSettings.items[item.settIdx]
+				switch key {
+				case 'w':
+					if hsEditOptSel > 0 {
+						hsEditOptSel--
+					}
+				case 's':
+					if hsEditOptSel < len(s.listKeyValue)-1 {
+						hsEditOptSel++
+					}
+				case '\r':
+					chosen := s.listKeyValue[hsEditOptSel].key
+					if writeErr := applySettingByte(headset.deviceID, &headset.deviceSettings, s.guid, uint8(chosen)); writeErr != nil {
+						hsErrStr = writeErr.Error()
+					} else {
+						hsErrStr = ""
+						hsSaveFlash = 24
+					}
+					hsDisplay = nil // rebuild display from fresh data next frame
+					hsEditIdx = -1
+				case 'q':
+					hsEditIdx = -1
+				}
+			} else {
+				// ---- main settings list ----
+				switch key {
+				case 'q':
+					hsDisplay = nil
+					hsCurSel = 0
+					hsErrStr = ""
+					hsEditIdx = -1
+					startMenuSelected = -1
+				case 'w':
+					hsMoveUp()
+				case 's':
+					hsMoveDown()
+				case '\r':
+					hsActivate()
+				}
+			}
 		}
 	}
 }
 
 func handleUpKey() {
+	if menuState == 5 {
+		if hsEditIdx >= 0 {
+			if hsEditOptSel > 0 {
+				hsEditOptSel--
+			}
+		} else {
+			hsMoveUp()
+		}
+		return
+	}
 	if currentSelection > 0 {
 		currentSelection--
 	}
@@ -218,6 +301,17 @@ func handleDownKey() {
 		if currentSelection < len(dongleSettignsMenu)-1 {
 			currentSelection++
 		}
+	case 5: // Headset Settings
+		if hsEditIdx >= 0 && hsDisplay != nil && hsEditIdx < len(hsDisplay) {
+			if headset, ok := deviceManager[selectedHeadset]; ok && headset.deviceSettings != nil {
+				s := headset.deviceSettings.items[hsDisplay[hsEditIdx].settIdx]
+				if hsEditOptSel < len(s.listKeyValue)-1 {
+					hsEditOptSel++
+				}
+			}
+		} else {
+			hsMoveDown()
+		}
 	}
 }
 
@@ -230,6 +324,14 @@ func clearScreen() {
 	fmt.Print("\033[H")  // Move the cursor to the top-left corner
 }
 
+func clearLine(row int) {
+	if row < 1 {
+		return
+	}
+	moveCursor(row, 1)
+	fmt.Print("\033[2K")
+}
+
 func getScreenSize() {
 	getWidth, getHeight, err := term.GetSize(1)
 	if err != nil {
@@ -239,6 +341,9 @@ func getScreenSize() {
 }
 
 func drawingBox() {
+	if boxDrawn {
+		return
+	}
 
 	calcHeight := height - 4
 	calcWidth := (width - 11) * 3
@@ -263,6 +368,7 @@ func drawingBox() {
 	moveCursor(calcHeight, 5)
 	fmt.Printf("%s%s%s", leftCornerBottom, horizontalLine[:(width-11)*3], rightCornerBottom)
 
+	boxDrawn = true
 }
 
 func header() {
@@ -320,8 +426,8 @@ func menu(width int) {
 		mid := (width - len(option.label)) / 2
 
 		if i == currentSelection {
-			moveCursor(5+i, mid-1)
-			fmt.Println("\033[42m", option.label, "\033[0m")
+			moveCursor(5+i, mid)
+			fmt.Printf("\033[42m%s\033[0m", option.label)
 		} else {
 			moveCursor(5+i, mid)
 			fmt.Println(option.label)
@@ -363,7 +469,7 @@ func menuSearchForNewDevices() {
 			moveCursor(4+i, 10)
 			device := fmt.Sprintf("%d %s", i+1, pairedDevice.deviceName)
 			if i == currentSelection {
-				fmt.Println("\033[42m", device, "\033[0m")
+				fmt.Printf("\033[42m%s\033[0m", device)
 			} else {
 				fmt.Println(device)
 			}
@@ -375,13 +481,13 @@ func menuSearchForNewDevices() {
 		moveCursor(height-3, 7+calcWidth)
 
 		if i == selectedItemsSearchForNewDevices {
-			fmt.Println("\033[44m", item, "\033[0m")
+			fmt.Printf("\033[44m%s\033[0m", item)
 			go func() { // selected animation
 				time.Sleep(time.Millisecond * 200)
 				selectedItemsSearchForNewDevices = -1
 			}()
 		} else {
-			fmt.Println("\033[42m", item, "\033[0m")
+			fmt.Printf("\033[42m%s\033[0m", item)
 		}
 		calcWidth += len(item) + 3 // Add the item's width plus a space for separation
 	}
@@ -404,7 +510,7 @@ func menuPairedDevices() {
 				device += " (Connected)"
 			}
 			if i == currentSelection {
-				fmt.Println("\033[42m", device, "\033[0m")
+				fmt.Printf("\033[42m%s\033[0m", device)
 			} else {
 				fmt.Println(device)
 			}
@@ -415,13 +521,13 @@ func menuPairedDevices() {
 			moveCursor(height-3, 7+calcWidth)
 
 			if i == selectedItemsPairedDevices {
-				fmt.Println("\033[44m", item, "\033[0m")
+				fmt.Printf("\033[44m%s\033[0m", item)
 				go func() { // selected animation
 					time.Sleep(time.Millisecond * 200)
 					selectedItemsPairedDevices = -1
 				}()
 			} else {
-				fmt.Println("\033[42m", item, "\033[0m")
+				fmt.Printf("\033[42m%s\033[0m", item)
 			}
 			calcWidth += len(item) + 3 // Add the item's width plus a space for separation
 		}
@@ -442,8 +548,8 @@ func dongleSettigns() {
 	for i, item := range dongleSettignsMenu {
 
 		if i == currentSelection {
-			moveCursor(4+i, 9)
-			fmt.Println("\033[42m", item.label, "\033[0m")
+			moveCursor(4+i, 10)
+			fmt.Printf("\033[42m%s\033[0m", item.label)
 		} else {
 			moveCursor(4+i, 10)
 			fmt.Println(item.label)
@@ -451,7 +557,7 @@ func dongleSettigns() {
 	}
 
 	moveCursor(height-3, 7)
-	fmt.Println("\033[42m", "Q Back", "\033[0m")
+	fmt.Print("\033[42mQ Back\033[0m")
 }
 
 func startUi() {
@@ -460,13 +566,24 @@ func startUi() {
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	}()
 
+	lastWidth, lastHeight := -1, -1
+	lastStartMenuSelected := -2
+	lastHsEditIdx := -2
 	for {
 		select {
 		case <-sigChan:
 			return
 		default:
-			clearScreen()
 			getScreenSize()
+			if width != lastWidth || height != lastHeight || startMenuSelected != lastStartMenuSelected || hsEditIdx != lastHsEditIdx {
+				clearScreen()
+				boxDrawn = false
+				lastWidth, lastHeight = width, height
+				lastStartMenuSelected = startMenuSelected
+				lastHsEditIdx = hsEditIdx
+			}
+
+			clearLine(2)
 			header()
 
 			if startMenuSelected != -1 {
@@ -485,7 +602,8 @@ func startUi() {
 					fmt.Println("Switch Device")
 					menuState = 4
 				case 4: // HeadSet Settings
-					fmt.Println("HeadSet Settings")
+					menuState = 5
+					headsetSettingsScreen()
 				case 5: // Exit
 					return
 				}
@@ -497,4 +615,253 @@ func startUi() {
 			time.Sleep(time.Second / 12) // 12 Fps
 		}
 	}
+}
+
+// hsBuildDisplay constructs (or rebuilds) hsDisplay from the headset's
+// cached deviceSettings. Items are grouped by groupName; group-name headers
+// are interleaved as non-selectable rows. Non-interactive types (labels,
+// rulers, plain buttons) are omitted entirely.
+func hsBuildDisplay() {
+	hsDisplay = nil
+	headset, ok := deviceManager[selectedHeadset]
+	if !ok || headset.deviceSettings == nil {
+		return
+	}
+
+	var lastGroup string
+	for i, s := range headset.deviceSettings.items {
+		switch s.cntrlType {
+		case cntrlLabel, cntrlHorzRuler, cntrlButton, cntrlEditButton:
+			continue
+		}
+		if s.groupName != "" && s.groupName != lastGroup {
+			hsDisplay = append(hsDisplay, hsDisplayItem{isHeader: true, header: s.groupName})
+			lastGroup = s.groupName
+		}
+		hsDisplay = append(hsDisplay, hsDisplayItem{settIdx: i})
+	}
+}
+
+// hsMoveUp moves the cursor up, skipping group-header rows.
+func hsMoveUp() {
+	for pos := hsCurSel - 1; pos >= 0; pos-- {
+		if !hsDisplay[pos].isHeader {
+			hsCurSel = pos
+			return
+		}
+	}
+}
+
+// hsMoveDown moves the cursor down, skipping group-header rows.
+func hsMoveDown() {
+	for pos := hsCurSel + 1; pos < len(hsDisplay); pos++ {
+		if !hsDisplay[pos].isHeader {
+			hsCurSel = pos
+			return
+		}
+	}
+}
+
+// hsActivate handles Enter on the currently highlighted setting.
+func hsActivate() {
+	if hsCurSel < 0 || hsCurSel >= len(hsDisplay) {
+		return
+	}
+	item := hsDisplay[hsCurSel]
+	if item.isHeader {
+		return
+	}
+
+	headset, ok := deviceManager[selectedHeadset]
+	if !ok || headset.deviceSettings == nil {
+		return
+	}
+	s := headset.deviceSettings.items[item.settIdx]
+
+	if s.isProtected && s.isProtectionEnabled {
+		return // greyed out — skip silently
+	}
+
+	switch s.cntrlType {
+	case cntrlToggle:
+		// Pick the "other" valid key. Some Jabra toggles don't use {0, 1};
+		// the device-side keys come from the manifest (e.g. {0, 2}).
+		var newVal uint8
+		if len(s.listKeyValue) >= 2 {
+			found := false
+			for _, o := range s.listKeyValue {
+				if uint16(s.currByte) != o.key {
+					newVal = uint8(o.key)
+					found = true
+					break
+				}
+			}
+			if !found {
+				newVal = uint8(s.listKeyValue[0].key)
+			}
+		} else {
+			newVal = 1
+			if s.currByte != 0 {
+				newVal = 0
+			}
+		}
+		if writeErr := applySettingByte(headset.deviceID, &headset.deviceSettings, s.guid, newVal); writeErr != nil {
+			hsErrStr = writeErr.Error()
+		} else {
+			hsErrStr = ""
+			hsSaveFlash = 24
+		}
+		hsDisplay = nil // rebuild on next frame
+
+	case cntrlRadio, cntrlDrpDown, cntrlComboBox:
+		if len(s.listKeyValue) == 0 {
+			return
+		}
+		hsEditIdx = hsCurSel
+		hsEditOptSel = 0
+		for i, o := range s.listKeyValue {
+			if o.key == uint16(s.currByte) {
+				hsEditOptSel = i
+				break
+			}
+		}
+	}
+}
+
+// headsetSettingsScreen is the top-level render call for menuState == 5.
+func headsetSettingsScreen() {
+	// Build the display list on first visit or after a write.
+	if hsDisplay == nil {
+		hsBuildDisplay()
+		// Move cursor to first selectable row.
+		hsCurSel = 0
+		for hsCurSel < len(hsDisplay) && hsDisplay[hsCurSel].isHeader {
+			hsCurSel++
+		}
+		hsEditIdx = -1
+	}
+
+	drawingBox()
+
+	headset, hExists := deviceManager[selectedHeadset]
+	if !hExists || headset.deviceSettings == nil {
+		moveCursor(5, 8)
+		fmt.Print("\033[31mNo headset connected or settings unavailable.\033[0m")
+		moveCursor(height-3, 7)
+		fmt.Print("\033[42m Q Back \033[0m")
+		return
+	}
+
+	if hsErrStr != "" {
+		moveCursor(height-5, 8)
+		maxW := width - 16
+		msg := hsErrStr
+		if maxW > 0 && len(msg) > maxW {
+			msg = msg[:maxW] + "…"
+		}
+		fmt.Printf("\033[31mError: %s\033[0m", msg)
+	}
+	if hsSaveFlash > 0 {
+		hsSaveFlash--
+		moveCursor(height-5, 8)
+		fmt.Print("\033[42m Saved! \033[0m")
+	}
+
+	if hsEditIdx >= 0 && hsEditIdx < len(hsDisplay) {
+		// ---- value-picker sub-view ----
+		editItem := hsDisplay[hsEditIdx]
+		s := headset.deviceSettings.items[editItem.settIdx]
+
+		moveCursor(4, 8)
+		fmt.Printf("Setting: \033[1m%s\033[0m", s.name)
+		if s.helpText != "" && s.helpText != s.name {
+			moveCursor(5, 8)
+			help := s.helpText
+			maxW := width - 16
+			if maxW > 0 && len(help) > maxW {
+				help = help[:maxW] + "…"
+			}
+			fmt.Printf("\033[2m%s\033[0m", help)
+		}
+
+		for i, opt := range s.listKeyValue {
+			moveCursor(7+i, 10)
+			marker := "  "
+			if opt.key == uint16(s.currByte) {
+				marker = "✓ "
+			}
+			line := fmt.Sprintf("%s%s", marker, opt.value)
+			if i == hsEditOptSel {
+				fmt.Printf("\033[42m %s \033[0m", line)
+			} else {
+				fmt.Printf(" %s ", line)
+			}
+		}
+
+		moveCursor(height-3, 7)
+		fmt.Print("\033[42m Q Back \033[0m  \033[42m Enter Select \033[0m")
+		return
+	}
+
+	// ---- main settings list ----
+	innerRows := height - 7
+	if innerRows < 1 {
+		innerRows = 1
+	}
+
+	scrollOffset := 0
+	if hsCurSel >= innerRows {
+		scrollOffset = hsCurSel - innerRows + 1
+	}
+
+	nameMax := width - 32
+	if nameMax < 10 {
+		nameMax = 10
+	}
+
+	for i, item := range hsDisplay {
+		visRow := i - scrollOffset
+		if visRow < 0 || visRow >= innerRows {
+			continue
+		}
+		moveCursor(4+visRow, 8)
+
+		if item.isHeader {
+			// Group header: bold, dimmed, not selectable.
+			grp := item.header
+			if len(grp) > nameMax+20 {
+				grp = grp[:nameMax+19] + "…"
+			}
+			fmt.Printf(" \033[1;2m── %s ──\033[0m", grp)
+			continue
+		}
+
+		s := headset.deviceSettings.items[item.settIdx]
+		name := s.name
+		if len(name) > nameMax {
+			name = name[:nameMax-1] + "…"
+		}
+
+		suffix := ""
+		if s.isDeviceRestart {
+			suffix += " (reboot required)"
+		}
+		valLabel := settingValueLabel(s)
+
+		var line string
+		if s.isProtected && s.isProtectionEnabled {
+			line = fmt.Sprintf("\033[2m%-*s  %s 🔒%s\033[0m", nameMax, name, valLabel, suffix)
+		} else {
+			line = fmt.Sprintf("%-*s  %s%s", nameMax, name, valLabel, suffix)
+		}
+
+		if i == hsCurSel {
+			fmt.Printf("\033[42m %s \033[0m", line)
+		} else {
+			fmt.Printf(" %s ", line)
+		}
+	}
+
+	moveCursor(height-3, 7)
+	fmt.Print("\033[42m Q Back \033[0m  \033[42m Enter Edit \033[0m  \033[42m W/S Navigate \033[0m")
 }
