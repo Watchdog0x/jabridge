@@ -1,4 +1,4 @@
-# jLink: Jabra Direct for Linux
+# jabridge: Jabra Direct for Linux
 
 [![GitHub Release](https://img.shields.io/github/v/release/Watchdog0x/jLink)](https://github.com/Watchdog0x/jLink/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/Watchdog0x/jLink/blob/main/LICENSE)
