@@ -132,7 +132,7 @@ func runBattery() error {
 
 func formatBatteryLine(deviceName string, battery *batteryStatus) string {
 	if battery == nil || battery.levelInPercent > 100 {
-		return fmt.Sprintf("%s: No battery reported", deviceName)
+		return "Battery: unavailable"
 	}
 	if len(battery.components) > 1 {
 		parts := make([]string, 0, len(battery.components))

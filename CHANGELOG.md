@@ -72,6 +72,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Added strict IPC parameter validation, idle timeouts, and connection limits.
 - Added controller firmware probing for supported headset/controller pairs.
 - Added value-aware Bash completion for every implemented setting.
+- Hid unavailable battery text from the TUI for wired headsets without a
+  battery; the explicit battery command reports only `Battery: unavailable`.
 - Restricted daemon socket and PID files to the current user and rejected
   unsafe filesystem paths.
 - Accepted both standard ELF executables and PIE binaries during app updates.

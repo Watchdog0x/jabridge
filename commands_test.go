@@ -15,8 +15,8 @@ func TestFormatBatteryLine(t *testing.T) {
 	}{
 		{"valid", &batteryStatus{levelInPercent: 48}, "Headset: 48%"},
 		{"charging", &batteryStatus{levelInPercent: 73, charging: true}, "Headset: 73% (charging)"},
-		{"missing", nil, "Headset: No battery reported"},
-		{"invalid", &batteryStatus{levelInPercent: 230}, "Headset: No battery reported"},
+		{"missing", nil, "Battery: unavailable"},
+		{"invalid", &batteryStatus{levelInPercent: 230}, "Battery: unavailable"},
 		{
 			"components",
 			&batteryStatus{components: []batteryComponentStatus{

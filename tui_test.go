@@ -257,6 +257,23 @@ func TestSelectionHighlightStaysInsidePanel(t *testing.T) {
 	}
 }
 
+func TestHeaderHidesUnavailableBattery(t *testing.T) {
+	withMenuState(t)
+	withDeviceState(t, devices{
+		2: {deviceID: 2, deviceName: "Engage 50 II", batteryStatus: nil},
+	}, 2, -1)
+	f := newRenderTarget(t, 80, 24)
+	left, right, _ := panelBounds()
+	drawHeadsetStatus(left, right)
+	row := rowText(f, 2)
+	if !strings.Contains(row, "Headset: Engage 50 II") {
+		t.Fatalf("header is missing the headset name: %q", row)
+	}
+	if strings.Contains(strings.ToLower(row), "battery") || strings.Contains(strings.ToLower(row), "unavailable") {
+		t.Fatalf("header showed a missing battery: %q", row)
+	}
+}
+
 func TestFrameRenderAvoidsScreenClear(t *testing.T) {
 	f := newFrame(20, 3)
 	f.setText(1, 1, "hello", styleText)

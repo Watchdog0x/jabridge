@@ -1092,7 +1092,7 @@ func drawHeadsetStatus(left, right int) {
 	}
 
 	if headset.batteryStatus == nil || headset.batteryStatus.levelInPercent > 100 {
-		label := fmt.Sprintf("Headset: %s  No battery reported", headset.deviceName)
+		label := fmt.Sprintf("Headset: %s", headset.deviceName)
 		screen.setText(2, max(left, right-displayWidth(label)), label, styleText)
 		return
 	}

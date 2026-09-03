@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC4.
+Thank you for testing Jabridge 1.0.0 RC5.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -15,15 +15,15 @@ change your hardware.
 - Do not run `jabridge firmware install` or a firmware `dev` command.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC4
+## Download RC5
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.4 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.4).
+[v1.0.0-rc.5 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.5).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.4_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.4_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.4_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.5_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.5_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.5_linux_amd64
 ./jabridge --version
 ```
 
@@ -99,7 +99,7 @@ current setting reads. Controlled tests changed and restored each of its five
 settings with read-back verification.
 
 An Engage 50 II with its Link controller was detected by RC3 and its firmware
-download completed, but missing `hidraw` permission blocked device reads. RC4
+download completed, but missing `hidraw` permission blocked device reads. RC5
 adds clearer permission help and controller firmware probing. That headset
 still needs a normal-user retest after installing the udev rule.
 
