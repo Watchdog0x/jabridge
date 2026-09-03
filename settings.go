@@ -40,6 +40,16 @@ type boolSettingValue struct {
 type deviceSettingValue struct {
 	Boolean *boolSettingValue
 	Choice  *choiceSettingValue
+	Remote  *remoteSettingValue
+}
+
+type remoteSettingValue struct {
+	Device   string
+	Key      string
+	Label    string
+	Value    string
+	Editable bool
+	Choices  []string
 }
 
 func (setting deviceSettingValue) key() string {
@@ -48,6 +58,9 @@ func (setting deviceSettingValue) key() string {
 	}
 	if setting.Choice != nil {
 		return setting.Choice.Definition.Key
+	}
+	if setting.Remote != nil {
+		return setting.Remote.Key
 	}
 	return ""
 }
@@ -59,6 +72,9 @@ func (setting deviceSettingValue) label() string {
 	if setting.Choice != nil {
 		return setting.Choice.Definition.Label
 	}
+	if setting.Remote != nil {
+		return setting.Remote.Label
+	}
 	return "Unknown setting"
 }
 
@@ -69,6 +85,9 @@ func (setting deviceSettingValue) valueName() string {
 	if setting.Choice != nil {
 		return choiceSettingName(*setting.Choice)
 	}
+	if setting.Remote != nil {
+		return setting.Remote.Value
+	}
 	return "Unknown"
 }
 
@@ -76,7 +95,10 @@ func (setting deviceSettingValue) editable() bool {
 	if setting.Boolean != nil {
 		return setting.Boolean.Editable
 	}
-	return setting.Choice != nil && setting.Choice.Editable
+	if setting.Choice != nil {
+		return setting.Choice.Editable
+	}
+	return setting.Remote != nil && setting.Remote.Editable
 }
 
 func (setting deviceSettingValue) needsConfigMode() bool {
@@ -96,6 +118,17 @@ func (setting deviceSettingValue) nextValueName() (string, error) {
 			return "", err
 		}
 		return setting.Choice.Definition.Choices[index].Name, nil
+	}
+	if setting.Remote != nil {
+		if len(setting.Remote.Choices) == 0 {
+			return "", fmt.Errorf("setting %s has no choices", setting.Remote.Key)
+		}
+		for index, choice := range setting.Remote.Choices {
+			if strings.EqualFold(choice, setting.Remote.Value) {
+				return setting.Remote.Choices[(index+1)%len(setting.Remote.Choices)], nil
+			}
+		}
+		return setting.Remote.Choices[0], nil
 	}
 	return "", errors.New("invalid setting")
 }

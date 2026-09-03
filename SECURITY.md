@@ -39,8 +39,9 @@ remains under the separate hardware-validation rules below.
 
 Protocol writes and firmware updates can make hardware unusable. A passing unit
 test, CI build, or simulated transport does not establish hardware safety.
-Firmware writes remain disabled by default. Link 380 setting writes are limited
-to the settings that passed a change-and-read-back test. Destructive reset and
+Firmware writes require the exact `--i-accept-brick-risk` option. This is an
+acknowledgement, not a safety guarantee. Link 380 setting writes are limited to
+the settings that passed a change-and-read-back test. Destructive reset and
 forget actions require a second confirmation. Headset settings, pairing writes,
 factory reset, and firmware flashing are not release-qualified until they pass
 independent tests on replaceable devices.

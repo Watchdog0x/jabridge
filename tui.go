@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	firmwaretool "github.com/Watchdog0x/jabridge/internal/firmware"
 	"golang.org/x/sys/unix"
@@ -82,13 +83,14 @@ var (
 	selectedItemsSearchForNewDevices = -1
 	menuItemsSearchForNewDevices     = [2]string{"Q Back", "1 Connect"}
 
+	statusMu           sync.RWMutex
 	statusMessage      string
 	statusIsError      bool
 	statusUntil        time.Time
 	flashUntil         time.Time
 	resetConfirmUntil  time.Time
 	forgetConfirmUntil time.Time
-	forgetConfirmAddr  [6]byte
+	forgetConfirmKey   string
 
 	nextSearchRefresh      time.Time
 	uiRevision             atomic.Uint64
@@ -280,12 +282,15 @@ func handleBackKey(results chan<- actionResult) bool {
 	case screenSearch:
 		returnToStartMenu()
 		runUIAction(results, "Pairing stopped", func() error {
+			if currentTUIBackend() != nil {
+				return runIPCAction("bt.pair", map[string]bool{"enable": false})
+			}
 			return setDongleInBTPairing(false)
 		})
 	case screenPairedDevices, screenDongleSettings, screenHeadsetSettings, screenSwitchDevice, screenFirmware:
 		resetConfirmUntil = time.Time{}
 		forgetConfirmUntil = time.Time{}
-		forgetConfirmAddr = [6]byte{}
+		forgetConfirmKey = ""
 		switchDeviceSelectionID = -1
 		returnToStartMenu()
 	}
@@ -312,7 +317,14 @@ func handleEnterKey(results chan<- actionResult) bool {
 			setStatus("No connected device selected", true)
 			return false
 		}
-		name, err := selectRegistryDevice(switchDeviceItems[currentSelection].RegistryID)
+		registryID := switchDeviceItems[currentSelection].RegistryID
+		if currentTUIBackend() != nil {
+			if err := runIPCAction("device.select", map[string]uint16{"id": uint16(registryID)}); err != nil {
+				setStatus(err.Error(), true)
+				return false
+			}
+		}
+		name, err := selectRegistryDevice(registryID)
 		if err != nil {
 			setStatus(err.Error(), true)
 			return false
@@ -337,7 +349,12 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 		menuState = screenSearch
 		clearSearchResults()
 		setStatus("Searching for devices...", false)
-		runUIAction(results, "Device search started", searchForNewDevices)
+		runUIAction(results, "Device search started", func() error {
+			if currentTUIBackend() != nil {
+				return runIPCAction("bt.search", nil)
+			}
+			return searchForNewDevices()
+		})
 	case 1:
 		menuState = screenPairedDevices
 	case 2:
@@ -376,6 +393,9 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 		selection := currentSelection
 		setStatus("Connecting searched device...", false)
 		runUIAction(results, "Device connect command sent", func() error {
+			if currentTUIBackend() != nil {
+				return runIPCAction("bt.search.connect", map[string]int{"index": selection})
+			}
 			return connectNewDevice(uint16(selection))
 		}, withReturnToMainMenu())
 	case screenPairedDevices:
@@ -423,40 +443,50 @@ func handleRememberedDeviceAction(event keyEvent, results chan<- actionResult) {
 	switch event {
 	case keyAction1:
 		forgetConfirmUntil = time.Time{}
-		forgetConfirmAddr = [6]byte{}
+		forgetConfirmKey = ""
 		selection := currentSelection
 		if device.isConnected {
 			setStatus("Disconnecting "+device.deviceName+"...", false)
 			runUIAction(results, device.deviceName+" disconnected", func() error {
+				if currentTUIBackend() != nil {
+					return runIPCAction("bt.disconnect", map[string]int{"index": selection})
+				}
 				return disconnectRememberedDevice(selection)
 			})
 			return
 		}
 		setStatus("Connecting "+device.deviceName+"...", false)
 		runUIAction(results, device.deviceName+" connected", func() error {
+			if currentTUIBackend() != nil {
+				return runIPCAction("bt.connect", map[string]int{"index": selection})
+			}
 			return connectRememberedDevice(selection)
 		})
 	case keyAction2:
-		if !confirmForgetRememberedDevice(time.Now(), device.deviceBTAddr) {
+		confirmationKey := fmt.Sprintf("%d:%s", currentSelection, device.deviceName)
+		if !confirmForgetRememberedDevice(time.Now(), confirmationKey) {
 			setStatus("WARNING: press 2 again within 10 seconds to forget "+device.deviceName, true)
 			return
 		}
 		selection := currentSelection
 		setStatus("Forgetting "+device.deviceName+"...", false)
 		runUIAction(results, device.deviceName+" removed from remembered devices", func() error {
+			if currentTUIBackend() != nil {
+				return runIPCAction("bt.forget", map[string]int{"index": selection})
+			}
 			return forgetRememberedDevice(selection)
 		})
 	}
 }
 
-func confirmForgetRememberedDevice(now time.Time, address [6]byte) bool {
-	if address != [6]byte{} && address == forgetConfirmAddr &&
+func confirmForgetRememberedDevice(now time.Time, key string) bool {
+	if key != "" && key == forgetConfirmKey &&
 		!forgetConfirmUntil.IsZero() && !now.After(forgetConfirmUntil) {
 		forgetConfirmUntil = time.Time{}
-		forgetConfirmAddr = [6]byte{}
+		forgetConfirmKey = ""
 		return true
 	}
-	forgetConfirmAddr = address
+	forgetConfirmKey = key
 	forgetConfirmUntil = now.Add(factoryResetConfirmWindow)
 	requestUIRedraw()
 	return false
@@ -484,6 +514,9 @@ func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
 		deviceID := dongle.deviceID
 		setStatus("Sending factory-reset command...", false)
 		runUIAction(results, "Factory-reset command accepted; waiting for dongle reconnect", func() error {
+			if currentTUIBackend() != nil {
+				return runIPCAction("device.reset", map[string]string{"confirm": "ERASE_REMEMBERED_HEADSETS"})
+			}
 			return factoryResetConfirmed(deviceID)
 		})
 	}
@@ -533,6 +566,9 @@ func toggleSelectedSetting(scope settingScope, results chan<- actionResult) {
 	}
 	setStatus(fmt.Sprintf("Changing %s to %s...", setting.label(), wanted), false)
 	runUIAction(results, fmt.Sprintf("%s is now %s", setting.label(), wanted), func() error {
+		if setting.Remote != nil {
+			return setIPCSetting(setting, wanted)
+		}
 		return writeNextDeviceSetting(device, setting)
 	}, withSettingsRefresh(scope))
 }
@@ -640,7 +676,7 @@ func refreshFirmwareView(results chan<- actionResult) {
 	requestUIRedraw()
 
 	runUIAction(results, "Firmware information ready", func() error {
-		current, currentErr := readFirmwareVersion(&device)
+		current, currentErr := firmwareVersionForTUI(&device)
 		latest, latestErr := firmwaretool.LatestForPID(device.productID)
 
 		firmwareViewMu.Lock()
@@ -1196,11 +1232,23 @@ func refreshSearchDeviceList() {
 	}
 	nextSearchRefresh = time.Now().Add(time.Second)
 
-	dongle, exists := selectedDongleSnapshot()
-	if !exists {
-		return
+	var update *pairingList
+	if currentTUIBackend() != nil {
+		var results []ipc.PairedDeviceInfo
+		if err := tuiIPCCall("bt.search.results", nil, &results); err != nil {
+			return
+		}
+		update = &pairingList{count: uint16(len(results)), listType: searchResult}
+		for _, result := range results {
+			update.pairedDevices = append(update.pairedDevices, pairedDevice{deviceName: result.Name, isConnected: result.Connected})
+		}
+	} else {
+		dongle, exists := selectedDongleSnapshot()
+		if !exists {
+			return
+		}
+		update = getSearchDeviceList(dongle.deviceID)
 	}
-	update := getSearchDeviceList(dongle.deviceID)
 	if update == nil {
 		return
 	}
@@ -1388,7 +1436,7 @@ func renderFirmware() {
 	row := 8
 	installed := valueOrUnknown(view.currentVersion)
 	if view.currentVersion == "" && strings.Contains(strings.ToLower(view.currentError), "permission denied") {
-		installed = "Permission denied (install included udev rule)"
+		installed = "Setup needed: run jabridge setup"
 	}
 	lines := []string{
 		fmt.Sprintf("Target:             %d of %d", firmwareTargetIndex+1, max(1, len(firmwareTargetItems))),
@@ -1418,7 +1466,7 @@ func renderFirmware() {
 	if view.currentVersion != "" && view.currentVersion == view.latestVersion {
 		actions = append(actions, "Already up to date")
 	} else {
-		actions = append(actions, "Install test: issue #36")
+		actions = append(actions, "Install: experimental CLI")
 	}
 	drawSplitActionBar([]string{"Q Back"}, actions)
 }
@@ -1430,7 +1478,7 @@ func firmwareInstallStatus(view firmwareViewState) string {
 	case view.downloadedPath == "":
 		return "Install:            Download the update first"
 	default:
-		return "Install:            Recovery test required (issue #36)"
+		return "Install:            Experimental CLI; device damage is possible"
 	}
 }
 
@@ -1441,7 +1489,7 @@ func firmwareActionHint() string {
 	if view.currentVersion != "" && view.currentVersion == view.latestVersion {
 		return "Firmware is already up to date; press 1 only to download a copy"
 	}
-	return "Press 1 to download; installation testing is tracked in issue #36"
+	return "Press 1 to download; experimental installation is available in the CLI"
 }
 
 func valueOrUnknown(value string) string {
@@ -1582,7 +1630,12 @@ func drawActionItems(row, col int, items []string) {
 }
 
 func renderStatus() {
-	if statusMessage == "" || time.Now().After(statusUntil) || height < 8 {
+	statusMu.RLock()
+	messageText := statusMessage
+	isError := statusIsError
+	expires := statusUntil
+	statusMu.RUnlock()
+	if messageText == "" || time.Now().After(expires) || height < 8 {
 		return
 	}
 
@@ -1592,8 +1645,8 @@ func renderStatus() {
 		row = height
 	}
 	col := left + 2
-	message := trimToWidth(statusMessage, max(1, right-col-2))
-	if statusIsError {
+	message := trimToWidth(messageText, max(1, right-col-2))
+	if isError {
 		screen.setText(row, col, " "+message+" ", styleAlert)
 		return
 	}
@@ -1601,9 +1654,11 @@ func renderStatus() {
 }
 
 func setStatus(message string, isError bool) {
+	statusMu.Lock()
 	statusMessage = message
 	statusIsError = isError
 	statusUntil = time.Now().Add(4 * time.Second)
+	statusMu.Unlock()
 	requestUIRedraw()
 }
 
@@ -1637,11 +1692,13 @@ func resetExpiredForgetConfirmation() {
 		return
 	}
 	forgetConfirmUntil = time.Time{}
-	forgetConfirmAddr = [6]byte{}
+	forgetConfirmKey = ""
 	requestUIRedraw()
 }
 
 func clearExpiredStatus() {
+	statusMu.Lock()
+	defer statusMu.Unlock()
 	if statusMessage == "" || time.Now().Before(statusUntil) {
 		return
 	}

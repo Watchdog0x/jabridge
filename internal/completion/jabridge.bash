@@ -4,7 +4,7 @@ _jabridge_completion() {
     COMPREPLY=()
 
     if (( COMP_CWORD == 1 )); then
-        mapfile -t COMPREPLY < <(compgen -W 'status battery settings model sound firmware update completion daemon --version --help' -- "$current")
+        mapfile -t COMPREPLY < <(compgen -W 'status battery settings model sound firmware update setup service ipc completion daemon --version --help' -- "$current")
         return
     fi
 
@@ -14,6 +14,50 @@ _jabridge_completion() {
             ;;
         completion)
             mapfile -t COMPREPLY < <(compgen -W 'bash' -- "$current")
+            ;;
+        ipc)
+            if (( COMP_CWORD == 2 )); then
+                mapfile -t COMPREPLY < <(compgen -W 'ping devices battery settings set select watch --help' -- "$current")
+                return
+            fi
+            if [[ ("${COMP_WORDS[2]}" == "settings" || "${COMP_WORDS[2]}" == "set") && $COMP_CWORD -eq 3 ]]; then
+                mapfile -t COMPREPLY < <(compgen -W 'dongle headset' -- "$current")
+                return
+            fi
+            if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 4 ]]; then
+                if [[ "${COMP_WORDS[3]}" == "dongle" ]]; then
+                    mapfile -t COMPREPLY < <(compgen -W 'auto-pairing prioritize-computer-audio dedicated-call bluetooth-radio softphone-integration' -- "$current")
+                else
+                    mapfile -t COMPREPLY < <(compgen -W 'sidetone in-call-busylight on-head-detection music-mode auto-answer-on-head auto-pause-music reverse-stereo smart-ringer sidetone-level voice-prompts controller-ringer-volume controller-ringtone call-button mute-button three-dot-button four-dot-button' -- "$current")
+                fi
+                return
+            fi
+            if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 5 ]]; then
+                case "${COMP_WORDS[4]}" in
+                    sidetone-level)
+                        mapfile -t COMPREPLY < <(compgen -W '-9-db -6-db -3-db 0-db 3-db 6-db' -- "$current")
+                        ;;
+                    voice-prompts)
+                        mapfile -t COMPREPLY < <(compgen -W 'tones voice off' -- "$current")
+                        ;;
+                    controller-ringer-volume)
+                        mapfile -t COMPREPLY < <(compgen -W 'off low medium high' -- "$current")
+                        ;;
+                    controller-ringtone)
+                        mapfile -t COMPREPLY < <(compgen -W 'tone-1 tone-2 tone-3 tone-4 tone-5 tone-6 tone-7 tone-8 tone-9 tone-10 custom random off' -- "$current")
+                        ;;
+                    call-button|mute-button|three-dot-button|four-dot-button)
+                        mapfile -t COMPREPLY < <(compgen -W 'none call-handling mute speed-dial busylight push-to-talk headset-busylight microsoft-teams music' -- "$current")
+                        ;;
+                    *)
+                        mapfile -t COMPREPLY < <(compgen -W 'on off' -- "$current")
+                        ;;
+                esac
+                return
+            fi
+            ;;
+        service)
+            mapfile -t COMPREPLY < <(compgen -W 'start status stop restart --help' -- "$current")
             ;;
         settings)
             if (( COMP_CWORD == 2 )); then
@@ -67,8 +111,11 @@ _jabridge_completion() {
                 download)
                     mapfile -t COMPREPLY < <(compgen -W '--pid --version --out' -- "$current")
                     ;;
-                verify|install)
+                verify)
                     mapfile -t COMPREPLY < <(compgen -f -- "$current")
+                    ;;
+                install)
+                    mapfile -t COMPREPLY < <(compgen -W '--i-accept-brick-risk' -- "$current"; compgen -f -- "$current")
                     ;;
             esac
             ;;

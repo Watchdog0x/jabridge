@@ -34,13 +34,18 @@ func (m *mockAPI) GetPairingList() []PairedDeviceInfo {
 	return []PairedDeviceInfo{{Name: "Test Device", Addr: "AA:BB:CC:DD:EE:FF", Connected: true}}
 }
 
-func (m *mockAPI) SearchNewDevices() error       { return nil }
-func (m *mockAPI) SetBTPairing(bool) error       { return nil }
-func (m *mockAPI) GetAutoPairing() (bool, error) { return true, nil }
-func (m *mockAPI) SetAutoPairing(bool) error     { return nil }
-func (m *mockAPI) FactoryReset() error           { return nil }
-func (m *mockAPI) SetBusylightMode(string) error { return nil }
-func (m *mockAPI) GetBusylightMode() string      { return "auto" }
+func (m *mockAPI) GetSearchList() []PairedDeviceInfo    { return nil }
+func (m *mockAPI) SearchNewDevices() error              { return nil }
+func (m *mockAPI) ConnectSearchDevice(int) error        { return nil }
+func (m *mockAPI) ConnectRememberedDevice(int) error    { return nil }
+func (m *mockAPI) DisconnectRememberedDevice(int) error { return nil }
+func (m *mockAPI) ForgetRememberedDevice(int) error     { return nil }
+func (m *mockAPI) SetBTPairing(bool) error              { return nil }
+func (m *mockAPI) GetAutoPairing() (bool, error)        { return true, nil }
+func (m *mockAPI) SetAutoPairing(bool) error            { return nil }
+func (m *mockAPI) FactoryReset() error                  { return nil }
+func (m *mockAPI) SetBusylightMode(string) error        { return nil }
+func (m *mockAPI) GetBusylightMode() string             { return "auto" }
 func (m *mockAPI) ListSettings(device string) ([]SettingInfo, error) {
 	return []SettingInfo{{Device: device, Key: "test", Label: "Test", Value: "On", Editable: true}}, nil
 }
@@ -48,6 +53,7 @@ func (m *mockAPI) SetSetting(device, key, value string) (SettingInfo, error) {
 	return SettingInfo{Device: device, Key: key, Label: "Test", Value: value, Editable: true}, nil
 }
 func (m *mockAPI) SelectDevice(uint16) error { return nil }
+func (m *mockAPI) Shutdown() error           { return nil }
 
 func sendRequest(t *testing.T, conn net.Conn, method string, params interface{}) Response {
 	t.Helper()
@@ -120,6 +126,15 @@ func TestServicePing(t *testing.T) {
 	result := response.Result.(map[string]interface{})
 	if result["ok"] != true {
 		t.Fatalf("ping result = %#v", result)
+	}
+}
+
+func TestServiceShutdownRequest(t *testing.T) {
+	client, cleanup := setupTest(t)
+	defer cleanup()
+	response := sendRequest(t, client, "service.shutdown", nil)
+	if response.Error != nil {
+		t.Fatalf("shutdown error: %v", response.Error)
 	}
 }
 
@@ -226,6 +241,33 @@ func TestBTList(t *testing.T) {
 	}
 }
 
+func TestRememberedDeviceAndSearchMethods(t *testing.T) {
+	client, cleanup := setupTest(t)
+	defer cleanup()
+	for _, method := range []string{"bt.search.connect", "bt.connect", "bt.disconnect", "bt.forget"} {
+		response := sendRequest(t, client, method, map[string]int{"index": 0})
+		if response.Error != nil {
+			t.Fatalf("%s error: %v", method, response.Error)
+		}
+	}
+	response := sendRequest(t, client, "bt.search.results", nil)
+	if response.Error != nil {
+		t.Fatalf("bt.search.results error: %v", response.Error)
+	}
+}
+
+func TestFactoryResetRequiresExactConfirmation(t *testing.T) {
+	client, cleanup := setupTest(t)
+	defer cleanup()
+	if response := sendRequest(t, client, "device.reset", nil); response.Error == nil || response.Error.Code != ErrCodeInvalidP {
+		t.Fatalf("reset without confirmation = %#v", response)
+	}
+	response := sendRequest(t, client, "device.reset", map[string]string{"confirm": "ERASE_REMEMBERED_HEADSETS"})
+	if response.Error != nil {
+		t.Fatalf("confirmed reset error: %v", response.Error)
+	}
+}
+
 func TestAutoPairGet(t *testing.T) {
 	client, cleanup := setupTest(t)
 	defer cleanup()
@@ -283,6 +325,8 @@ func TestInvalidWriteParamsAreRejected(t *testing.T) {
 		{JSONRPC: "2.0", ID: json.RawMessage(`5`), Method: "device.select", Params: json.RawMessage(`{"id":"one"}`)},
 		{JSONRPC: "2.0", ID: json.RawMessage(`6`), Method: "settings.list", Params: json.RawMessage(`{"device":"other"}`)},
 		{JSONRPC: "2.0", ID: json.RawMessage(`7`), Method: "settings.set", Params: json.RawMessage(`{"device":"dongle","key":"","value":"on"}`)},
+		{JSONRPC: "2.0", ID: json.RawMessage(`8`), Method: "bt.connect", Params: json.RawMessage(`{"index":-1}`)},
+		{JSONRPC: "2.0", ID: json.RawMessage(`9`), Method: "device.reset", Params: json.RawMessage(`{"confirm":"yes"}`)},
 	}
 	api := &mockAPI{}
 	for _, request := range tests {

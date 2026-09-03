@@ -20,7 +20,12 @@ func (n *nilAPI) GetBattery() (*ipc.BatteryInfo, error)  { return nil, nil }
 func (n *nilAPI) GetFirmware() string                    { return "" }
 func (n *nilAPI) GetFeatures() ipc.FeatureInfo           { return ipc.FeatureInfo{} }
 func (n *nilAPI) GetPairingList() []ipc.PairedDeviceInfo { return nil }
+func (n *nilAPI) GetSearchList() []ipc.PairedDeviceInfo  { return nil }
 func (n *nilAPI) SearchNewDevices() error                { return nil }
+func (n *nilAPI) ConnectSearchDevice(int) error          { return nil }
+func (n *nilAPI) ConnectRememberedDevice(int) error      { return nil }
+func (n *nilAPI) DisconnectRememberedDevice(int) error   { return nil }
+func (n *nilAPI) ForgetRememberedDevice(int) error       { return nil }
 func (n *nilAPI) SetBTPairing(bool) error                { return nil }
 func (n *nilAPI) GetAutoPairing() (bool, error)          { return false, nil }
 func (n *nilAPI) SetAutoPairing(bool) error              { return nil }
@@ -34,6 +39,7 @@ func (n *nilAPI) SetSetting(device, key, value string) (ipc.SettingInfo, error) 
 	return ipc.SettingInfo{Device: device, Key: key, Value: value}, nil
 }
 func (n *nilAPI) SelectDevice(uint16) error { return nil }
+func (n *nilAPI) Shutdown() error           { return nil }
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()

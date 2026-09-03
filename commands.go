@@ -53,10 +53,19 @@ func runUpdate(args []string) error {
 		return fmt.Errorf("find running executable: %w", err)
 	}
 	fmt.Printf("Downloading and verifying %s...\n", plan.ArchiveName)
+	serviceWasActive, _ := userServiceActive()
 	if err := client.Install(context.Background(), plan, executable); err != nil {
 		return err
 	}
-	fmt.Printf("Updated Jabridge to %s. Restart any running service.\n", plan.Version)
+	if serviceWasActive {
+		if err := syncInstalledUserBinary(executable); err != nil {
+			return fmt.Errorf("sync updated service binary: %w", err)
+		}
+		if err := restartUserServiceAfterUpdate(); err != nil {
+			return fmt.Errorf("jabridge updated to %s, but the service restart failed: %w", plan.Version, err)
+		}
+	}
+	fmt.Printf("Updated Jabridge to %s.\n", plan.Version)
 	return nil
 }
 

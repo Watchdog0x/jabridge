@@ -13,6 +13,7 @@ change your hardware.
 - Do not press `2` for factory reset.
 - Do not change sound or busylight settings.
 - Do not run `jabridge firmware install` or a firmware `dev` command.
+- Do not use `--i-accept-brick-risk` during this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
 ## Download RC5
@@ -36,6 +37,8 @@ cd jabridge_1.0.0-rc.5_linux_amd64
 ./jabridge model
 ./jabridge sound
 ./jabridge firmware
+./jabridge service status
+./jabridge ipc ping
 ./jabridge update --check --prerelease
 source <(./jabridge completion bash)
 ./jabridge
@@ -62,20 +65,21 @@ Turn the headset off and on, then unplug and reconnect its USB cable once.
 Check that stale devices disappear and returning devices come back. Do not
 press Enter on a device or setting during this read-only test.
 
-The TUI still opens hardware directly. Do not run `jabridge --daemon` at the
-same time.
+The TUI uses the background service. While the TUI is open, run
+`jabridge service restart` in another terminal once and check that the TUI
+reconnects without losing its current screen.
 
 ## Permission denied
 
-Install the included access rule if Jabridge cannot open `/dev/hidraw*`:
+Run the one-time setup:
 
 ```bash
-sudo install -m 0644 system/70-jabridge.rules /usr/lib/udev/rules.d/70-jabridge.rules
-sudo udevadm control --reload-rules
+./jabridge setup
 ```
 
-Then physically unplug and reconnect the device. Run Jabridge as your normal
-user, not with `sudo`.
+Approve the normal password prompt. The command installs the included access
+rule, reloads it, and retriggers connected devices. Reconnect USB once only if
+Jabridge asks. Run Jabridge as your normal user, not with `sudo`.
 
 ## Send your result
 

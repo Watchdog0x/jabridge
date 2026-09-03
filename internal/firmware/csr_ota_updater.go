@@ -16,8 +16,8 @@
 //   ⚠  Pre-OTA init is implemented from capture, but several command semantics
 //      are still named by behavior rather than vendor documentation.
 //
-// Real flashing remains locked because hardware coverage is limited and a
-// failed firmware update can leave a device unusable.
+// Real flashing requires an explicit risk acknowledgement because hardware
+// coverage is limited and a failed firmware update can leave a device unusable.
 //
 // Design notes:
 //   - No dependency on libusb, libjabra.so, jfwu, or dfu-util. Pure stdlib.

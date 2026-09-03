@@ -19,7 +19,7 @@ func withMenuState(t *testing.T) {
 	oldScreen := screen
 	oldResetConfirmUntil := resetConfirmUntil
 	oldForgetConfirmUntil := forgetConfirmUntil
-	oldForgetConfirmAddr := forgetConfirmAddr
+	oldForgetConfirmKey := forgetConfirmKey
 	oldFirmwareTargetID := firmwareTargetID
 	oldFirmwareTargetIndex := firmwareTargetIndex
 	oldFirmwareTargetItems := firmwareTargetItems
@@ -32,7 +32,7 @@ func withMenuState(t *testing.T) {
 		screen = oldScreen
 		resetConfirmUntil = oldResetConfirmUntil
 		forgetConfirmUntil = oldForgetConfirmUntil
-		forgetConfirmAddr = oldForgetConfirmAddr
+		forgetConfirmKey = oldForgetConfirmKey
 		firmwareTargetID = oldFirmwareTargetID
 		firmwareTargetIndex = oldFirmwareTargetIndex
 		firmwareTargetItems = oldFirmwareTargetItems
@@ -354,8 +354,8 @@ func TestFactoryResetConfirmationExpires(t *testing.T) {
 func TestForgetRememberedDeviceRequiresSameDeviceTwice(t *testing.T) {
 	withMenuState(t)
 	now := time.Unix(200, 0)
-	first := [6]byte{1, 2, 3, 4, 5, 6}
-	second := [6]byte{6, 5, 4, 3, 2, 1}
+	first := "0:First headset"
+	second := "1:Second headset"
 	if confirmForgetRememberedDevice(now, first) {
 		t.Fatal("first forget press confirmed")
 	}
@@ -447,7 +447,7 @@ func TestFirmwareInstallStatus(t *testing.T) {
 		{
 			name: "needs recovery test",
 			view: firmwareViewState{currentVersion: "1.15.0", latestVersion: "1.16.0", downloadedPath: "firmware.zip"},
-			want: "Recovery test required",
+			want: "Experimental CLI",
 		},
 	}
 	for _, test := range tests {

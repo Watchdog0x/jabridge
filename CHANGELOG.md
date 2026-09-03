@@ -33,6 +33,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Headset choice settings for voice prompts, sidetone level, controller
   ringtone/volume, and supported programmable buttons.
 - IPC subscriptions and device, battery, and pairing change notifications.
+- Simple `jabridge ipc` commands and an IPC quick-start guide.
+- One-command `jabridge setup` device access, with an automatic first-run
+  prompt, user installation, udev reload, connected-device retrigger, and an
+  enabled service at sign-in.
+- Simple `jabridge service start|status|stop|restart` commands.
+- Desktop-session autostart and portable service control when a systemd user
+  manager is unavailable.
 - A user service and udev rule for non-root `hidraw` access.
 - CI, community templates, and native package definitions.
 
@@ -40,7 +47,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 - Renamed the project from jLink to Jabridge to avoid the SEGGER J-Link package
   collision.
-- Moved firmware status, download, verification, and locked install tools into
+- Moved firmware status, download, verification, and experimental install into
   `jabridge firmware` so users need only one program.
 - Removed CGo, Jabra headers, libjabra.so, and their runtime dependencies.
 - Unsupported hardware operations now return errors rather than false success.
@@ -55,6 +62,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   values cycle with Enter.
 - Firmware pages select an explicit dongle or headset target and reuse a valid
   cached download.
+- The TUI now uses the service for all device state and actions, subscribes to
+  events, keeps the connection alive, and reconnects after a service restart.
+- Experimental native firmware installation is available only with the exact
+  `--i-accept-brick-risk` acknowledgement.
 
 ### Fixed
 
@@ -80,8 +91,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Safety
 
-- Firmware writes remain disabled by default. Destructive reset and forget
-  actions require a second confirmation key press.
+- Firmware writes require an explicit brick-risk option. Destructive reset and
+  forget actions require a second confirmation key press.
 - Controlled change-and-restore tests passed for all five Link 380 settings.
   Every write was read back, and the original value was restored after each
   test. Factory reset was not executed.

@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,14 +22,16 @@ import (
 
 // DeviceInfo is the JSON-serializable device representation for IPC.
 type DeviceInfo struct {
-	ID       uint16       `json:"id"`
-	Name     string       `json:"name"`
-	PID      uint16       `json:"pid"`
-	Variant  string       `json:"variant,omitempty"`
-	Serial   string       `json:"serial"`
-	IsDongle bool         `json:"isDongle"`
-	Battery  *BatteryInfo `json:"battery,omitempty"`
-	Firmware string       `json:"firmware,omitempty"`
+	ID         uint16       `json:"id"`
+	Name       string       `json:"name"`
+	PID        uint16       `json:"pid"`
+	Variant    string       `json:"variant,omitempty"`
+	Serial     string       `json:"serial"`
+	IsDongle   bool         `json:"isDongle"`
+	Connection string       `json:"connection"`
+	ParentID   uint16       `json:"parentId,omitempty"`
+	Battery    *BatteryInfo `json:"battery,omitempty"`
+	Firmware   string       `json:"firmware,omitempty"`
 }
 
 type BatteryInfo struct {
@@ -56,6 +59,7 @@ type FeatureInfo struct {
 }
 
 type PairedDeviceInfo struct {
+	ID        int    `json:"id"`
 	Name      string `json:"name"`
 	Addr      string `json:"addr"`
 	Connected bool   `json:"connected"`
@@ -78,7 +82,12 @@ type API interface {
 	GetFirmware() string
 	GetFeatures() FeatureInfo
 	GetPairingList() []PairedDeviceInfo
+	GetSearchList() []PairedDeviceInfo
 	SearchNewDevices() error
+	ConnectSearchDevice(index int) error
+	ConnectRememberedDevice(index int) error
+	DisconnectRememberedDevice(index int) error
+	ForgetRememberedDevice(index int) error
 	SetBTPairing(enable bool) error
 	GetAutoPairing() (bool, error)
 	SetAutoPairing(enable bool) error
@@ -88,6 +97,7 @@ type API interface {
 	ListSettings(device string) ([]SettingInfo, error)
 	SetSetting(device, key, value string) (SettingInfo, error)
 	SelectDevice(id uint16) error
+	Shutdown() error
 }
 
 // HandleConnection reads JSON-RPC requests from conn and dispatches them.
@@ -219,6 +229,11 @@ func dispatch(req Request, api API) Response {
 	switch req.Method {
 	case "service.ping":
 		return SuccessResponse(req.ID, map[string]bool{"ok": true})
+	case "service.shutdown":
+		if err := api.Shutdown(); err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, map[string]bool{"ok": true})
 	case "version":
 		return SuccessResponse(req.ID, map[string]string{
 			"service": buildinfo.ServiceName,
@@ -289,8 +304,39 @@ func dispatch(req Request, api API) Response {
 		list := api.GetPairingList()
 		return SuccessResponse(req.ID, list)
 
+	case "bt.search.results":
+		return SuccessResponse(req.ID, api.GetSearchList())
+
 	case "bt.search":
 		if err := api.SearchNewDevices(); err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, map[string]bool{"ok": true})
+
+	case "bt.search.connect":
+		index, err := decodeDeviceIndex(req.Params)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "bt.search.connect requires a non-negative index")
+		}
+		if err := api.ConnectSearchDevice(index); err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, map[string]bool{"ok": true})
+
+	case "bt.connect", "bt.disconnect", "bt.forget":
+		index, err := decodeDeviceIndex(req.Params)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, req.Method+" requires a non-negative index")
+		}
+		switch req.Method {
+		case "bt.connect":
+			err = api.ConnectRememberedDevice(index)
+		case "bt.disconnect":
+			err = api.DisconnectRememberedDevice(index)
+		case "bt.forget":
+			err = api.ForgetRememberedDevice(index)
+		}
+		if err != nil {
 			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
 		}
 		return SuccessResponse(req.ID, map[string]bool{"ok": true})
@@ -342,6 +388,12 @@ func dispatch(req Request, api API) Response {
 		return SuccessResponse(req.ID, map[string]string{"mode": api.GetBusylightMode()})
 
 	case "device.reset":
+		var params struct {
+			Confirm string `json:"confirm"`
+		}
+		if err := decodeParams(req.Params, &params); err != nil || params.Confirm != "ERASE_REMEMBERED_HEADSETS" {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "device.reset requires the exact confirmation")
+		}
 		if err := api.FactoryReset(); err != nil {
 			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
 		}
@@ -350,6 +402,16 @@ func dispatch(req Request, api API) Response {
 	default:
 		return ErrorResponse(req.ID, ErrCodeMethodNF, fmt.Sprintf("unknown method: %s", req.Method))
 	}
+}
+
+func decodeDeviceIndex(raw json.RawMessage) (int, error) {
+	var params struct {
+		Index *int `json:"index"`
+	}
+	if err := decodeParams(raw, &params); err != nil || params.Index == nil || *params.Index < 0 {
+		return 0, errors.New("invalid device index")
+	}
+	return *params.Index, nil
 }
 
 // WriteNotification sends a server-initiated notification to a connection.

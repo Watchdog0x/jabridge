@@ -2,7 +2,8 @@
 //
 // Normal commands list supported devices, read public firmware metadata,
 // download files, and verify the target model. They do not write to hardware.
-// Experimental developer paths remain locked and are not release-qualified.
+// Firmware installation requires an explicit risk acknowledgement and is not
+// release-qualified.
 // No vendor program, library, or firmware is bundled.
 
 package firmware
@@ -21,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
@@ -48,13 +50,16 @@ const (
 
 	// Hardware writes are intentionally opt-in while the native updater is
 	// awaiting validation on replaceable test hardware.
-	HardwareWriteEnv = "JABRIDGE_FIRMWARE_ENABLE_HARDWARE_WRITES"
-	HardwareWriteAck = "I_ACCEPT_THE_BRICK_RISK"
+	HardwareWriteEnv  = "JABRIDGE_FIRMWARE_ENABLE_HARDWARE_WRITES"
+	HardwareWriteAck  = "I_ACCEPT_THE_BRICK_RISK"
+	HardwareWriteFlag = "--i-accept-brick-risk"
 )
 
+var commandLineRiskAccepted atomic.Bool
+
 func requireHardwareWrites() error {
-	if os.Getenv(HardwareWriteEnv) != HardwareWriteAck {
-		return fmt.Errorf("hardware writes are disabled; set %s=%s only after verifying the exact device and firmware", HardwareWriteEnv, HardwareWriteAck)
+	if !commandLineRiskAccepted.Load() && os.Getenv(HardwareWriteEnv) != HardwareWriteAck {
+		return fmt.Errorf("firmware installation requires the explicit %s option", HardwareWriteFlag)
 	}
 	return nil
 }
@@ -857,7 +862,7 @@ func Run(args []string) (err error) {
 	case "verify":
 		cmdVerify(args[1:])
 	case "install":
-		return errors.New("firmware installation is locked until real-hardware testing is complete")
+		cmdInstall(args[1:])
 	case "detect":
 		cmdDetect(args[1:])
 	case "manifest":
@@ -1023,14 +1028,16 @@ Usage:
   jabridge firmware                  show device and firmware status
   jabridge firmware download         download for the attached device
   jabridge firmware verify FILE      check a file against the device
-  jabridge firmware install FILE     install firmware (locked in preview)
+  jabridge firmware install FILE --i-accept-brick-risk
+                                     run the experimental native installer
 
 More:
   jabridge firmware download --pid HEX
   jabridge firmware dev --help
 
-Normal commands never flash a device. Hardware writes are hidden, locked, and
-not ready for normal use.`)
+Install is experimental and may leave a device unusable. It verifies the file's
+target before writing, but it is not release-qualified. Use it only on hardware
+you can recover or replace.`)
 }
 
 func developerUsage() {
@@ -1305,6 +1312,49 @@ func cmdFlash(args []string) {
 	if err := flashByFormat(path, format); err != nil {
 		die("flash: %v", err)
 	}
+}
+
+func cmdInstall(args []string) {
+	path, accepted, err := parseInstallArgs(args)
+	if err != nil {
+		die("firmware install: %v", err)
+	}
+	if !accepted {
+		die("firmware install is experimental and can make the device unusable; rerun with %s only if you accept that risk", HardwareWriteFlag)
+	}
+	format, err := detectFormat(path)
+	if err != nil {
+		die("detect: %v", err)
+	}
+	if format != FormatGnVArchive {
+		die("the native installer currently supports only Jabra firmware archives, got %s", format.String())
+	}
+	if err := validateAttachedFirmwareTarget(path); err != nil {
+		die("firmware target check: %v", err)
+	}
+
+	fmt.Fprintln(os.Stderr, "WARNING: experimental firmware write accepted by the user.")
+	commandLineRiskAccepted.Store(true)
+	defer commandLineRiskAccepted.Store(false)
+	cmdFlashCsrOta([]string{"--force", path})
+}
+
+func parseInstallArgs(args []string) (path string, accepted bool, err error) {
+	for _, argument := range args {
+		switch argument {
+		case HardwareWriteFlag:
+			accepted = true
+		default:
+			if path != "" {
+				return "", false, fmt.Errorf("unexpected argument %q", argument)
+			}
+			path = argument
+		}
+	}
+	if path == "" {
+		return "", false, fmt.Errorf("usage: jabridge firmware install FILE %s", HardwareWriteFlag)
+	}
+	return path, accepted, nil
 }
 
 func cmdVerify(args []string) {

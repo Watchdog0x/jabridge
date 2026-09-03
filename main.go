@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
+	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon"
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
@@ -12,6 +14,10 @@ import (
 
 func main() {
 	if len(os.Args) == 1 {
+		if err := offerDeviceAccessSetup(); err != nil {
+			fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
+			os.Exit(1)
+		}
 		if err := runTUI(); err != nil {
 			fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
 			os.Exit(1)
@@ -20,6 +26,14 @@ func main() {
 	}
 
 	var err error
+	resumeService := func() error { return nil }
+	if commandNeedsDirectHardware(os.Args[1]) {
+		resumeService, err = pauseUserServiceForDirectCommand()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	switch os.Args[1] {
 	case "--help", "-h", "help":
 		printUsage()
@@ -41,10 +55,19 @@ func main() {
 		err = runModel()
 	case "sound", "audio":
 		err = runSound(os.Args[2:])
+	case "setup":
+		err = runSetup(os.Args[2:])
+	case "ipc":
+		err = runIPC(os.Args[2:])
+	case "service":
+		err = runService(os.Args[2:])
 	case "completion":
 		err = runCompletion(os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q; run jabridge --help", os.Args[1])
+	}
+	if resumeErr := resumeService(); err == nil && resumeErr != nil {
+		err = fmt.Errorf("restart background service: %w", resumeErr)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
@@ -56,7 +79,7 @@ func printUsage() {
 	fmt.Println(`jabridge — Linux control for supported Jabra devices
 
 Usage:
-  jabridge             open the terminal UI; talks directly to the device
+  jabridge             open the terminal UI through the background service
   jabridge status      show connected USB devices
   jabridge battery     show headset battery from 0 to 100 percent
   jabridge update      update the app
@@ -64,13 +87,16 @@ Usage:
   jabridge settings    list or change supported device settings
   jabridge model       match devices with the online capability catalog
   jabridge sound       show or change Jabra PipeWire sound controls
+  jabridge setup       set up one-time Linux device access
+  jabridge ipc         use the background-service API
+  jabridge service     start, stop, restart, or check the service
   jabridge --help      show help
 
 More:
   jabridge --daemon           run the local service
   jabridge completion bash    print Bash completion
 
-The TUI does not use the service yet. Run only one at a time.`)
+The TUI starts the service when needed and reconnects after service restarts.`)
 }
 
 func runDaemon() error {
@@ -80,6 +106,19 @@ func runDaemon() error {
 }
 
 func runTUI() error {
+	backend, err := connectTUIService()
+	if err != nil {
+		return err
+	}
+	setTUIBackend(backend)
+	defer func() {
+		setTUIBackend(nil)
+		backend.close()
+	}()
+	if err := initialTUIServiceSync(backend); err != nil {
+		return fmt.Errorf("load service state: %w", err)
+	}
+
 	oldSettings, err := enableRawMode()
 	if err != nil {
 		return fmt.Errorf("enable raw mode: %w", err)
@@ -89,7 +128,7 @@ func runTUI() error {
 	pollContext, stopPoll := context.WithCancel(context.Background())
 	defer stopPoll()
 	updateStartMenu()
-	go pollDevices(pollContext)
+	go runTUIServiceSync(pollContext, backend)
 
 	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[0;40;97m")
 	defer fmt.Print("\x1b[0m\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
@@ -105,13 +144,14 @@ type jabraAPIBridge struct{}
 func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 	var out []ipc.DeviceInfo
 	for _, dev := range deviceSnapshots() {
+		connection := "usb"
+		if dev.deviceConnection == deviceConnectionType_BT {
+			connection = "dongle"
+		}
 		d := ipc.DeviceInfo{
-			ID:       dev.deviceID,
-			Name:     dev.deviceName,
-			PID:      dev.productID,
-			Variant:  dev.variantType,
-			Serial:   "",
-			IsDongle: dev.isDongle,
+			ID: dev.deviceID, Name: dev.deviceName, PID: dev.productID,
+			Variant: dev.variantType, Serial: "", IsDongle: dev.isDongle,
+			Connection: connection, ParentID: dev.parentDeviceID,
 			Firmware: getFirmwareVersion(dev.deviceID),
 		}
 		if dev.batteryStatus != nil {
@@ -188,8 +228,9 @@ func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
 		return nil
 	}
 	var out []ipc.PairedDeviceInfo
-	for _, pd := range dongle.pairingList.pairedDevices {
+	for index, pd := range dongle.pairingList.pairedDevices {
 		out = append(out, ipc.PairedDeviceInfo{
+			ID:        index,
 			Name:      pd.deviceName,
 			Addr:      "",
 			Connected: pd.isConnected,
@@ -198,7 +239,35 @@ func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
 	return out
 }
 
-func (j *jabraAPIBridge) SearchNewDevices() error       { return searchForNewDevices() }
+func (j *jabraAPIBridge) GetSearchList() []ipc.PairedDeviceInfo {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists {
+		return nil
+	}
+	list := getSearchDeviceList(dongle.deviceID)
+	if list == nil {
+		return nil
+	}
+	result := make([]ipc.PairedDeviceInfo, 0, len(list.pairedDevices))
+	for index, device := range list.pairedDevices {
+		result = append(result, ipc.PairedDeviceInfo{ID: index, Name: device.deviceName, Connected: device.isConnected})
+	}
+	return result
+}
+
+func (j *jabraAPIBridge) SearchNewDevices() error { return searchForNewDevices() }
+func (j *jabraAPIBridge) ConnectSearchDevice(index int) error {
+	return connectNewDevice(uint16(index))
+}
+func (j *jabraAPIBridge) ConnectRememberedDevice(index int) error {
+	return connectRememberedDevice(index)
+}
+func (j *jabraAPIBridge) DisconnectRememberedDevice(index int) error {
+	return disconnectRememberedDevice(index)
+}
+func (j *jabraAPIBridge) ForgetRememberedDevice(index int) error {
+	return forgetRememberedDevice(index)
+}
 func (j *jabraAPIBridge) SetBTPairing(e bool) error     { return setDongleInBTPairing(e) }
 func (j *jabraAPIBridge) GetAutoPairing() (bool, error) { return getAutoPairing() }
 func (j *jabraAPIBridge) SetAutoPairing(e bool) error   { return setAutoPairing(e) }
@@ -207,7 +276,7 @@ func (j *jabraAPIBridge) FactoryReset() error {
 	if !exists {
 		return fmt.Errorf("no dongle found")
 	}
-	return factoryReset(dongle.deviceID)
+	return factoryResetConfirmed(dongle.deviceID)
 }
 func (j *jabraAPIBridge) SetBusylightMode(mode string) error { return nil } // wired in daemon
 func (j *jabraAPIBridge) GetBusylightMode() string           { return "auto" }
@@ -257,6 +326,14 @@ func (j *jabraAPIBridge) SetSetting(deviceName, key, value string) (ipc.SettingI
 func (j *jabraAPIBridge) SelectDevice(id uint16) error {
 	_, err := selectRegistryDevice(int(id))
 	return err
+}
+
+func (j *jabraAPIBridge) Shutdown() error {
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}()
+	return nil
 }
 
 func ipcSettingScope(deviceName string) (settingScope, error) {

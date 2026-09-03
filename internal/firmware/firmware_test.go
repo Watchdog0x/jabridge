@@ -10,8 +10,18 @@ import (
 
 func TestRunFirmwareInstallFailsClosed(t *testing.T) {
 	err := Run([]string{"install", "/tmp/not-a-firmware-file"})
-	if err == nil || !strings.Contains(err.Error(), "installation is locked") {
-		t.Fatalf("firmware install error = %v, want disabled gate", err)
+	if err == nil || !strings.Contains(err.Error(), HardwareWriteFlag) {
+		t.Fatalf("firmware install error = %v, want explicit risk gate", err)
+	}
+}
+
+func TestParseInstallArgsRequiresFileAndExplicitRisk(t *testing.T) {
+	path, accepted, err := parseInstallArgs([]string{"firmware.zip", HardwareWriteFlag})
+	if err != nil || path != "firmware.zip" || !accepted {
+		t.Fatalf("parse install args = %q, %v, %v", path, accepted, err)
+	}
+	if _, _, err := parseInstallArgs([]string{HardwareWriteFlag}); err == nil {
+		t.Fatal("install arguments without a file were accepted")
 	}
 }
 

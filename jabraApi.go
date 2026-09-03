@@ -1027,6 +1027,9 @@ func batteryStatusesEqual(left, right *batteryStatus) bool {
 /****************************************************************************/
 
 func loadDongleSettings() ([]menuItem, []deviceSettingValue, error) {
+	if currentTUIBackend() != nil {
+		return loadIPCSettings(settingScopeDongle)
+	}
 	dongle, exists := selectedDongleSnapshot()
 	if !exists {
 		return nil, nil, fmt.Errorf("no dongle connected")
@@ -1049,6 +1052,9 @@ func loadDongleSettings() ([]menuItem, []deviceSettingValue, error) {
 }
 
 func loadHeadsetSettings() ([]menuItem, []deviceSettingValue, error) {
+	if currentTUIBackend() != nil {
+		return loadIPCSettings(settingScopeHeadset)
+	}
 	headset, exists := selectedHeadsetSnapshot()
 	if !exists {
 		return nil, nil, fmt.Errorf("no headset connected")
@@ -1132,17 +1138,8 @@ func addDevice(deviceInfo *jabra_DeviceInfo) {
 	deviceManager[id] = cloneDeviceInfo(deviceInfo)
 }
 
-func factoryReset(deviceID uint16) error {
-	if err := requireExperimentalDeviceWrite("factory reset"); err != nil {
-		return err
-	}
-	return factoryResetConfirmed(deviceID)
-}
-
-// factoryResetConfirmed is called only after the interactive TUI has shown the
-// pairing-loss warning and received the second confirmation press. Non-
-// interactive callers use factoryReset above and retain the explicit test-mode
-// gate.
+// factoryResetConfirmed is called only after the TUI and IPC handler have both
+// checked their explicit pairing-loss confirmations.
 func factoryResetConfirmed(deviceID uint16) error {
 	dongle, err := selectedDongleDevice()
 	if err != nil {
