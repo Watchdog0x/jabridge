@@ -1,2 +1,4 @@
 usr/bin/jabridge
 usr/share/bash-completion/completions/jabridge
+usr/lib/systemd/user/jabridge.service
+usr/lib/udev/rules.d/70-jabridge.rules

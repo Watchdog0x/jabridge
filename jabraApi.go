@@ -13,45 +13,37 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
+
+	firmwaretool "github.com/Watchdog0x/jabridge/internal/firmware"
+	"golang.org/x/sys/unix"
 )
 
 // ── Types (unchanged from original) ──────────────────────────────────
 
 type jabra_DeviceInfo struct {
-	deviceID               uint16
-	productID              uint16
-	vendorID               uint16
-	deviceName             string
-	usbDevicePath          string
-	parentInstanceId       string
-	errStatus              errorStatusCode
-	isDongle               bool
-	dongleName             string
-	variant                string
-	serialNumber           string
-	isInFirmwareUpdateMode bool
-	deviceConnection       deviceConnectionType
-	connectionID           uint32
-	parentDeviceID         uint16
-	deviceEventsMask       uint32
-	featureFlags           *featureFlags
-	batteryStatus          *batteryStatus
-	pairingList            *pairingList
+	deviceID         uint16
+	productID        uint16
+	vendorID         uint16
+	deviceName       string
+	usbDevicePath    string
+	isDongle         bool
+	serialNumber     string
+	deviceConnection deviceConnectionType
+	parentDeviceID   uint16
+	featureFlags     *featureFlags
+	batteryStatus    *batteryStatus
+	pairingList      *pairingList
 	// pure-Go additions
 	hidrawPath  string // /dev/hidrawN for GNP
 	powerSupply string // /sys/class/power_supply/... path
@@ -59,28 +51,13 @@ type jabra_DeviceInfo struct {
 
 type batteryComponent int
 
-const (
-	unknown batteryComponent = iota
-	headband
-	combinde
-	right
-	left
-	cradleBattery
-	remoteControl
-)
-
-type batteryStatusUnit struct {
-	levelInPercent uint8
-	component      batteryComponent
-}
+const batteryHeadband batteryComponent = 1
 
 type batteryStatus struct {
-	levelInPercent  uint8
-	charging        bool
-	batteryLow      bool
-	component       batteryComponent
-	extraUnitsCount uint32
-	extraUnits      []batteryStatusUnit
+	levelInPercent uint8
+	charging       bool
+	batteryLow     bool
+	component      batteryComponent
 }
 
 type deviceListType int
@@ -103,107 +80,14 @@ type pairingList struct {
 	pairedDevices []pairedDevice
 }
 
-type secureConnectionMode int
-
-const (
-	legacyMode secureConnectionMode = iota
-	secureMode
-	restrictedMode
-)
-
 type featureFlags struct {
-	busyLight                          bool
-	factoryReset                       bool
-	pairingList                        bool
-	remoteMMI                          bool
-	musicEqualizer                     bool
-	earbudInterconnectionStatus        bool
-	stepRate                           bool
-	heartRate                          bool
-	rrInterval                         bool
-	ringtoneUpload                     bool
-	imageUpload                        bool
-	needsExplicitRebootAfterOta        bool
-	needsToBePutIncCradleToCompleteFwu bool
-	remoteMMIv2                        bool
-	logging                            bool
-	preferredSoftphoneListInDevice     bool
-	voiceAssistant                     bool
-	playRingtone                       bool
-	setDateTime                        bool
-	fullWizardMode                     bool
-	limitedWizardMode                  bool
-	onHeadDetection                    bool
-	settingsChangeNotification         bool
-	audioStreaming                     bool
-	customerSupport                    bool
-	mySound                            bool
-	uiConfigurableButtons              bool
-	manualBusyLight                    bool
-	whiteboard                         bool
-	video                              bool
-	ambienceModes                      bool
-	sealingTest                        bool
-	amasupport                         bool
-	ambienceModesLoop                  bool
-	ffanc                              bool
-	googleBisto                        bool
-	virtualDirector                    bool
-	pictureInPicture                   bool
-	dateTimeIsUTC                      bool
-	remoteControl                      bool
-	userConfigurableHdr                bool
-	dectBasicPairing                   bool
-	dectSecurePairing                  bool
-	dectOtaFwuSupported                bool
-	xpressURL                          bool
-	passwordProvisioning               bool
-	ethernet                           bool
-	wlan                               bool
-	ethernetAuthenticationCertificate  bool
-	ethernetAuthenticationMschapv2     bool
-	wlanAuthenticationCertificate      bool
-	wlanAuthenticationMschapv2         bool
+	busyLight       bool
+	factoryReset    bool
+	pairingList     bool
+	remoteMMI       bool
+	musicEqualizer  bool
+	onHeadDetection bool
 }
-
-type hidInput int
-
-const (
-	undefined hidInput = iota
-	offHook
-	mute
-	flash
-	redial
-	key0
-	key1
-	key2
-	key3
-	key4
-	key5
-	key6
-	key7
-	key8
-	key9
-	keyStar
-	keyPound
-	keyClear
-	online
-	speedDial
-	voiceMail
-	lineBusy
-	rejectCall
-	outOfRange
-	pseudoOffHook
-	button1
-	button2
-	button3
-	volumeUp
-	volumeDown
-	fireAlarm
-	jackConnection
-	qdConnection
-	headsetConnection
-)
 
 type devices map[int]*jabra_DeviceInfo
 type deviceConnectionType int
@@ -211,7 +95,6 @@ type deviceConnectionType int
 const (
 	deviceConnectionType_USB deviceConnectionType = iota
 	deviceConnectionType_BT
-	deviceConnectionType_DECT
 )
 
 type menuItem struct {
@@ -220,12 +103,14 @@ type menuItem struct {
 }
 
 var (
-	deviceManager   devices
-	selectedHeadset int = -1
-	selectedDongle  int = -1
+	deviceStateMu     sync.RWMutex
+	deviceManager     devices
+	selectedHeadset   = -1
+	selectedDongle    = -1
+	dongleChildMisses int
 
-	startMenu          = []menuItem{}
-	dongleSettignsMenu = []menuItem{}
+	startMenu           = []menuItem{}
+	dongleSettingsLines = []menuItem{}
 
 	searchDeviceList *pairingList = &pairingList{
 		count:         0,
@@ -233,10 +118,72 @@ var (
 		pairedDevices: make([]pairedDevice, 0),
 	}
 
-	stopUpdateBattery     = make(chan struct{})
-	stopUpdatePairingList = make(chan struct{})
-	firstScanComplete     atomic.Bool
+	firstScanComplete atomic.Bool
 )
+
+func cloneDeviceInfo(device *jabra_DeviceInfo) *jabra_DeviceInfo {
+	if device == nil {
+		return nil
+	}
+	clone := *device
+	if device.featureFlags != nil {
+		features := *device.featureFlags
+		clone.featureFlags = &features
+	}
+	if device.batteryStatus != nil {
+		battery := *device.batteryStatus
+		clone.batteryStatus = &battery
+	}
+	if device.pairingList != nil {
+		pairings := *device.pairingList
+		pairings.pairedDevices = append([]pairedDevice(nil), device.pairingList.pairedDevices...)
+		clone.pairingList = &pairings
+	}
+	return &clone
+}
+
+func deviceSnapshots() devices {
+	deviceStateMu.RLock()
+	defer deviceStateMu.RUnlock()
+	snapshot := make(devices, len(deviceManager))
+	for id, device := range deviceManager {
+		snapshot[id] = cloneDeviceInfo(device)
+	}
+	return snapshot
+}
+
+func deviceAt(index int) (*jabra_DeviceInfo, bool) {
+	deviceStateMu.RLock()
+	defer deviceStateMu.RUnlock()
+	device, exists := deviceManager[index]
+	return cloneDeviceInfo(device), exists && device != nil
+}
+
+func selectedDongleSnapshot() (*jabra_DeviceInfo, bool) {
+	deviceStateMu.RLock()
+	defer deviceStateMu.RUnlock()
+	device, exists := deviceManager[selectedDongle]
+	return cloneDeviceInfo(device), exists && device != nil
+}
+
+func selectedHeadsetSnapshot() (*jabra_DeviceInfo, bool) {
+	deviceStateMu.RLock()
+	defer deviceStateMu.RUnlock()
+	device, exists := deviceManager[selectedHeadset]
+	return cloneDeviceInfo(device), exists && device != nil
+}
+
+func updateDeviceByID(deviceID uint16, update func(*jabra_DeviceInfo)) bool {
+	deviceStateMu.Lock()
+	defer deviceStateMu.Unlock()
+	for _, device := range deviceManager {
+		if device != nil && device.deviceID == deviceID {
+			update(device)
+			return true
+		}
+	}
+	return false
+}
 
 // ── GNP protocol constants (from RE of jfwu + libjabra.so) ───────────
 
@@ -306,7 +253,7 @@ func openHidraw(path string) (*hidrawConn, error) {
 
 func (h *hidrawConn) close() {
 	if h.f != nil {
-		h.f.Close()
+		_ = h.f.Close()
 		h.f = nil
 	}
 }
@@ -324,24 +271,36 @@ func (h *hidrawConn) write(report []byte) error {
 
 func (h *hidrawConn) read(timeout time.Duration) ([]byte, error) {
 	fd := int(h.f.Fd())
-	syscall.SetNonblock(fd, true)
-	defer syscall.SetNonblock(fd, false)
-
 	deadline := time.Now().Add(timeout)
 	buf := make([]byte, 256)
 	for {
-		n, err := syscall.Read(fd, buf)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("hidraw read timeout")
+		}
+		milliseconds := int((remaining + time.Millisecond - 1) / time.Millisecond)
+		pollFDs := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		ready, err := unix.Poll(pollFDs, milliseconds)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("hidraw poll: %w", err)
+		}
+		if ready == 0 {
+			return nil, fmt.Errorf("hidraw read timeout")
+		}
+		if pollFDs[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+			return nil, fmt.Errorf("hidraw poll failed: revents=0x%x", pollFDs[0].Revents)
+		}
+		n, err := unix.Read(fd, buf)
 		if err == nil && n > 0 {
 			if buf[0] != gnpReportID {
 				continue // skip non-GNP reports
 			}
 			return append([]byte(nil), buf[:n]...), nil
 		}
-		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
-			if time.Now().After(deadline) {
-				return nil, fmt.Errorf("hidraw read timeout")
-			}
-			runtime.Gosched()
+		if err == unix.EAGAIN || err == unix.EWOULDBLOCK {
 			continue
 		}
 		if err != nil {
@@ -373,6 +332,8 @@ func gnpQuery(h *hidrawConn, destination, seq, class, op byte) ([]byte, error) {
 }
 
 func gnpQueryWithPayload(h *hidrawConn, destination, seq, class, op byte, payload []byte) ([]byte, error) {
+	gnpIOMu.Lock()
+	defer gnpIOMu.Unlock()
 	buf, err := buildGNPReport(destination, seq, gnpFlagQuery, class, op, payload)
 	if err != nil {
 		return nil, err
@@ -440,6 +401,8 @@ func gnpQueryPayloadWithData(h *hidrawConn, destination, seq, class, op byte, re
 
 // gnpCommand sends a GNP command (flag 0x80) and waits for ACK.
 func gnpCommand(h *hidrawConn, src, seq, class, op byte, payload []byte) error {
+	gnpIOMu.Lock()
+	defer gnpIOMu.Unlock()
 	buf, err := buildGNPReport(src, seq, gnpFlagCmd, class, op, payload)
 	if err != nil {
 		return err
@@ -489,6 +452,7 @@ func openDeviceHidraw(dev *jabra_DeviceInfo) *hidrawConn {
 // gnpSeqCounter is a monotonic sequence counter for GNP packets.
 var (
 	gnpSeqMu      sync.Mutex
+	gnpIOMu       sync.Mutex
 	gnpSeqCounter byte = 0x20
 )
 
@@ -595,13 +559,18 @@ func hidUeventMatches(data []byte, vid, pid uint16) bool {
 func findPowerSupplyPath(vid, pid uint16, serial string) string {
 	entries, _ := os.ReadDir("/sys/class/power_supply")
 	vidPid := fmt.Sprintf("%04X:%04X", vid, pid)
+	if serial != "" {
+		for _, entry := range entries {
+			path := filepath.Join("/sys/class/power_supply", entry.Name())
+			uevent, err := os.ReadFile(filepath.Join(path, "uevent"))
+			if err == nil && strings.Contains(string(uevent), serial) {
+				return path
+			}
+		}
+	}
 	for _, entry := range entries {
 		p := filepath.Join("/sys/class/power_supply", entry.Name())
 		if strings.Contains(strings.ToUpper(entry.Name()), vidPid) {
-			return p
-		}
-		uevent, err := os.ReadFile(filepath.Join(p, "uevent"))
-		if err == nil && serial != "" && strings.Contains(string(uevent), serial) {
 			return p
 		}
 	}
@@ -633,9 +602,11 @@ func isAccessoryName(name string) bool {
 }
 
 func deviceForID(deviceID uint16) *jabra_DeviceInfo {
+	deviceStateMu.RLock()
+	defer deviceStateMu.RUnlock()
 	for _, dev := range deviceManager {
 		if dev.deviceID == deviceID {
-			return dev
+			return cloneDeviceInfo(dev)
 		}
 	}
 	return nil
@@ -659,13 +630,21 @@ func scanAndAttachDevices() {
 	if err != nil {
 		return
 	}
+	present := make(map[string]bool, len(usbDevs))
+	for _, device := range usbDevs {
+		if !isAccessoryName(device.product) {
+			present[device.sysPath] = true
+		}
+	}
+	removeMissingUSBDevices(present)
+
 	for _, ud := range usbDevs {
 		if isAccessoryName(ud.product) {
 			continue
 		}
 		// Skip if already known
 		alreadyKnown := false
-		for _, existing := range deviceManager {
+		for _, existing := range deviceSnapshots() {
 			if existing.serialNumber == ud.serial && existing.productID == ud.productID {
 				alreadyKnown = true
 				break
@@ -719,29 +698,34 @@ func scanAndAttachDevices() {
 		dev.featureFlags = &featureFlags{}
 		if dev.isDongle {
 			dev.pairingList = &pairingList{listType: searchComplete, pairedDevices: []pairedDevice{}}
-		} else {
-			dev.batteryStatus = &batteryStatus{}
 		}
 
-		if isNewDevice := serialNumberCheck(dev); isNewDevice {
-			deviceManager.add(dev)
+		if newDevice := isNewDevice(dev); newDevice {
+			addDevice(dev)
 			if dev.isDongle && supportsValidatedPairingReads(dev.productID) {
-				dev.pairingList = getPairingList(dev.deviceID)
-				dev.featureFlags.pairingList = true
-				updateStartMenu()
+				if pairings, err := getPairingList(dev.deviceID); err == nil {
+					updateDeviceByID(dev.deviceID, func(stored *jabra_DeviceInfo) {
+						stored.pairingList = pairings
+						stored.featureFlags.pairingList = true
+					})
+				}
 			} else if !dev.isDongle {
 				if battery, err := getBatteryStatus(dev.deviceID); err == nil {
-					dev.batteryStatus = battery
+					updateDeviceByID(dev.deviceID, func(stored *jabra_DeviceInfo) {
+						stored.batteryStatus = battery
+					})
 				}
 			}
+			requestUIRedraw()
 		}
 	}
 }
 
 // pollDevices runs the device scan loop (replaces udev monitoring).
-func pollDevices(stop <-chan struct{}) {
+func pollDevices(ctx context.Context) {
 	// Initial scan
 	scanAndAttachDevices()
+	refreshSelectedDeviceData()
 	firstScanComplete.Store(true)
 	requestUIRedraw()
 
@@ -749,22 +733,220 @@ func pollDevices(stop <-chan struct{}) {
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stop:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			scanAndAttachDevices()
+			refreshSelectedDeviceData()
 		}
 	}
+}
+
+func removeMissingUSBDevices(present map[string]bool) {
+	deviceStateMu.Lock()
+	changed := false
+	for id, device := range deviceManager {
+		if device == nil || device.deviceConnection != deviceConnectionType_USB || device.usbDevicePath == "" {
+			continue
+		}
+		if !present[device.usbDevicePath] {
+			delete(deviceManager, id)
+			changed = true
+		}
+	}
+	if changed {
+		selectedDongle = firstDeviceIndexLocked(true)
+		selectedHeadset = firstDeviceIndexLocked(false)
+	}
+	deviceStateMu.Unlock()
+	if changed {
+		requestUIRedraw()
+	}
+}
+
+func firstDeviceIndexLocked(wantDongle bool) int {
+	selected := -1
+	for id, device := range deviceManager {
+		if device != nil && device.isDongle == wantDongle && (selected == -1 || id < selected) {
+			selected = id
+		}
+	}
+	return selected
+}
+
+func refreshSelectedDeviceData() {
+	if dongle, exists := selectedDongleSnapshot(); exists && supportsValidatedPairingReads(dongle.productID) {
+		updated, err := getPairingList(dongle.deviceID)
+		if err != nil {
+			updated = nil
+		}
+		changed := false
+		if updated != nil {
+			updateDeviceByID(dongle.deviceID, func(stored *jabra_DeviceInfo) {
+				if !pairingListsEqual(stored.pairingList, updated) {
+					stored.pairingList = updated
+					changed = true
+				}
+				if stored.featureFlags != nil {
+					stored.featureFlags.pairingList = true
+				}
+			})
+		}
+		if changed {
+			requestUIRedraw()
+		}
+	}
+	refreshDongleChildDevice()
+
+	if headset, exists := selectedHeadsetSnapshot(); exists && headset.deviceConnection == deviceConnectionType_USB {
+		updated, err := getBatteryStatus(headset.deviceID)
+		if err == nil {
+			changed := false
+			updateDeviceByID(headset.deviceID, func(stored *jabra_DeviceInfo) {
+				if !batteryStatusesEqual(stored.batteryStatus, updated) {
+					stored.batteryStatus = updated
+					changed = true
+				}
+			})
+			if changed {
+				requestUIRedraw()
+			}
+		} else {
+			changed := false
+			updateDeviceByID(headset.deviceID, func(stored *jabra_DeviceInfo) {
+				if stored.batteryStatus != nil {
+					stored.batteryStatus = nil
+					changed = true
+				}
+			})
+			if changed {
+				requestUIRedraw()
+			}
+		}
+	}
+}
+
+func refreshDongleChildDevice() {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists || dongle.hidrawPath == "" {
+		removeDongleChildAfterMiss()
+		return
+	}
+
+	gnpIOMu.Lock()
+	transport, err := firmwaretool.OpenHidraw(dongle.hidrawPath)
+	if err == nil {
+		defer func() { _ = transport.Close() }()
+	}
+	var productID uint16
+	var name string
+	if err == nil {
+		productID, err = firmwaretool.QueryChildProductID(transport, nextSeq(), 750*time.Millisecond)
+	}
+	if err == nil && productID != 0 {
+		name, err = firmwaretool.QueryChildName(transport, nextSeq(), 750*time.Millisecond)
+	}
+	gnpIOMu.Unlock()
+	if err != nil || productID == 0 {
+		removeDongleChildAfterMiss()
+		return
+	}
+	if strings.TrimSpace(name) == "" {
+		name = fmt.Sprintf("Jabra headset (PID %04x)", productID)
+	}
+	if upsertDongleChild(dongle.deviceID, productID, name) {
+		requestUIRedraw()
+	}
+}
+
+func upsertDongleChild(parentID, productID uint16, name string) bool {
+	deviceStateMu.Lock()
+	defer deviceStateMu.Unlock()
+	dongleChildMisses = 0
+	for _, device := range deviceManager {
+		if device != nil && device.deviceConnection == deviceConnectionType_BT && device.parentDeviceID == parentID {
+			changed := device.productID != productID || device.deviceName != name
+			device.productID = productID
+			device.deviceName = name
+			return changed
+		}
+	}
+	id := 0
+	for {
+		if _, exists := deviceManager[id]; !exists {
+			break
+		}
+		id++
+	}
+	deviceManager[id] = &jabra_DeviceInfo{
+		deviceID:         uint16(id),
+		productID:        productID,
+		vendorID:         jabraVendorID,
+		deviceName:       name,
+		parentDeviceID:   parentID,
+		deviceConnection: deviceConnectionType_BT,
+		featureFlags:     &featureFlags{},
+	}
+	if selectedHeadset == -1 {
+		selectedHeadset = id
+	}
+	return true
+}
+
+func removeDongleChildAfterMiss() {
+	deviceStateMu.Lock()
+	dongleChildMisses++
+	if dongleChildMisses < 2 {
+		deviceStateMu.Unlock()
+		return
+	}
+	changed := false
+	for id, device := range deviceManager {
+		if device != nil && device.deviceConnection == deviceConnectionType_BT {
+			delete(deviceManager, id)
+			changed = true
+		}
+	}
+	if changed {
+		selectedHeadset = firstDeviceIndexLocked(false)
+	}
+	deviceStateMu.Unlock()
+	if changed {
+		requestUIRedraw()
+	}
+}
+
+func pairingListsEqual(left, right *pairingList) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	if left.count != right.count || left.listType != right.listType || len(left.pairedDevices) != len(right.pairedDevices) {
+		return false
+	}
+	for index := range left.pairedDevices {
+		if left.pairedDevices[index] != right.pairedDevices[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func batteryStatusesEqual(left, right *batteryStatus) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.levelInPercent == right.levelInPercent && left.charging == right.charging &&
+		left.batteryLow == right.batteryLow && left.component == right.component
 }
 
 /****************************************************************************/
 /*                           GENERAL UTILITIES                              */
 /****************************************************************************/
 
-func updateDongleSettignsMenu() {
-	dongleSettignsMenu = []menuItem{}
-	if dongle, exists := deviceManager[selectedDongle]; exists {
-		dongleSettignsMenu = append(dongleSettignsMenu,
+func updateDongleSettings() {
+	dongleSettingsLines = []menuItem{}
+	if dongle, exists := selectedDongleSnapshot(); exists {
+		dongleSettingsLines = append(dongleSettingsLines,
 			menuItem{id: -1, label: fmt.Sprintf("Device:             %s", dongle.deviceName)},
 			menuItem{id: -1, label: fmt.Sprintf("USB ID:             0b0e:%04x", dongle.productID)},
 		)
@@ -772,7 +954,7 @@ func updateDongleSettignsMenu() {
 		if firmware == "" {
 			firmware = "Unknown"
 		}
-		dongleSettignsMenu = append(dongleSettignsMenu,
+		dongleSettingsLines = append(dongleSettingsLines,
 			menuItem{id: -1, label: fmt.Sprintf("Firmware:           %s", firmware)},
 		)
 		if autoPairing, err := getAutoPairing(); err == nil {
@@ -780,7 +962,7 @@ func updateDongleSettignsMenu() {
 			if autoPairing {
 				label = "On"
 			}
-			dongleSettignsMenu = append(dongleSettignsMenu,
+			dongleSettingsLines = append(dongleSettingsLines,
 				menuItem{id: -1, label: fmt.Sprintf("Auto pairing:        %s (change locked)", label)},
 			)
 		}
@@ -788,7 +970,7 @@ func updateDongleSettignsMenu() {
 		if dongle.pairingList != nil {
 			remembered = len(dongle.pairingList.pairedDevices)
 		}
-		dongleSettignsMenu = append(dongleSettignsMenu,
+		dongleSettingsLines = append(dongleSettingsLines,
 			menuItem{id: -1, label: fmt.Sprintf("Remembered devices: %d", remembered)},
 			menuItem{id: -1, label: "Pair a headset:      Locked"},
 			menuItem{id: -1, label: "Factory reset:       Not ready"},
@@ -799,7 +981,7 @@ func updateDongleSettignsMenu() {
 
 func updateStartMenu() {
 	startMenu = []menuItem{}
-	if dongle, dongleexists := deviceManager[selectedDongle]; dongleexists {
+	if dongle, dongleexists := selectedDongleSnapshot(); dongleexists {
 		startMenu = append(startMenu,
 			menuItem{id: 2, label: "Dongle settings"},
 			menuItem{id: 4, label: "Firmware"},
@@ -809,105 +991,56 @@ func updateStartMenu() {
 				startMenu = append(startMenu, menuItem{id: 1, label: fmt.Sprintf("Remembered devices (%d)", len(dongle.pairingList.pairedDevices))})
 			}
 		}
-	} else if _, headsetExists := deviceManager[selectedHeadset]; headsetExists {
+	} else if _, headsetExists := selectedHeadsetSnapshot(); headsetExists {
 		startMenu = append(startMenu, menuItem{id: 4, label: "Firmware"})
 	}
 	startMenu = append(startMenu, menuItem{id: 5, label: "Quit"})
-	requestUIRedraw()
 }
 
-func serialNumberCheck(deviceInfo *jabra_DeviceInfo) bool {
-	if deviceInfo.serialNumber == "" {
-		return false
-	}
-	if deviceInfo.isDongle {
-		if dongle, exists := deviceManager[selectedDongle]; exists {
-			if dongle.serialNumber == deviceInfo.serialNumber && dongle.deviceConnection == deviceInfo.deviceConnection {
-				dongle.deviceID = deviceInfo.deviceID
-				return false
-			}
-			return true
+func isNewDevice(deviceInfo *jabra_DeviceInfo) bool {
+	for _, existing := range deviceSnapshots() {
+		if existing.productID != deviceInfo.productID || existing.deviceConnection != deviceInfo.deviceConnection {
+			continue
 		}
-		return selectedDongle == -1
-	}
-	if device, exists := deviceManager[selectedHeadset]; exists {
-		if device.serialNumber == deviceInfo.serialNumber && device.deviceConnection == deviceInfo.deviceConnection {
-			device.deviceID = deviceInfo.deviceID
+		if deviceInfo.serialNumber != "" && existing.serialNumber == deviceInfo.serialNumber {
 			return false
 		}
-		return true
+		if deviceInfo.usbDevicePath != "" && existing.usbDevicePath == deviceInfo.usbDevicePath {
+			return false
+		}
 	}
-	return selectedHeadset == -1
+	return true
 }
 
-func (d *devices) add(deviceInfo *jabra_DeviceInfo) {
-	if *d == nil {
-		*d = make(map[int]*jabra_DeviceInfo)
+func addDevice(deviceInfo *jabra_DeviceInfo) {
+	deviceStateMu.Lock()
+	defer deviceStateMu.Unlock()
+	if deviceManager == nil {
+		deviceManager = make(devices)
 	}
-	id := len(*d)
+	id := 0
+	for {
+		if _, exists := deviceManager[id]; !exists {
+			break
+		}
+		id++
+	}
 	deviceInfo.deviceID = uint16(id)
 	if deviceInfo.isDongle {
 		if selectedDongle == -1 {
 			selectedDongle = id
-			if deviceInfo.featureFlags != nil && deviceInfo.featureFlags.pairingList {
-				go updatePairingList()
-			}
 		}
 	} else {
 		if selectedHeadset == -1 {
 			selectedHeadset = id
-			go batteryStatusUpdate()
 		}
 	}
-	(*d)[id] = deviceInfo
-	updateStartMenu()
-}
-
-func (d *devices) removed(deviceID uint16) {
-	if *d == nil {
-		return
-	}
-	var checkDongleExists, checkHeadSetExists bool
-	newDevices := make(map[int]*jabra_DeviceInfo)
-	nextIndex := 0
-	for i := 0; i < len(*d); i++ {
-		device, exists := (*d)[i]
-		if !exists || device.deviceID == deviceID {
-			continue
-		}
-		if device.isDongle {
-			checkDongleExists = true
-			selectedDongle = nextIndex
-		} else {
-			checkHeadSetExists = true
-			selectedHeadset = nextIndex
-		}
-		newDevices[nextIndex] = device
-		nextIndex++
-	}
-	if !checkDongleExists {
-		stopUpdatePairingList <- struct{}{}
-		selectedDongle = -1
-	}
-	if !checkHeadSetExists {
-		stopUpdateBattery <- struct{}{}
-		selectedHeadset = -1
-	}
-	*d = newDevices
-	updateStartMenu()
-}
-
-func uninitialize() {
-	// Pure Go — nothing to uninitialize (no C library).
+	deviceManager[id] = cloneDeviceInfo(deviceInfo)
 }
 
 func factoryReset(deviceID uint16) error {
 	// TODO: requires GNP command opcode from live capture
 	return ErrNotSupported
-}
-
-func getJabraSdkVersion() string {
-	return "pure-go-1.0.0"
 }
 
 // getSupportedFeature queries the device via GNP class=0x04 op=0x2d.
@@ -959,16 +1092,12 @@ func getSupportedFeature(deviceID uint16) *featureFlags {
 	return ff
 }
 
-func getDeviceEventsMask(deviceID uint16) uint32 {
-	return 0
-}
-
 /****************************************************************************/
 /*                               BLUETOOTH                                  */
 /****************************************************************************/
 
 func selectedDongleDevice() (*jabra_DeviceInfo, error) {
-	dongle, exists := deviceManager[selectedDongle]
+	dongle, exists := selectedDongleSnapshot()
 	if !exists || dongle == nil {
 		return nil, fmt.Errorf("no dongle found")
 	}
@@ -1038,26 +1167,30 @@ func getSearchDeviceList(deviceID uint16) *pairingList {
 	return &pairingList{count: 0, listType: searchResult, pairedDevices: []pairedDevice{}}
 }
 
-func getPairingList(deviceID uint16) *pairingList {
+func getPairingList(deviceID uint16) (*pairingList, error) {
 	result := &pairingList{listType: pairedDevices, pairedDevices: make([]pairedDevice, 0)}
-	dongle, err := selectedDongleDevice()
-	if err != nil {
-		return result
+	dongle := deviceForID(deviceID)
+	if dongle == nil || !dongle.isDongle || dongle.hidrawPath == "" {
+		return nil, fmt.Errorf("pairing list unavailable for device %d", deviceID)
 	}
 	h := openDeviceHidraw(dongle)
 	if h == nil {
-		return result
+		return nil, fmt.Errorf("open dongle GNP interface")
 	}
 	defer h.close()
 
+	querySucceeded := false
+	var lastErr error
 	for _, bluetoothType := range []byte{0x00, 0x01} {
 		index := uint16(0)
 		for records := 0; records < 256; records++ {
 			request := []byte{byte(index), byte(index >> 8), bluetoothType}
 			namePayload, readErr := gnpQueryPayloadWithData(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpGetDBName, request)
 			if readErr != nil {
+				lastErr = readErr
 				break
 			}
+			querySucceeded = true
 			nextIndex, name, parseErr := parsePairingName(namePayload)
 			if parseErr != nil {
 				break
@@ -1076,7 +1209,31 @@ func getPairingList(deviceID uint16) *pairingList {
 			index = nextIndex
 		}
 	}
+	result.pairedDevices = deduplicatePairedDevices(result.pairedDevices)
 	result.count = uint16(len(result.pairedDevices))
+	if !querySucceeded && lastErr != nil {
+		return nil, fmt.Errorf("read pairing list: %w", lastErr)
+	}
+	return result, nil
+}
+
+func deduplicatePairedDevices(devices []pairedDevice) []pairedDevice {
+	result := make([]pairedDevice, 0, len(devices))
+	indexes := make(map[string]int, len(devices))
+	for _, device := range devices {
+		key := fmt.Sprintf("addr:%x", device.deviceBTAddr)
+		if device.deviceBTAddr == [6]byte{} {
+			key = "name:" + strings.ToLower(strings.TrimSpace(device.deviceName))
+		}
+		if index, exists := indexes[key]; exists {
+			if device.isConnected {
+				result[index].isConnected = true
+			}
+			continue
+		}
+		indexes[key] = len(result)
+		result = append(result, device)
+	}
 	return result
 }
 
@@ -1096,86 +1253,6 @@ func parsePairingRecord(name string, payload []byte) (pairedDevice, error) {
 	device := pairedDevice{deviceName: name, isConnected: payload[2] == 3}
 	copy(device.deviceBTAddr[:], payload[6:12])
 	return device, nil
-}
-
-func clearPairingList() error {
-	if _, exists := deviceManager[selectedDongle]; !exists {
-		return fmt.Errorf("no dongle found")
-	}
-	// TODO: requires GNP command opcode
-	return ErrNotSupported
-}
-
-func removeDeviceFromPairedlist(pairingID uint16) error {
-	if _, exists := deviceManager[selectedDongle]; !exists {
-		return fmt.Errorf("no dongle found")
-	}
-	// TODO: requires GNP command opcode
-	return ErrNotSupported
-}
-
-func connectDeviceFromPairedlist(pairingID uint16) error {
-	if err := requireExperimentalDeviceWrite("Bluetooth connect write"); err != nil {
-		return err
-	}
-	dongle, err := selectedDongleDevice()
-	if err != nil {
-		return err
-	}
-	if dongle.pairingList == nil || int(pairingID) >= len(dongle.pairingList.pairedDevices) {
-		return fmt.Errorf("paired device %d does not exist", pairingID)
-	}
-	h := openDeviceHidraw(dongle)
-	if h == nil {
-		return fmt.Errorf("open dongle GNP interface")
-	}
-	defer h.close()
-	device := dongle.pairingList.pairedDevices[pairingID]
-	payload := append([]byte{0x00}, device.deviceBTAddr[:]...)
-	return gnpCommand(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpBluetoothConnect, payload)
-}
-
-func disconnectDeviceFromPairedlist(pairingID uint16) error {
-	if err := requireExperimentalDeviceWrite("Bluetooth disconnect write"); err != nil {
-		return err
-	}
-	dongle, err := selectedDongleDevice()
-	if err != nil {
-		return err
-	}
-	if dongle.pairingList == nil || int(pairingID) >= len(dongle.pairingList.pairedDevices) {
-		return fmt.Errorf("paired device %d does not exist", pairingID)
-	}
-	h := openDeviceHidraw(dongle)
-	if h == nil {
-		return fmt.Errorf("open dongle GNP interface")
-	}
-	defer h.close()
-	return gnpCommand(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpDisconnectAll, nil)
-}
-
-func reconnectToDevice() error {
-	if _, exists := deviceManager[selectedDongle]; !exists {
-		return fmt.Errorf("no dongle found")
-	}
-	// TODO: requires GNP command opcode
-	return ErrNotSupported
-}
-
-func disconnectBTDeviceFromDongle() error {
-	if err := requireExperimentalDeviceWrite("Bluetooth disconnect write"); err != nil {
-		return err
-	}
-	dongle, err := selectedDongleDevice()
-	if err != nil {
-		return err
-	}
-	h := openDeviceHidraw(dongle)
-	if h == nil {
-		return fmt.Errorf("open dongle GNP interface")
-	}
-	defer h.close()
-	return gnpCommand(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpDisconnectAll, nil)
 }
 
 func getAutoPairing() (bool, error) {
@@ -1222,56 +1299,48 @@ func setAutoPairing(autoPairing bool) error {
 /*                             BATTERY STATUS                               */
 /****************************************************************************/
 
-// getBatteryStatus queries the device via GNP class=0x04 op=0x01.
-// Discovered from live probe (2026-04-12): response is 4 bytes:
-//
-//	byte[0] = RSSI/signal quality (fluctuates, informational)
-//	byte[1] = flags (bit7=charging?, bit6=connected?)
-//	byte[2] = component (0=unknown/main, 1=headband, etc.)
-//	byte[3] = battery level percentage (0-100)
-//
-// Falls back to power_supply sysfs if GNP fails.
+// getBatteryStatus reads Linux's HID power_supply data. The earlier preview
+// treated a fluctuating signal byte as a percentage and produced values above
+// 200%. Until the vendor payload layout is proven across real headsets, the
+// kernel's validated 0..100 capacity is the only accepted battery source.
 func getBatteryStatus(deviceID uint16) (*batteryStatus, error) {
-	var dev *jabra_DeviceInfo
-	for _, d := range deviceManager {
-		if !d.isDongle {
-			dev = d
-			break
-		}
+	dev := deviceForID(deviceID)
+	if dev == nil || dev.isDongle {
+		dev, _ = selectedHeadsetSnapshot()
 	}
 	if dev == nil {
 		return nil, ErrNotSupported
 	}
 
-	// Try GNP query first
-	if h := openDeviceHidraw(dev); h != nil {
-		defer h.close()
-		payload, err := gnpQueryPayload(h, gnpSrcHost, nextSeq(), gnpClassStatus, gnpOpBattery)
-		if err == nil && len(payload) >= 4 {
-			bs := &batteryStatus{
-				levelInPercent: payload[3],
-				charging:       payload[1]&0x80 != 0,
-				batteryLow:     payload[3] <= 10,
-				component:      batteryComponent(payload[2]),
-			}
-			return bs, nil
-		}
-	}
-
-	// Fallback: power_supply sysfs
 	psPath := dev.powerSupply
 	if psPath == "" {
-		return nil, fmt.Errorf("battery: no GNP or power_supply for %s", dev.deviceName)
+		psPath = findPowerSupplyPath(dev.vendorID, dev.productID, dev.serialNumber)
 	}
-	bs := &batteryStatus{component: headband}
-	if cap, err := readIntFile(filepath.Join(psPath, "capacity")); err == nil {
-		bs.levelInPercent = uint8(cap)
+	if psPath == "" {
+		return nil, fmt.Errorf("battery unavailable: no Linux power_supply for %s", dev.deviceName)
 	}
+	bs := &batteryStatus{component: batteryHeadband}
+	capacity, err := readIntFile(filepath.Join(psPath, "capacity"))
+	if err != nil {
+		return nil, fmt.Errorf("read battery capacity: %w", err)
+	}
+	level, err := validatedBatteryCapacity(capacity)
+	if err != nil {
+		return nil, err
+	}
+	bs.levelInPercent = level
 	if status, err := os.ReadFile(filepath.Join(psPath, "status")); err == nil {
-		bs.charging = strings.TrimSpace(string(status)) == "Charging"
+		bs.charging = strings.EqualFold(strings.TrimSpace(string(status)), "Charging")
 	}
 	bs.batteryLow = bs.levelInPercent <= 10
 	return bs, nil
+}
+
+func validatedBatteryCapacity(capacity int) (uint8, error) {
+	if capacity < 0 || capacity > 100 {
+		return 0, fmt.Errorf("invalid kernel battery capacity %d", capacity)
+	}
+	return uint8(capacity), nil
 }
 
 func readIntFile(path string) (int, error) {
@@ -1280,51 +1349,6 @@ func readIntFile(path string) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(strings.TrimSpace(string(b)))
-}
-
-func updatePairingList() {
-	for {
-		select {
-		case <-stopUpdatePairingList:
-			return
-		default:
-			if dongle, exists := deviceManager[selectedDongle]; exists {
-				update := getPairingList(dongle.deviceID)
-				if dongle.pairingList != nil && update != nil {
-					dongle.pairingList.count = update.count
-					dongle.pairingList.listType = update.listType
-					dongle.pairingList.pairedDevices = update.pairedDevices
-					requestUIRedraw()
-				}
-			}
-			time.Sleep(time.Second)
-		}
-	}
-}
-
-func batteryStatusUpdate() {
-	for {
-		select {
-		case <-stopUpdateBattery:
-			return
-		default:
-			if device, exists := deviceManager[selectedHeadset]; exists {
-				battery, err := getBatteryStatus(device.deviceID)
-				if err != nil {
-					time.Sleep(time.Second)
-					continue
-				}
-				device.batteryStatus.levelInPercent = battery.levelInPercent
-				device.batteryStatus.charging = battery.charging
-				device.batteryStatus.batteryLow = battery.batteryLow
-				device.batteryStatus.component = battery.component
-				device.batteryStatus.extraUnitsCount = battery.extraUnitsCount
-				device.batteryStatus.extraUnits = battery.extraUnits
-				requestUIRedraw()
-			}
-			time.Sleep(time.Second)
-		}
-	}
 }
 
 /****************************************************************************/
@@ -1374,43 +1398,6 @@ func readFirmwareVersion(dev *jabra_DeviceInfo) (string, error) {
 	return string(resp[7 : 7+strLen]), nil
 }
 
-type deviceReleases struct {
-	DeviceName string    `json:"deviceName"`
-	Status     string    `json:"status"`
-	Releases   []release `json:"releases"`
-}
-
-type release struct {
-	Version      string     `json:"version"`
-	ReleaseDate  customTime `json:"releaseDate"`
-	DownloadUrl  string     `json:"downloadUrl"`
-	Stage        string     `json:"stage"`
-	FileName     string     `json:"fileName"`
-	FileSize     string     `json:"fileSize"`
-	ReleaseNotes string     `json:"releaseNotes"`
-	RegionGroups []string   `json:"regionGroups"`
-	Languages    []language `json:"languages"`
-}
-
-type language struct {
-	ID    string `json:"id"`
-	Value string `json:"value"`
-}
-
-type customTime struct {
-	time.Time
-}
-
-func (ct *customTime) UnmarshalJSON(b []byte) error {
-	s := strings.Trim(string(b), `"`)
-	t, err := time.Parse("2006-01-02T15:04:05", s)
-	if err != nil {
-		return err
-	}
-	ct.Time = t
-	return nil
-}
-
 // ── Busylight GNP control ────────────────────────────────────────────
 
 // jabraBusylightSender sends busylight commands via GNP.
@@ -1423,7 +1410,7 @@ func (s *jabraBusylightSender) SetBusylight(on bool) error {
 	}
 	// Find device with hidraw (prefer dongle for busylight LED)
 	var dev *jabra_DeviceInfo
-	for _, d := range deviceManager {
+	for _, d := range deviceSnapshots() {
 		if d.hidrawPath != "" {
 			dev = d
 			break
@@ -1454,171 +1441,3 @@ func (s *jabraBusylightSender) SetBusylight(on bool) error {
 	}
 	return fmt.Errorf("busylight: no src address accepted")
 }
-
-func checkForFirmwareUpdate(deviceInfo *jabra_DeviceInfo) (latestVersion, downloadURL, fileName, releaseDate string, err error) {
-	productIdHex := fmt.Sprintf("%x", deviceInfo.productID)
-	vendorIdHex := fmt.Sprintf("%x", deviceInfo.vendorID)
-	url := fmt.Sprintf("https://sdkbackend.jabra.com/v4/Firmware/%s?VendorId=%s&VariantType=%s", productIdHex, vendorIdHex, deviceInfo.variant)
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("bad status: %s", resp.Status)
-		return
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-
-	var deviceReleases deviceReleases
-	err = json.Unmarshal(data, &deviceReleases)
-	if err != nil {
-		err = fmt.Errorf("error unmarshaling JSON: %w", err)
-		return
-	}
-
-	if len(deviceReleases.Releases) == 0 {
-		err = fmt.Errorf("no releases found")
-		return
-	}
-
-	latestRelease := deviceReleases.Releases[0]
-	for _, release := range deviceReleases.Releases[1:] {
-		if release.ReleaseDate.After(latestRelease.ReleaseDate.Time) {
-			latestRelease = release
-		}
-	}
-
-	latestVersion = latestRelease.Version
-	downloadURL = fmt.Sprintf("https://sdkbackend.jabra.com%s", latestRelease.DownloadUrl)
-	fileName = latestRelease.FileName
-	releaseDate = latestRelease.ReleaseDate.Format("2006-01-02")
-	return
-}
-
-func downloadFirmware(url, output string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	out, err := os.Create(output)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
-}
-
-/****************************************************************************/
-/*                           DeviceSettings                                 */
-/****************************************************************************/
-
-type DataType int
-
-const (
-	SettingByte   DataType = 0
-	SettingString DataType = 1
-)
-
-type ControlType int
-
-const (
-	CntrlRadio      ControlType = 0
-	CntrlToggle     ControlType = 1
-	CntrlComboBox   ControlType = 2
-	CntrlDrpDown    ControlType = 3
-	CntrlLabel      ControlType = 4
-	CntrlTextBox    ControlType = 5
-	CntrlButton     ControlType = 6
-	CntrlEditButton ControlType = 7
-	CntrlHorzRuler  ControlType = 8
-	CntrlPwdTextBox ControlType = 9
-	CntrlUnknown    ControlType = 10
-)
-
-type ValidationRule struct {
-	MinLength    int
-	MaxLength    int
-	RegExp       string
-	ErrorMessage string
-}
-
-type DependencySetting struct {
-	GUID       string
-	EnableFlag bool
-}
-
-type ListKeyValue struct {
-	Key            uint16
-	Value          string
-	DependentCount int
-	Dependents     []DependencySetting
-}
-
-type SettingInfo struct {
-	GUID                       string
-	Name                       string
-	HelpText                   string
-	CurrValue                  interface{}
-	ListSize                   int
-	ListKeyValue               []ListKeyValue
-	IsValidationSupport        bool
-	ValidationRule             *ValidationRule
-	IsDeviceRestart            bool
-	IsSettingProtected         bool
-	IsSettingProtectionEnabled bool
-	IsWirelessConnect          bool
-	CntrlType                  ControlType
-	SettingDataType            DataType
-	GroupName                  string
-	GroupHelpText              string
-	IsDepedentsetting          bool
-	DependentDefaultValue      interface{}
-	IsPCsetting                bool
-	IsChildDeviceSetting       bool
-}
-
-type DeviceSettings struct {
-	SettingCount uint
-	Settings     []SettingInfo
-	ErrStatus    int
-}
-
-func GetSettings(deviceID uint16) *DeviceSettings {
-	// TODO: requires GNP query opcode for device settings.
-	// libjabra.so fetches settings schema from Jabra cloud
-	// and reads values via GNP. Needs live capture to decode.
-	return nil
-}
-
-func printSettingOptions(settings *DeviceSettings) {
-	if settings == nil {
-		fmt.Println("No settings available")
-		return
-	}
-	fmt.Printf("Device has %d settings groups:\n", settings.SettingCount)
-	for _, setting := range settings.Settings {
-		fmt.Printf("\n==[ %s ]==\n", setting.Name)
-		fmt.Printf("Group: %s\n", setting.GroupName)
-		fmt.Printf("Current Value: %v\n", setting.CurrValue)
-		if len(setting.ListKeyValue) > 0 {
-			fmt.Println("Available Options:")
-			for _, option := range setting.ListKeyValue {
-				fmt.Printf("  %d: %s\n", option.Key, option.Value)
-			}
-		}
-	}
-}
-
-// unused import guard
-var _ = binary.LittleEndian

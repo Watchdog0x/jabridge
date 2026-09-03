@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/hex"
+	"context"
 	"fmt"
 	"os"
 
@@ -74,19 +74,16 @@ func runTUI() error {
 	}
 	defer restoreTerminal(oldSettings)
 
+	pollContext, stopPoll := context.WithCancel(context.Background())
+	defer stopPoll()
 	updateStartMenu()
-	stopPoll := make(chan struct{})
-	go pollDevices(stopPoll)
+	go pollDevices(pollContext)
 
 	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[0;40;97m")
 	defer fmt.Print("\x1b[0m\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
 
-	defer close(stopUpdateBattery)
-	defer close(stopUpdatePairingList)
-	defer close(stopPoll)
-
 	clearScreen()
-	startUi()
+	startUi(pollContext)
 	return nil
 }
 
@@ -95,11 +92,11 @@ type jabraAPIBridge struct{}
 
 func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 	var out []ipc.DeviceInfo
-	for _, dev := range deviceManager {
+	for _, dev := range deviceSnapshots() {
 		d := ipc.DeviceInfo{
 			Name:     dev.deviceName,
 			PID:      dev.productID,
-			Serial:   dev.serialNumber,
+			Serial:   "",
 			IsDongle: dev.isDongle,
 			Firmware: getFirmwareVersion(dev.deviceID),
 		}
@@ -117,7 +114,11 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 }
 
 func (j *jabraAPIBridge) GetBattery() (*ipc.BatteryInfo, error) {
-	bs, err := getBatteryStatus(0)
+	headset, exists := selectedHeadsetSnapshot()
+	if !exists {
+		return nil, fmt.Errorf("no headset found")
+	}
+	bs, err := getBatteryStatus(headset.deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +131,13 @@ func (j *jabraAPIBridge) GetBattery() (*ipc.BatteryInfo, error) {
 }
 
 func (j *jabraAPIBridge) GetFirmware() string {
-	return getFirmwareVersion(0)
+	if headset, exists := selectedHeadsetSnapshot(); exists && headset.hidrawPath != "" {
+		return getFirmwareVersion(headset.deviceID)
+	}
+	if dongle, exists := selectedDongleSnapshot(); exists {
+		return getFirmwareVersion(dongle.deviceID)
+	}
+	return ""
 }
 
 func (j *jabraAPIBridge) GetFeatures() ipc.FeatureInfo {
@@ -151,15 +158,15 @@ func (j *jabraAPIBridge) GetFeatures() ipc.FeatureInfo {
 }
 
 func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
-	pl := getPairingList(0)
-	if pl == nil {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists || dongle.pairingList == nil {
 		return nil
 	}
 	var out []ipc.PairedDeviceInfo
-	for _, pd := range pl.pairedDevices {
+	for _, pd := range dongle.pairingList.pairedDevices {
 		out = append(out, ipc.PairedDeviceInfo{
 			Name:      pd.deviceName,
-			Addr:      hex.EncodeToString(pd.deviceBTAddr[:]),
+			Addr:      "",
 			Connected: pd.isConnected,
 		})
 	}

@@ -1,0 +1,114 @@
+name: Signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v1.0.0-rc.2
+        required: true
+        type: string
+      prerelease:
+        description: Mark as a prerelease
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate version
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          args: --timeout=5m
+
+      - name: Test
+        run: |
+          go test -race ./...
+          CGO_ENABLED=0 go test ./...
+          CGO_ENABLED=0 go vet ./...
+
+      - name: Build and package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          package="jabridge_${VERSION}_linux_amd64"
+          mkdir -p "release/$package/completions" "release/$package/system"
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X github.com/Watchdog0x/jabridge/internal/buildinfo.Version=${VERSION}" \
+            -o "release/$package/jabridge" .
+          test "$("release/$package/jabridge" --version)" = "Jabridge ${VERSION}"
+          install -m 0644 README.md HARDWARE_TESTING.md CHANGELOG.md LICENSE "release/$package/"
+          install -m 0644 internal/completion/jabridge.bash "release/$package/completions/"
+          install -m 0644 dist/jabridge.service dist/70-jabridge.rules "release/$package/system/"
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+            --mtime="@$(git show -s --format=%ct HEAD)" \
+            -C release -cf - "$package" | gzip -n > "release/$package.tar.gz"
+          (cd release && sha256sum "$package.tar.gz" > "$package.tar.gz.sha256")
+          echo "package=$package" >> "$GITHUB_ENV"
+
+      - name: Sign and verify archive
+        env:
+          SIGNING_KEY: ${{ secrets.JABRIDGE_RELEASE_SIGNING_KEY }}
+        run: |
+          if [[ -z "$SIGNING_KEY" ]]; then
+            echo "JABRIDGE_RELEASE_SIGNING_KEY is not configured" >&2
+            exit 1
+          fi
+          key_file="$RUNNER_TEMP/jabridge-release-key.pem"
+          public_file="$RUNNER_TEMP/jabridge-release-public.pem"
+          umask 077
+          printf '%s' "$SIGNING_KEY" > "$key_file"
+          openssl pkey -in "$key_file" -pubout -out "$public_file"
+          openssl pkeyutl -sign -rawin -inkey "$key_file" \
+            -in "release/$package.tar.gz" | base64 -w0 > "release/$package.tar.gz.sig"
+          base64 -d "release/$package.tar.gz.sig" > "$RUNNER_TEMP/archive.sig"
+          openssl pkeyutl -verify -rawin -pubin -inkey "$public_file" \
+            -in "release/$package.tar.gz" -sigfile "$RUNNER_TEMP/archive.sig"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          release_args=(release create "$RELEASE_TAG"
+            "release/$package.tar.gz"
+            "release/$package.tar.gz.sha256"
+            "release/$package.tar.gz.sig"
+            --target "$GITHUB_SHA"
+            --title "Jabridge ${RELEASE_TAG#v}"
+            --notes "Signed Jabridge application release. Hardware writes remain subject to the validation status documented in the repository.")
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh "${release_args[@]}"

@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"fmt"
+	"context"
 	"net"
 	"os"
 	"path/filepath"
@@ -51,7 +51,9 @@ func TestCheckExistingPID_NoPIDFile(t *testing.T) {
 func TestCheckExistingPID_StalePID(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "test.pid")
 	// Write a PID that doesn't exist (99999999)
-	os.WriteFile(pidFile, []byte("99999999"), 0644)
+	if err := os.WriteFile(pidFile, []byte("99999999"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	err := checkExistingPID(pidFile)
 	if err != nil {
 		t.Fatalf("expected nil for stale PID, got: %v", err)
@@ -61,105 +63,12 @@ func TestCheckExistingPID_StalePID(t *testing.T) {
 func TestCheckExistingPID_LivePID(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "test.pid")
 	// Write our own PID — should detect as running
-	os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	err := checkExistingPID(pidFile)
 	if err == nil {
 		t.Fatal("expected error for live PID, got nil")
-	}
-}
-
-func TestDaemonStartStop(t *testing.T) {
-	dir := t.TempDir()
-	cfg := Config{
-		SocketPath: filepath.Join(dir, "test.sock"),
-		PIDPath:    filepath.Join(dir, "test.pid"),
-	}
-
-	// Start daemon in background with a no-op poller
-	pollCalled := make(chan struct{})
-	errCh := make(chan error, 1)
-
-	go func() {
-		// We can't use Start() directly because it blocks on signals.
-		// Instead, test the components individually.
-
-		// Write PID
-		os.WriteFile(cfg.PIDPath, []byte(strconv.Itoa(os.Getpid())), 0644)
-
-		// Create socket
-		ln, err := net.Listen("unix", cfg.SocketPath)
-		if err != nil {
-			errCh <- err
-			return
-		}
-
-		d := &Daemon{
-			cfg:      cfg,
-			listener: ln,
-			stopPoll: make(chan struct{}),
-			done:     make(chan struct{}),
-			api:      &nilAPI{},
-		}
-
-		go func() {
-			<-d.stopPoll
-			close(pollCalled)
-		}()
-
-		go d.acceptLoop()
-
-		// Let it run briefly
-		time.Sleep(100 * time.Millisecond)
-
-		// Test connection — send a JSON-RPC request and read response
-		conn, err := net.Dial("unix", cfg.SocketPath)
-		if err != nil {
-			errCh <- err
-			d.Stop()
-			return
-		}
-		conn.SetDeadline(time.Now().Add(2 * time.Second))
-		conn.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"version"}` + "\n"))
-		buf := make([]byte, 256)
-		n, _ := conn.Read(buf)
-		conn.Close()
-
-		if n == 0 {
-			errCh <- fmt.Errorf("empty response from daemon")
-			d.Stop()
-			return
-		}
-
-		// Stop
-		d.Stop()
-
-		// Verify cleanup
-		if _, err := os.Stat(cfg.SocketPath); !os.IsNotExist(err) {
-			errCh <- err
-			return
-		}
-		if _, err := os.Stat(cfg.PIDPath); !os.IsNotExist(err) {
-			errCh <- err
-			return
-		}
-
-		errCh <- nil
-	}()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout")
-	}
-
-	select {
-	case <-pollCalled:
-		// poll stop was signaled
-	case <-time.After(time.Second):
-		t.Fatal("poll stop not signaled")
 	}
 }
 
@@ -171,28 +80,36 @@ func TestConnectionResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, stopPoll := context.WithCancel(context.Background())
 	d := &Daemon{
-		cfg:      Config{SocketPath: sockPath},
-		listener: ln,
-		stopPoll: make(chan struct{}),
-		done:     make(chan struct{}),
-		api:      &nilAPI{},
+		cfg:       Config{SocketPath: sockPath},
+		listener:  ln,
+		stopPoll:  stopPoll,
+		done:      make(chan struct{}),
+		api:       &nilAPI{},
+		connSlots: make(chan struct{}, 4),
 	}
 	go d.acceptLoop()
-	defer d.listener.Close()
+	defer func() { _ = d.listener.Close() }()
 
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send a JSON-RPC request
-	conn.SetWriteDeadline(time.Now().Add(time.Second))
-	conn.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"version"}` + "\n"))
+	if err := conn.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"version"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
 
 	buf := make([]byte, 512)
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	n, err := conn.Read(buf)
 	if err != nil {
 		t.Fatal(err)
@@ -204,4 +121,135 @@ func TestConnectionResponse(t *testing.T) {
 	if resp[0] != '{' {
 		t.Errorf("response not JSON: %q", resp)
 	}
+}
+
+func TestCreatePIDFileIsPrivateAndExclusive(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "jabridge.pid")
+	if err := createPIDFile(pidPath); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(pidPath) })
+	info, err := os.Stat(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("PID mode = %o, want 600", got)
+	}
+	if err := createPIDFile(pidPath); err == nil {
+		t.Fatal("second daemon acquired an active PID file")
+	}
+}
+
+func TestCreatePIDFileRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	pidPath := filepath.Join(dir, "jabridge.pid")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, pidPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := createPIDFile(pidPath); err == nil {
+		t.Fatal("PID symlink was accepted")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("symlink target changed to %q", data)
+	}
+}
+
+func TestRunCreatesPrivateSocketAndStopsWithContext(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		SocketPath:      filepath.Join(dir, "jabridge.sock"),
+		PIDPath:         filepath.Join(dir, "jabridge.pid"),
+		MaxConnections:  2,
+		IdleTimeout:     time.Second,
+		DisablePipeWire: true,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, cfg, func(pollContext context.Context) {
+			<-pollContext.Done()
+		}, &nilAPI{})
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		info, err := os.Stat(cfg.SocketPath)
+		if err == nil {
+			if got := info.Mode().Perm(); got != 0o600 {
+				t.Fatalf("socket mode = %o, want 600", got)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("socket was not created: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("daemon did not stop after context cancellation")
+	}
+	if _, err := os.Stat(cfg.SocketPath); !os.IsNotExist(err) {
+		t.Fatalf("socket remains after shutdown: %v", err)
+	}
+}
+
+func TestConnectionLimitRejectsExcessClient(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "limited.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, stopPoll := context.WithCancel(context.Background())
+	daemon := &Daemon{
+		cfg:       Config{SocketPath: socketPath, IdleTimeout: time.Second},
+		listener:  listener,
+		stopPoll:  stopPoll,
+		done:      make(chan struct{}),
+		api:       &nilAPI{},
+		connSlots: make(chan struct{}, 1),
+	}
+	go daemon.acceptLoop()
+	first, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Close() }()
+	deadline := time.Now().Add(time.Second)
+	for len(daemon.connSlots) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("first client did not occupy a connection slot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	second, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = second.Close() }()
+	if err := second.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 1)
+	if _, err := second.Read(buffer); err == nil {
+		t.Fatal("excess client was not closed")
+	}
+	_ = first.Close()
+	daemon.Stop()
 }

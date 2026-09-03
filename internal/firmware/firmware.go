@@ -110,6 +110,7 @@ type USBDevice struct {
 	Manufacturer string
 	Product      string
 	Serial       string
+	ViaDongle    bool
 }
 
 // enumerateUSB walks /sys/bus/usb/devices and returns all devices matching
@@ -189,7 +190,7 @@ func fetchFirmwareInfo(pid uint16) (*Firmware, error) {
 	if err != nil {
 		return nil, fmt.Errorf("http get: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("no firmware catalog entry for product 0x%04x (Jabra does not have metadata for this PID)", pid)
@@ -303,7 +304,7 @@ func downloadFirmware(rel Release, outDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("http get: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download HTTP %d", resp.StatusCode)
@@ -391,7 +392,7 @@ func detectFormat(path string) (FirmwareFormat, error) {
 	if err != nil {
 		return FormatUnknown, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	head := make([]byte, 16)
 	if _, err := io.ReadFull(f, head); err != nil {
@@ -406,7 +407,6 @@ func detectFormat(path string) (FirmwareFormat, error) {
 	case head[0] == 'P' && head[1] == 'K':
 		// ZIP — check whether it contains info.xml with <buildVector>.
 		// If so, it's a Jabra GnV archive (the proprietary CSR-on-ZIP format).
-		f.Close()
 		if isGnVArchive(path) {
 			return FormatGnVArchive, nil
 		}
@@ -436,7 +436,7 @@ func isGnVArchive(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	for _, f := range r.File {
 		if filepath.Base(f.Name) == "info.xml" {
 			rc, err := f.Open()
@@ -445,7 +445,7 @@ func isGnVArchive(path string) bool {
 			}
 			head := make([]byte, 256)
 			n, _ := io.ReadFull(rc, head)
-			rc.Close()
+			_ = rc.Close()
 			return strings.Contains(string(head[:n]), "<buildVector")
 		}
 	}
@@ -487,7 +487,7 @@ func parseGnVArchive(path string) (*BuildVector, map[string][]byte, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open zip: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	contents := make(map[string][]byte, len(r.File))
 	var infoXML []byte
@@ -500,9 +500,12 @@ func parseGnVArchive(path string) (*BuildVector, map[string][]byte, error) {
 			return nil, nil, fmt.Errorf("open %s: %w", f.Name, err)
 		}
 		data, err := io.ReadAll(rc)
-		rc.Close()
+		closeErr := rc.Close()
 		if err != nil {
 			return nil, nil, fmt.Errorf("read %s: %w", f.Name, err)
+		}
+		if closeErr != nil {
+			return nil, nil, fmt.Errorf("close %s: %w", f.Name, closeErr)
 		}
 		contents[filepath.Base(f.Name)] = data
 		if filepath.Base(f.Name) == "info.xml" {
@@ -870,7 +873,7 @@ func cmdBCCMDTest(args []string) {
 	if err != nil {
 		die("open %s: %v", hidrawPath, err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	fmt.Printf("Opened %s — vendor Report ID: 0x%02x\n", hidrawPath, client.ReportID())
 	fmt.Println()
@@ -1003,91 +1006,13 @@ func developerUsage() {
 They remain blocked unless the exact development safety gate is enabled.`)
 }
 
-// cmdInfo enumerates attached Jabra devices and, for each, fetches the
-// firmware metadata from Jabra's CDN to extract the variant type. This
-// gives you everything checkForFirmwareUpdate needs — without libjabra.so.
-//
-// Output per device:
-//
-//	productIdHex  = 24b9
-//	vendorIdHex   = 0b0e
-//	variant       = ev285t
-//	product       = Jabra Evolve2 85
-//	serial        = A1B2C3D4E5F6
-//	latestVersion = 1.5.7
-//	downloadURL   = https://sdkbackend.jabra.com/v4/download/24B9/1.5.7
-func cmdInfo() {
-	devs, err := enumerateUSB()
-	if err != nil {
-		die("enumerate: %v", err)
-	}
-	if len(devs) == 0 {
-		fmt.Println("No Jabra devices attached")
-		return
-	}
-	for _, d := range devs {
-		pidHex := fmt.Sprintf("%04x", d.ProductID)
-		vidHex := fmt.Sprintf("%04x", d.VendorID)
-
-		// Fetch firmware metadata to get variant from the filename.
-		fw, err := fetchFirmwareInfo(d.ProductID)
-		variant := ""
-		latestVer := ""
-		downloadURL := ""
-		fileName := ""
-		if err == nil && len(fw.Releases) > 0 {
-			latestVer = fw.Releases[0].Version
-			downloadURL = DownloadBaseURL + fw.Releases[0].DownloadURL
-			fileName = fw.Releases[0].FileName
-			// Extract variant from filename pattern:
-			// "Jabra_Evolve2_85-v1.5.7-ev285t-vector.zip"
-			// The variant is between the last dash-v{version}- and -vector.zip
-			variant = extractVariant(fileName)
-		}
-
-		fmt.Printf("Device: %s\n", d.Product)
-		fmt.Printf("  productIdHex  = %s\n", pidHex)
-		fmt.Printf("  vendorIdHex   = %s\n", vidHex)
-		fmt.Printf("  variant       = %s\n", variant)
-		fmt.Printf("  serial        = %s\n", displaySerial(d.Serial))
-		if latestVer != "" {
-			fmt.Printf("  latestVersion = %s\n", latestVer)
-			fmt.Printf("  downloadURL   = %s\n", downloadURL)
-			fmt.Printf("  fileName      = %s\n", fileName)
-		} else if err != nil {
-			fmt.Printf("  (firmware lookup failed: %v)\n", err)
-		}
-		fmt.Println()
-	}
-}
-
-// extractVariant parses the variant/type code from a Jabra firmware filename.
-// Pattern: "Jabra_{product}-v{version}-{variant}-vector.zip"
-// Example: "Jabra_Evolve2_85-v1.5.7-ev285t-vector.zip" → "ev285t"
-// Example: "Jabra_Link_380-v1.16.0-l380a-vector.zip" → "l380a"
-func extractVariant(fileName string) string {
-	// Strip the -vector.zip suffix, then take the last dash-separated segment.
-	name := strings.TrimSuffix(fileName, ".zip")
-	name = strings.TrimSuffix(name, "-vector")
-	// Now: "Jabra_Evolve2_85-v1.5.7-ev285t"
-	idx := strings.LastIndex(name, "-")
-	if idx < 0 {
-		return ""
-	}
-	candidate := name[idx+1:]
-	// Skip if it looks like a version (starts with "v" + digit).
-	if len(candidate) > 1 && candidate[0] == 'v' && candidate[1] >= '0' && candidate[1] <= '9' {
-		return ""
-	}
-	return candidate
-}
-
 func cmdStatus() {
 	devs, err := enumerateUSB()
 	if err != nil {
 		die("scan USB devices: %v", err)
 	}
 	devs = usableFirmwareDevices(devs)
+	devs = append(devs, connectedDongleChildren(devs)...)
 	fmt.Printf("jabridge firmware %s\n", buildinfo.Version)
 	if len(devs) == 0 {
 		fmt.Println("No supported Jabra USB device found.")
@@ -1101,14 +1026,81 @@ func cmdStatus() {
 		}
 		fmt.Printf("\n%s\n", name)
 		fmt.Printf("  USB:             0b0e:%04x\n", d.ProductID)
+		if d.ViaDongle {
+			fmt.Println("  Connection:      through dongle")
+		}
+		installed := "unknown"
+		probe := &JabraDevice{
+			VendorID:      d.VendorID,
+			ProductID:     d.ProductID,
+			DeviceName:    name,
+			USBDevicePath: d.SysPath,
+			SerialNumber:  d.Serial,
+			IsDongle:      isDonglePID(d.ProductID),
+		}
+		if !d.ViaDongle {
+			if hidrawPath, err := findHidrawForDevice(probe); err == nil {
+				probe.HidrawPath = hidrawPath
+				if version, err := GetFirmwareVersion(probe); err == nil && version != "" {
+					installed = version
+				}
+			}
+		}
+		fmt.Printf("  Installed:       %s\n", installed)
 		firmware, err := fetchFirmwareInfo(d.ProductID)
 		if err != nil || len(firmware.Releases) == 0 {
 			fmt.Println("  Latest firmware: unknown")
 			continue
 		}
-		fmt.Printf("  Latest firmware: %s\n", firmware.Releases[0].Version)
+		latest := firmware.Releases[0].Version
+		fmt.Printf("  Latest firmware: %s\n", latest)
+		if installed != "unknown" {
+			status := "update available"
+			if installed == latest {
+				status = "up to date"
+			}
+			fmt.Printf("  Status:          %s\n", status)
+		}
 	}
 	fmt.Println("\nRead-only check complete. No device was changed.")
+}
+
+func connectedDongleChildren(devices []USBDevice) []USBDevice {
+	var children []USBDevice
+	for _, device := range devices {
+		if !isDonglePID(device.ProductID) {
+			continue
+		}
+		probe := &JabraDevice{VendorID: device.VendorID, ProductID: device.ProductID, SerialNumber: device.Serial}
+		hidrawPath, err := findHidrawForDevice(probe)
+		if err != nil {
+			continue
+		}
+		transport, err := OpenHidraw(hidrawPath)
+		if err != nil {
+			continue
+		}
+		productID, pidErr := QueryChildProductID(transport, 0x50, 750*time.Millisecond)
+		if pidErr != nil || productID == 0 {
+			_ = transport.Close()
+			continue
+		}
+		name, nameErr := QueryChildName(transport, 0x51, 750*time.Millisecond)
+		_ = transport.Close()
+		if nameErr != nil {
+			continue
+		}
+		if strings.TrimSpace(name) == "" {
+			name = fmt.Sprintf("Jabra headset (PID %04x)", productID)
+		}
+		children = append(children, USBDevice{
+			VendorID:  JabraVendorID,
+			ProductID: productID,
+			Product:   name,
+			ViaDongle: true,
+		})
+	}
+	return children
 }
 
 func cmdCheck(args []string) {
@@ -1467,7 +1459,7 @@ func cmdFlashCsrOta(args []string) {
 		if err != nil {
 			die("usbfs open: %v", err)
 		}
-		defer ut.Close()
+		defer func() { _ = ut.Close() }()
 		tr = ut
 		fmt.Fprintf(os.Stderr, "[flash-csr-ota] using usbfs transport — 30s write timeout\n")
 	} else if dryRun {
@@ -1476,7 +1468,7 @@ func cmdFlashCsrOta(args []string) {
 		if err != nil {
 			die("dry-run create: %v", err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		tr = &dryRunTransport{w: f}
 		fmt.Fprintf(os.Stderr, "[flash-csr-ota] DRY RUN — writes go to %s, no device touched\n", dryPath)
 	} else {
@@ -1484,7 +1476,7 @@ func cmdFlashCsrOta(args []string) {
 		if err != nil {
 			die("open hidraw: %v", err)
 		}
-		defer hr.Close()
+		defer func() { _ = hr.Close() }()
 		tr = hr
 	}
 
@@ -1529,7 +1521,9 @@ type dryRunTransport struct {
 }
 
 func (d *dryRunTransport) Write(report []byte) error {
-	fmt.Fprintf(d.w, "# write %d\n%x\n", d.writeCnt, report)
+	if _, err := fmt.Fprintf(d.w, "# write %d\n%x\n", d.writeCnt, report); err != nil {
+		return err
+	}
 	d.writeCnt++
 	return nil
 }
@@ -1600,7 +1594,7 @@ func cmdDeviceVersion(args []string) {
 	if err != nil {
 		die("open: %v", err)
 	}
-	defer hr.Close()
+	defer func() { _ = hr.Close() }()
 
 	// Try src=0x08 (headset) first. If the response is a NAK (byte[4]==0xFE),
 	// retry with src=0x01 (dongle).
@@ -1663,7 +1657,7 @@ func cmdDongleInfo(args []string) {
 	if err != nil {
 		die("open: %v", err)
 	}
-	defer hr.Close()
+	defer func() { _ = hr.Close() }()
 
 	pid, err := QueryChildProductID(hr, 0x05, 2*time.Second)
 	if err != nil {

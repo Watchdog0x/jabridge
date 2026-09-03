@@ -8,10 +8,12 @@ package ipc
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 )
@@ -68,12 +70,25 @@ type API interface {
 // HandleConnection reads JSON-RPC requests from conn and dispatches them.
 // Blocks until the connection is closed or an error occurs.
 func HandleConnection(conn net.Conn, api API) {
-	defer conn.Close()
+	HandleConnectionWithTimeout(conn, api, 30*time.Second)
+}
+
+// HandleConnectionWithTimeout serves one client and closes idle connections.
+func HandleConnectionWithTimeout(conn net.Conn, api API, idleTimeout time.Duration) {
+	defer func() { _ = conn.Close() }()
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)
 	enc := json.NewEncoder(conn)
 
-	for scanner.Scan() {
+	for {
+		if idleTimeout > 0 {
+			if err := conn.SetReadDeadline(time.Now().Add(idleTimeout)); err != nil {
+				return
+			}
+		}
+		if !scanner.Scan() {
+			return
+		}
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
@@ -81,17 +96,47 @@ func HandleConnection(conn net.Conn, api API) {
 
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
-			enc.Encode(ErrorResponse(nil, ErrCodeParse, "parse error"))
+			if err := encodeResponse(conn, enc, ErrorResponse(nil, ErrCodeParse, "parse error"), idleTimeout); err != nil {
+				return
+			}
 			continue
 		}
-		if req.Method == "" {
-			enc.Encode(ErrorResponse(req.ID, ErrCodeInvalidReq, "missing method"))
+		if req.JSONRPC != "2.0" || req.Method == "" {
+			if err := encodeResponse(conn, enc, ErrorResponse(req.ID, ErrCodeInvalidReq, "invalid JSON-RPC request"), idleTimeout); err != nil {
+				return
+			}
 			continue
 		}
 
 		resp := dispatch(req, api)
-		enc.Encode(resp)
+		if err := encodeResponse(conn, enc, resp, idleTimeout); err != nil {
+			return
+		}
 	}
+}
+
+func encodeResponse(conn net.Conn, encoder *json.Encoder, response Response, timeout time.Duration) error {
+	if timeout > 0 {
+		if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+			return err
+		}
+	}
+	return encoder.Encode(response)
+}
+
+func decodeParams(raw json.RawMessage, target any) error {
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return fmt.Errorf("params contain trailing data")
+	}
+	return nil
 }
 
 func dispatch(req Request, api API) Response {
@@ -133,12 +178,12 @@ func dispatch(req Request, api API) Response {
 
 	case "bt.pair":
 		var params struct {
-			Enable bool `json:"enable"`
+			Enable *bool `json:"enable"`
 		}
-		if req.Params != nil {
-			json.Unmarshal(req.Params, &params)
+		if err := decodeParams(req.Params, &params); err != nil || params.Enable == nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "bt.pair requires boolean enable")
 		}
-		if err := api.SetBTPairing(params.Enable); err != nil {
+		if err := api.SetBTPairing(*params.Enable); err != nil {
 			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
 		}
 		return SuccessResponse(req.ID, map[string]bool{"ok": true})
@@ -147,8 +192,8 @@ func dispatch(req Request, api API) Response {
 		var params struct {
 			Enable *bool `json:"enable,omitempty"`
 		}
-		if req.Params != nil {
-			json.Unmarshal(req.Params, &params)
+		if err := decodeParams(req.Params, &params); err != nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "bt.autopair params must contain boolean enable")
 		}
 		if params.Enable != nil {
 			if err := api.SetAutoPairing(*params.Enable); err != nil {
@@ -166,8 +211,8 @@ func dispatch(req Request, api API) Response {
 		var params struct {
 			Mode string `json:"mode,omitempty"`
 		}
-		if req.Params != nil {
-			json.Unmarshal(req.Params, &params)
+		if err := decodeParams(req.Params, &params); err != nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "device.busylight params must contain string mode")
 		}
 		if params.Mode != "" {
 			if err := api.SetBusylightMode(params.Mode); err != nil {

@@ -21,6 +21,20 @@ Please include:
 - reproducible steps using a fake/replay transport when possible;
 - impact and any known recovery path.
 
+## Application update trust
+
+`jabridge update` accepts a release only when all three checks pass:
+
+- the archive matches its SHA-256 checksum;
+- the archive matches GitHub's release-asset digest when one is present;
+- the archive has a valid Ed25519 signature from the Jabridge release key.
+
+Release-key SHA-256 fingerprint:
+`076bde06762651011f53c8727db097d4129af9fb9fbbfaa3fe9da51fe7d45788`.
+
+The signing key is not used for headset or dongle firmware. Device firmware
+remains under the separate hardware-validation rules below.
+
 ## Device safety
 
 Protocol writes and firmware updates can make hardware unusable. A passing unit

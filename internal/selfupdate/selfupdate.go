@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"debug/elf"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,11 +32,14 @@ const (
 	defaultRepository = "Watchdog0x/jabridge"
 	maxAPIResponse    = 2 << 20
 	maxChecksum       = 64 << 10
+	maxSignature      = 4 << 10
 	maxArchive        = 100 << 20
 	maxBinary         = 64 << 20
 	maxExtraFile      = 4 << 20
 	maxExtracted      = 140 << 20
 )
+
+const releasePublicKeyBase64 = "O/LS2hYTQ7QX/HUss+kAP1daBicZhCqGkO3OezZco5o="
 
 // Asset is one file attached to a GitHub release.
 type Asset struct {
@@ -61,6 +66,7 @@ type Plan struct {
 	ArchiveName      string
 	Archive          Asset
 	Checksum         Asset
+	Signature        Asset
 	NewerThanCurrent bool
 }
 
@@ -71,10 +77,15 @@ type Client struct {
 	Repository string
 	GOOS       string
 	GOARCH     string
+	PublicKey  ed25519.PublicKey
 }
 
 // NewClient returns a client with safe defaults for the official repository.
 func NewClient() *Client {
+	publicKey, err := base64.StdEncoding.DecodeString(releasePublicKeyBase64)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		panic("invalid embedded Jabridge release key")
+	}
 	return &Client{
 		HTTP: &http.Client{
 			Timeout: 2 * time.Minute,
@@ -92,6 +103,7 @@ func NewClient() *Client {
 		Repository: defaultRepository,
 		GOOS:       runtime.GOOS,
 		GOARCH:     runtime.GOARCH,
+		PublicKey:  ed25519.PublicKey(publicKey),
 	}
 }
 
@@ -133,6 +145,7 @@ func (c *Client) Check(ctx context.Context, currentVersion string, includePrerel
 
 	archiveName := fmt.Sprintf("jabridge_%s_linux_%s.tar.gz", version, c.GOARCH)
 	checksumName := archiveName + ".sha256"
+	signatureName := archiveName + ".sig"
 	archive, ok := findAsset(release.Assets, archiveName)
 	if !ok {
 		return Plan{}, fmt.Errorf("release %s has no %s asset", release.TagName, archiveName)
@@ -141,10 +154,15 @@ func (c *Client) Check(ctx context.Context, currentVersion string, includePrerel
 	if !ok {
 		return Plan{}, fmt.Errorf("release %s has no %s asset", release.TagName, checksumName)
 	}
+	signature, ok := findAsset(release.Assets, signatureName)
+	if !ok {
+		return Plan{}, fmt.Errorf("release %s has no %s asset", release.TagName, signatureName)
+	}
 
 	plan.ArchiveName = archiveName
 	plan.Archive = archive
 	plan.Checksum = checksum
+	plan.Signature = signature
 	return plan, nil
 }
 
@@ -160,6 +178,9 @@ func (c *Client) Install(ctx context.Context, plan Plan, executablePath string) 
 	if err := c.validateAssetURL(plan.Checksum.BrowserDownloadURL); err != nil {
 		return fmt.Errorf("checksum URL: %w", err)
 	}
+	if err := c.validateAssetURL(plan.Signature.BrowserDownloadURL); err != nil {
+		return fmt.Errorf("signature URL: %w", err)
+	}
 
 	checksumBody, err := c.download(ctx, plan.Checksum, maxChecksum)
 	if err != nil {
@@ -173,6 +194,17 @@ func (c *Client) Install(ctx context.Context, plan Plan, executablePath string) 
 	archiveBody, err := c.download(ctx, plan.Archive, maxArchive)
 	if err != nil {
 		return fmt.Errorf("download archive: %w", err)
+	}
+	signatureBody, err := c.download(ctx, plan.Signature, maxSignature)
+	if err != nil {
+		return fmt.Errorf("download signature: %w", err)
+	}
+	signature, err := parseSignature(signatureBody)
+	if err != nil {
+		return fmt.Errorf("read signature: %w", err)
+	}
+	if len(c.PublicKey) != ed25519.PublicKeySize || !ed25519.Verify(c.PublicKey, archiveBody, signature) {
+		return errors.New("release signature verification failed")
 	}
 	actual := sha256.Sum256(archiveBody)
 	if !bytes.Equal(actual[:], expected) {
@@ -215,6 +247,9 @@ func (c *Client) setDefaults() {
 	}
 	if c.GOARCH == "" {
 		c.GOARCH = runtime.GOARCH
+	}
+	if len(c.PublicKey) == 0 {
+		c.PublicKey = append(ed25519.PublicKey(nil), NewClient().PublicKey...)
 	}
 }
 
@@ -269,7 +304,7 @@ func (c *Client) getJSON(ctx context.Context, endpoint string, out any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("GitHub returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
@@ -295,7 +330,7 @@ func (c *Client) download(ctx context.Context, asset Asset, limit int64) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned %s", resp.Status)
 	}
@@ -356,19 +391,30 @@ func parseChecksum(body []byte, archiveName string) ([]byte, error) {
 	return digest, nil
 }
 
+func parseSignature(body []byte) ([]byte, error) {
+	signature, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(body)))
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return nil, errors.New("signature is not valid Ed25519 data")
+	}
+	return signature, nil
+}
+
 func extractBinaries(archive []byte) (map[string][]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return nil, fmt.Errorf("open release archive: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	wanted := map[string]bool{"jabridge": true}
 	allowedExtra := map[string]bool{
 		"README.md":           true,
 		"HARDWARE_TESTING.md": true,
+		"CHANGELOG.md":        true,
 		"LICENSE":             true,
 		"jabridge.bash":       true,
+		"jabridge.service":    true,
+		"70-jabridge.rules":   true,
 	}
 	files := make(map[string][]byte, len(wanted))
 	reader := tar.NewReader(gz)
@@ -437,7 +483,7 @@ func validateELF(data []byte, goarch string) error {
 	if err != nil {
 		return fmt.Errorf("not a valid ELF program: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var want elf.Machine
 	switch goarch {
 	case "amd64":
@@ -450,8 +496,8 @@ func validateELF(data []byte, goarch string) error {
 	if file.Machine != want {
 		return fmt.Errorf("wrong machine type %s, expected %s", file.Machine, want)
 	}
-	if file.Type != elf.ET_EXEC {
-		return fmt.Errorf("ELF type is %s, expected executable", file.Type)
+	if file.Type != elf.ET_EXEC && file.Type != elf.ET_DYN {
+		return fmt.Errorf("ELF type is %s, expected executable or PIE", file.Type)
 	}
 	return nil
 }
@@ -481,7 +527,7 @@ func replaceBinaries(executablePath string, files map[string][]byte) error {
 	if err != nil {
 		return fmt.Errorf("cannot write to %s: %w", targetDir, err)
 	}
-	defer os.RemoveAll(stagingDir)
+	defer func() { _ = os.RemoveAll(stagingDir) }()
 
 	type updateFile struct {
 		name      string
@@ -552,11 +598,11 @@ func writeExecutable(name string, data []byte) error {
 		return fmt.Errorf("stage %s: %w", filepath.Base(name), err)
 	}
 	if _, err := file.Write(data); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err := file.Close(); err != nil {
@@ -570,7 +616,7 @@ func syncDirectory(name string) error {
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	return dir.Sync()
 }
 

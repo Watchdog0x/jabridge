@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	shellcompletion "github.com/Watchdog0x/jabridge/internal/completion"
@@ -59,51 +60,52 @@ func runUpdate(args []string) error {
 }
 
 func runStatus() error {
-	devices, err := enumerateJabraUSB()
-	if err != nil {
-		return fmt.Errorf("scan USB devices: %w", err)
-	}
-	filtered := devices[:0]
-	for _, device := range devices {
-		if !isAccessoryName(device.product) {
-			filtered = append(filtered, device)
-		}
-	}
-	devices = filtered
+	scanAndAttachDevices()
+	refreshDongleChildDevice()
+	devices := deviceSnapshots()
 	fmt.Printf("Jabridge %s\n", buildinfo.Version)
 	if len(devices) == 0 {
-		fmt.Println("No supported Jabra USB device found.")
+		fmt.Println("No supported Jabra device found.")
 		return nil
 	}
-	fmt.Printf("%d supported USB device(s):\n", len(devices))
-	for _, usb := range devices {
-		name := usb.product
+	fmt.Printf("%d supported device(s):\n", len(devices))
+	ids := make([]int, 0, len(devices))
+	for id := range devices {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	for _, id := range ids {
+		device := devices[id]
+		name := device.deviceName
 		if name == "" {
 			name = "Unknown device"
 		}
 		kind := "Headset"
-		if isKnownDonglePID(usb.productID) {
+		if device.isDongle {
 			kind = "Dongle"
 		}
 		fmt.Printf("\n%s: %s\n", kind, name)
-		fmt.Printf("  USB:      %04x:%04x\n", usb.vendorID, usb.productID)
-		device := &jabra_DeviceInfo{
-			productID:  usb.productID,
-			vendorID:   usb.vendorID,
-			deviceName: name,
-			isDongle:   isKnownDonglePID(usb.productID),
-			hidrawPath: findHidrawForPID(usb.vendorID, usb.productID),
+		fmt.Printf("  ID:         %04x:%04x\n", device.vendorID, device.productID)
+		connection := "USB"
+		if device.deviceConnection == deviceConnectionType_BT {
+			connection = "through dongle"
 		}
-		if device.hidrawPath == "" {
-			fmt.Println("  Control:  unavailable (no matching hidraw device)")
-			continue
+		fmt.Printf("  Connection: %s\n", connection)
+		if device.batteryStatus != nil {
+			charging := ""
+			if device.batteryStatus.charging {
+				charging = " (charging)"
+			}
+			fmt.Printf("  Battery:    %d%%%s\n", device.batteryStatus.levelInPercent, charging)
 		}
-		version, err := readFirmwareVersion(device)
-		if err != nil {
-			fmt.Printf("  Firmware: unavailable (%v)\n", err)
-			continue
+		if device.hidrawPath != "" {
+			version, err := readFirmwareVersion(device)
+			if err != nil {
+				fmt.Printf("  Firmware:   unavailable (%v)\n", err)
+			} else {
+				fmt.Printf("  Firmware:   %s\n", version)
+			}
 		}
-		fmt.Printf("  Firmware: %s\n", version)
 	}
 	return nil
 }

@@ -106,7 +106,7 @@ func OpenUsbfs(vid, pid uint16, timeout time.Duration) (*UsbfsTransport, error) 
 		data:      0,
 	}
 	// Ignore errors — the interface might not be claimed by a driver.
-	syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), usbfsIoctlCmd,
+	_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), usbfsIoctlCmd,
 		uintptr(unsafe.Pointer(&disconn)))
 
 	// Claim interface 3.
@@ -114,7 +114,7 @@ func OpenUsbfs(vid, pid uint16, timeout time.Duration) (*UsbfsTransport, error) 
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(),
 		usbfsClaimInterface, uintptr(unsafe.Pointer(&ifNum)))
 	if errno != 0 {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("claim interface %d: %w", intfNum, errno)
 	}
 
@@ -201,7 +201,7 @@ func (t *UsbfsTransport) Close() error {
 	}
 	// Release interface.
 	ifNum := uint32(t.intfNum)
-	syscall.Syscall(syscall.SYS_IOCTL, t.f.Fd(),
+	_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, t.f.Fd(),
 		usbfsRelease, uintptr(unsafe.Pointer(&ifNum)))
 	err := t.f.Close()
 	t.f = nil

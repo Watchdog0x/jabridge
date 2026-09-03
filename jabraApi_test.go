@@ -3,25 +3,35 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
+	"sync"
 	"testing"
+	"time"
 )
 
 func withDeviceState(t *testing.T, manager devices, headset, dongle int) {
 	t.Helper()
+	deviceStateMu.Lock()
 	oldManager := deviceManager
 	oldHeadset := selectedHeadset
 	oldDongle := selectedDongle
-	oldStartMenu := startMenu
-	oldDongleMenu := dongleSettignsMenu
+	oldChildMisses := dongleChildMisses
 	deviceManager = manager
 	selectedHeadset = headset
 	selectedDongle = dongle
+	dongleChildMisses = 0
+	deviceStateMu.Unlock()
+	oldStartMenu := startMenu
+	oldDongleMenu := dongleSettingsLines
 	t.Cleanup(func() {
+		deviceStateMu.Lock()
 		deviceManager = oldManager
 		selectedHeadset = oldHeadset
 		selectedDongle = oldDongle
+		dongleChildMisses = oldChildMisses
+		deviceStateMu.Unlock()
 		startMenu = oldStartMenu
-		dongleSettignsMenu = oldDongleMenu
+		dongleSettingsLines = oldDongleMenu
 	})
 }
 
@@ -182,5 +192,150 @@ func TestParsePairingListRecords(t *testing.T) {
 	}
 	if _, err := parsePairingRecord(name, record[:11]); err == nil {
 		t.Fatal("truncated pairing record was accepted")
+	}
+}
+
+func TestPairingListDeduplicatesBluetoothTypes(t *testing.T) {
+	address := [6]byte{1, 2, 3, 4, 5, 6}
+	devices := []pairedDevice{
+		{deviceName: "Headset", deviceBTAddr: address},
+		{deviceName: "Headset", deviceBTAddr: address, isConnected: true},
+	}
+	got := deduplicatePairedDevices(devices)
+	if len(got) != 1 {
+		t.Fatalf("deduplicated list has %d devices, want 1", len(got))
+	}
+	if !got[0].isConnected {
+		t.Fatal("connected state was lost while deduplicating")
+	}
+}
+
+func TestMissingUSBDeviceIsRemoved(t *testing.T) {
+	dongle := &jabra_DeviceInfo{
+		deviceID: 0, productID: 0x24c8, isDongle: true,
+		usbDevicePath: "/sys/device/dongle",
+	}
+	headset := &jabra_DeviceInfo{
+		deviceID: 1, productID: 0x24b7,
+		usbDevicePath: "/sys/device/headset",
+	}
+	withDeviceState(t, devices{0: dongle, 1: headset}, 1, 0)
+
+	removeMissingUSBDevices(map[string]bool{"/sys/device/dongle": true})
+	if _, exists := deviceAt(1); exists {
+		t.Fatal("detached headset remained in the registry")
+	}
+	if _, exists := selectedHeadsetSnapshot(); exists {
+		t.Fatal("detached headset remained selected")
+	}
+}
+
+func TestDongleChildLifecycle(t *testing.T) {
+	dongle := &jabra_DeviceInfo{deviceID: 0, productID: 0x24c8, isDongle: true}
+	withDeviceState(t, devices{0: dongle}, -1, 0)
+
+	if !upsertDongleChild(0, 0x24b7, "Jabra Evolve2 65") {
+		t.Fatal("new dongle child did not change state")
+	}
+	child, exists := selectedHeadsetSnapshot()
+	if !exists || child.productID != 0x24b7 || child.deviceConnection != deviceConnectionType_BT {
+		t.Fatalf("unexpected dongle child: %#v", child)
+	}
+	if upsertDongleChild(0, 0x24b7, "Jabra Evolve2 65") {
+		t.Fatal("unchanged dongle child triggered a redraw")
+	}
+	removeDongleChildAfterMiss()
+	if _, exists := selectedHeadsetSnapshot(); !exists {
+		t.Fatal("one transient miss removed the dongle child")
+	}
+	removeDongleChildAfterMiss()
+	if _, exists := selectedHeadsetSnapshot(); exists {
+		t.Fatal("two misses did not remove the dongle child")
+	}
+}
+
+func TestDeviceRegistryConcurrentSnapshotsAndUpdates(t *testing.T) {
+	headset := &jabra_DeviceInfo{deviceID: 0, productID: 0x24b7, batteryStatus: &batteryStatus{levelInPercent: 48}}
+	withDeviceState(t, devices{0: headset}, 0, -1)
+
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		for range 1000 {
+			_ = deviceSnapshots()
+			_, _ = selectedHeadsetSnapshot()
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		for value := range 1000 {
+			updateDeviceByID(0, func(device *jabra_DeviceInfo) {
+				device.batteryStatus.levelInPercent = uint8(value % 101)
+			})
+		}
+	}()
+	workers.Wait()
+}
+
+func TestHidrawReadHonorsPollTimeout(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	defer func() { _ = writer.Close() }()
+	connection := &hidrawConn{f: reader, path: "test-pipe"}
+	started := time.Now()
+	if _, err := connection.read(25 * time.Millisecond); err == nil {
+		t.Fatal("empty HID pipe did not time out")
+	}
+	elapsed := time.Since(started)
+	if elapsed < 15*time.Millisecond || elapsed > 500*time.Millisecond {
+		t.Fatalf("poll timeout took %s", elapsed)
+	}
+}
+
+func TestBatteryCapacityRejectsSignalLikeValues(t *testing.T) {
+	for _, invalid := range []int{-1, 218, 230, 248} {
+		if _, err := validatedBatteryCapacity(invalid); err == nil {
+			t.Fatalf("battery capacity %d was accepted", invalid)
+		}
+	}
+	if got, err := validatedBatteryCapacity(48); err != nil || got != 48 {
+		t.Fatalf("battery capacity 48 = %d, %v", got, err)
+	}
+}
+
+func TestBatteryUsesValidatedPowerSupply(t *testing.T) {
+	powerSupply := t.TempDir()
+	if err := os.WriteFile(powerSupply+"/capacity", []byte("48\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(powerSupply+"/status", []byte("Charging\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	headset := &jabra_DeviceInfo{
+		deviceID: 0, productID: 0x24b7, powerSupply: powerSupply,
+	}
+	withDeviceState(t, devices{0: headset}, 0, -1)
+
+	battery, err := getBatteryStatus(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if battery.levelInPercent != 48 || !battery.charging {
+		t.Fatalf("battery = %#v, want 48%% charging", battery)
+	}
+	if err := os.WriteFile(powerSupply+"/capacity", []byte("51\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(powerSupply+"/status", []byte("Discharging\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refreshSelectedDeviceData()
+	updated, exists := selectedHeadsetSnapshot()
+	if !exists || updated.batteryStatus == nil || updated.batteryStatus.levelInPercent != 51 || updated.batteryStatus.charging {
+		t.Fatalf("refreshed battery = %#v", updated)
 	}
 }

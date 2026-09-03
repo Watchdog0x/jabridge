@@ -9,9 +9,10 @@ Go, GCC, .NET, Node.js, the Jabra SDK, or Jabra Device Connector.
 
 > [!WARNING]
 > Version 1.0.0 is still a hardware test preview. Safe, read-only checks pass on
-> one Link 380 dongle. We have not tested a replacement headset. Pairing
-> changes, reset, busylight changes, and firmware flashing are not ready for
-> normal use and stay blocked by default.
+> one Link 380 dongle. RC1 testing with an Evolve2 65 found headset bugs. RC2
+> contains fixes that still need the same headset retest. Pairing changes,
+> reset, busylight changes, and firmware flashing are not ready for normal use
+> and stay blocked by default.
 
 The new name avoids confusion with SEGGER J-Link, which also uses the `jlink`
 name on Linux.
@@ -27,9 +28,9 @@ Download the Linux x86-64 archive and checksum from
 [Releases](https://github.com/Watchdog0x/jabridge/releases).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.1_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.1_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.1_linux_amd64
+sha256sum -c jabridge_*_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_*_linux_amd64.tar.gz
+cd jabridge_*_linux_amd64
 ./jabridge --version
 ./jabridge status
 ./jabridge firmware
@@ -40,7 +41,16 @@ Jabridge is one static file. You can copy it to another compatible Linux
 computer and run it there.
 
 Linux must still allow your user account to open the Jabra `hidraw` device. If
-you get a permission error, report it. Do not run the whole app as root.
+you get a permission error, install the included access rule, then reconnect
+the USB device:
+
+```bash
+sudo install -m 0644 system/70-jabridge.rules /usr/lib/udev/rules.d/70-jabridge.rules
+sudo udevadm control --reload-rules
+```
+
+DEB and RPM packages install this rule automatically. Do not run the whole app
+as root.
 
 ## Update Jabridge
 
@@ -57,8 +67,8 @@ Install the latest app release:
 ```
 
 Testers can include release candidates with `./jabridge update --prerelease`.
-The command verifies the release checksum and replaces the `jabridge` app. It
-never updates a headset or dongle.
+The command verifies the release signature and checksum, then replaces the
+`jabridge` app. It never updates a headset or dongle.
 
 ## Bash completion
 
@@ -97,7 +107,7 @@ automatic busylight behavior.
 - Checks that a firmware file matches the attached device model.
 - Runs as a TUI or a local background service.
 - Builds as one static Linux program.
-- Updates the app with an explicit checksum-checked CLI command.
+- Updates the app with an explicit signature- and checksum-checked command.
 - Includes Bash completion for all commands.
 - Tests firmware-update code with fake devices.
 
@@ -131,11 +141,11 @@ locked in this preview. Do not enable it for community testing.
 
 ## Build from source
 
-Only developers building the program need Go 1.23.2 or newer:
+Only developers building the program need Go 1.23.2 or newer and
+golangci-lint 2.13.2 or newer:
 
 ```bash
 make check
-make lint
 make build
 ```
 
@@ -159,5 +169,6 @@ Jabridge is an independent community project. It is not made, approved, or
 supported by GN Audio A/S. Jabra is a trademark of GN Audio A/S. Product names
 are used only to say which hardware may be compatible.
 
-Jabridge source is licensed under Apache-2.0. Vendor SDKs, Device Connector,
-`jfwu`, and firmware stay under their own terms and are not redistributed here.
+Jabridge source is licensed under [Apache-2.0](LICENSE). Vendor SDKs, Device
+Connector, `jfwu`, and firmware stay under their own terms and are not
+redistributed here.

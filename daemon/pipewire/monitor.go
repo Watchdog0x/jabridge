@@ -80,7 +80,9 @@ func ParseSnapshot(data []byte) (*Snapshot, error) {
 		case strings.Contains(obj.Type, "Node"):
 			var props NodeProps
 			if obj.Info.Props != nil {
-				json.Unmarshal(obj.Info.Props, &props)
+				if err := json.Unmarshal(obj.Info.Props, &props); err != nil {
+					return nil, fmt.Errorf("parse PipeWire node %d properties: %w", obj.ID, err)
+				}
 			}
 			snap.Nodes = append(snap.Nodes, Node{
 				ID:    obj.ID,

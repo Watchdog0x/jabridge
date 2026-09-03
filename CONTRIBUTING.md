@@ -7,6 +7,7 @@ Thank you for helping maintain Jabridge.
 Requirements:
 
 - Go 1.23.2 or newer
+- golangci-lint 2.13.2 or newer
 - Linux for device-facing code
 - PipeWire tools for meeting-detection integration tests
 
@@ -14,7 +15,6 @@ Requirements:
     cd jabridge
     git remote add upstream https://github.com/Watchdog0x/jabridge.git
     make check
-    make lint
     make build
 
 The project builds with CGO_ENABLED=0; no Jabra shared library is required.
@@ -27,7 +27,7 @@ the TUI a client of that service.
 
 1. Create a focused branch from main.
 2. Add tests for changed behavior.
-3. Run `make check`, `make lint`, and `make build`.
+3. Run `make check` and `make build`.
 4. Document the tested device model, VID:PID, connection type, and Linux
    distribution.
 5. Distinguish unit/fake-transport results from real hardware results.

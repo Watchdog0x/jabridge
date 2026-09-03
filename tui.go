@@ -37,7 +37,6 @@ const (
 type actionResult struct {
 	message            string
 	err                error
-	refreshDongleMenu  bool
 	returnToMainMenu   bool
 	clearSearchResults bool
 }
@@ -54,12 +53,9 @@ var (
 
 	width, height = 0, 0
 
-	currentSelection  = 0
-	menuState         = 0
-	startMenuSelected = -1
+	currentSelection = 0
+	menuState        = 0
 
-	selectedItemsPairedDevices       = -1
-	menuItemsPairedDevices           = [5]string{"Q Back", "1 Connect", "2 Disconnect", "3 Remove", "4 Clear"}
 	selectedItemsSearchForNewDevices = -1
 	menuItemsSearchForNewDevices     = [2]string{"Q Back", "1 Connect"}
 
@@ -127,7 +123,7 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 	fd := int(os.Stdin.Fd())
 	nonblocking := unix.SetNonblock(fd, true) == nil
 	if nonblocking {
-		defer unix.SetNonblock(fd, false)
+		defer func() { _ = unix.SetNonblock(fd, false) }()
 	}
 
 	buf := make([]byte, 16)
@@ -217,14 +213,12 @@ func handleBackKey(results chan<- actionResult) bool {
 		return true
 	case screenSearch:
 		menuState = screenStartMenu
-		startMenuSelected = -1
 		currentSelection = 0
 		runUIAction(results, "Pairing stopped", func() error {
 			return setDongleInBTPairing(false)
 		})
 	case screenPairedDevices, screenDongleSettings, screenSwitchDevice, screenFirmware:
 		menuState = screenStartMenu
-		startMenuSelected = -1
 		currentSelection = 0
 	}
 	return false
@@ -247,7 +241,6 @@ func handleEnterKey(results chan<- actionResult) bool {
 }
 
 func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
-	startMenuSelected = currentSelection
 	currentSelection = 0
 
 	switch item.id {
@@ -260,7 +253,7 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 		menuState = screenPairedDevices
 	case 2:
 		menuState = screenDongleSettings
-		updateDongleSettignsMenu()
+		updateDongleSettings()
 	case 4:
 		menuState = screenFirmware
 		refreshFirmwareView(results)
@@ -319,12 +312,6 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 
 type actionOption func(*actionResult)
 
-func withDongleMenuRefresh() actionOption {
-	return func(result *actionResult) {
-		result.refreshDongleMenu = true
-	}
-}
-
 func withReturnToMainMenu() actionOption {
 	return func(result *actionResult) {
 		result.returnToMainMenu = true
@@ -339,10 +326,7 @@ func runUIAction(results chan<- actionResult, successMessage string, action func
 		}
 		result.err = action()
 
-		select {
-		case results <- result:
-		default:
-		}
+		results <- result
 	}()
 }
 
@@ -386,11 +370,10 @@ func refreshFirmwareView(results chan<- actionResult) {
 }
 
 func selectedFirmwareDevice() (*jabra_DeviceInfo, bool) {
-	if dongle, exists := deviceManager[selectedDongle]; exists {
+	if dongle, exists := selectedDongleSnapshot(); exists {
 		return dongle, true
 	}
-	headset, exists := deviceManager[selectedHeadset]
-	return headset, exists
+	return selectedHeadsetSnapshot()
 }
 
 func applyActionResult(result actionResult) {
@@ -400,12 +383,8 @@ func applyActionResult(result actionResult) {
 	} else if result.message != "" {
 		setStatus(result.message, false)
 	}
-	if result.refreshDongleMenu {
-		updateDongleSettignsMenu()
-	}
 	if result.returnToMainMenu {
 		menuState = screenStartMenu
-		startMenuSelected = -1
 		currentSelection = 0
 	}
 	if result.clearSearchResults {
@@ -428,7 +407,7 @@ func currentMenuLength() int {
 	case screenSearch:
 		return len(searchDeviceList.pairedDevices)
 	case screenPairedDevices:
-		if dongle, exists := deviceManager[selectedDongle]; exists && dongle.pairingList != nil {
+		if dongle, exists := selectedDongleSnapshot(); exists && dongle.pairingList != nil {
 			return len(dongle.pairingList.pairedDevices)
 		}
 	case screenDongleSettings:
@@ -535,10 +514,10 @@ func header() {
 	}
 
 	moveCursor(2, left)
-	dongle, exists := deviceManager[selectedDongle]
+	dongle, exists := selectedDongleSnapshot()
 	if !exists {
 		if firstScanComplete.Load() {
-			if headset, headsetExists := deviceManager[selectedHeadset]; headsetExists {
+			if headset, headsetExists := selectedHeadsetSnapshot(); headsetExists {
 				fmt.Printf("USB: %s", trimToWidth(headset.deviceName, max(10, width/3)))
 			} else {
 				fmt.Print("Dongle: Not connected")
@@ -551,7 +530,7 @@ func header() {
 		fmt.Printf("Dongle: %s", trimToWidth(dongle.deviceName, max(10, width/3)))
 	}
 
-	headset, exists := deviceManager[selectedHeadset]
+	headset, exists := selectedHeadsetSnapshot()
 	if !exists {
 		label := "Headset: Scanning"
 		if firstScanComplete.Load() {
@@ -562,10 +541,19 @@ func header() {
 		return
 	}
 	if headset.batteryStatus == nil {
+		label := fmt.Sprintf("Headset: %s  Battery unavailable", headset.deviceName)
+		moveCursor(2, max(left, right-displayWidth(label)))
+		fmt.Printf("\033[97m%s\033[0;40;97m", label)
 		return
 	}
 
 	levelInPercent := headset.batteryStatus.levelInPercent
+	if levelInPercent > 100 {
+		label := fmt.Sprintf("Headset: %s  Battery unavailable", headset.deviceName)
+		moveCursor(2, max(left, right-displayWidth(label)))
+		fmt.Printf("\033[97m%s\033[0;40;97m", label)
+		return
+	}
 	filledSegments := int(math.Round(float64(levelInPercent) / 100 * batteryWidth))
 	if filledSegments < 0 {
 		filledSegments = 0
@@ -626,8 +614,8 @@ func renderHomeSummary() {
 		drawCenteredStyled(6, "Looking for supported devices...", "\033[1;96m")
 		return
 	}
-	dongle, hasDongle := deviceManager[selectedDongle]
-	headset, hasHeadset := deviceManager[selectedHeadset]
+	dongle, hasDongle := selectedDongleSnapshot()
+	headset, hasHeadset := selectedHeadsetSnapshot()
 	switch {
 	case hasDongle && hasHeadset:
 		drawCenteredStyled(6, "Headset connected", "\033[1;96m")
@@ -651,7 +639,7 @@ func refreshSearchDeviceList() {
 	}
 	nextSearchRefresh = time.Now().Add(time.Second)
 
-	dongle, exists := deviceManager[selectedDongle]
+	dongle, exists := selectedDongleSnapshot()
 	if !exists {
 		return
 	}
@@ -696,7 +684,7 @@ func menuSearchForNewDevices() {
 func menuPairedDevices() {
 	drawingBox()
 
-	dongle, exists := deviceManager[selectedDongle]
+	dongle, exists := selectedDongleSnapshot()
 	if !exists || dongle.pairingList == nil {
 		drawCentered(5, "No dongle selected", true)
 		return
@@ -723,14 +711,14 @@ func menuPairedDevices() {
 	drawActionBar([]string{"Q Back", "Read-only"}, -1)
 }
 
-func dongleSettigns() {
+func renderDongleSettings() {
 	drawingBox()
 	drawCenteredStyled(6, "Dongle settings", "\033[1;96m")
 
-	if len(dongleSettignsMenu) == 0 {
+	if len(dongleSettingsLines) == 0 {
 		drawCentered(8, "No dongle connected", false)
 	} else {
-		for i, item := range dongleSettignsMenu {
+		for i, item := range dongleSettingsLines {
 			row := 8 + i
 			_, _, panelBottom := panelBounds()
 			if row >= panelBottom {
@@ -886,9 +874,17 @@ func resetExpiredFlash() {
 	if flashUntil.IsZero() || time.Now().Before(flashUntil) {
 		return
 	}
-	selectedItemsPairedDevices = -1
 	selectedItemsSearchForNewDevices = -1
 	flashUntil = time.Time{}
+	requestUIRedraw()
+}
+
+func clearExpiredStatus() {
+	if statusMessage == "" || time.Now().Before(statusUntil) {
+		return
+	}
+	statusMessage = ""
+	statusUntil = time.Time{}
 	requestUIRedraw()
 }
 
@@ -926,15 +922,8 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func startUi() {
-	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+func startUi(parent context.Context) {
+	ctx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
 	keyEvents := make(chan keyEvent, 32)
@@ -963,6 +952,7 @@ func startUi() {
 			forceRedraw = true
 		case <-ticker.C:
 			resetExpiredFlash()
+			clearExpiredStatus()
 			refreshSearchDeviceList()
 			if !firstScanComplete.Load() {
 				forceRedraw = true
@@ -982,6 +972,7 @@ func startUi() {
 			renderSmallTerminal()
 			continue
 		}
+		updateStartMenu()
 		header()
 
 		switch menuState {
@@ -990,7 +981,7 @@ func startUi() {
 		case screenPairedDevices:
 			menuPairedDevices()
 		case screenDongleSettings:
-			dongleSettigns()
+			renderDongleSettings()
 		case screenSwitchDevice:
 			renderSwitchDevice()
 		case screenFirmware:

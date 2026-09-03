@@ -5,7 +5,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"debug/elf"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -95,6 +99,10 @@ func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 	digest := sha256.Sum256(archive)
 	archiveName := "jabridge_1.0.0_linux_amd64.tar.gz"
 	checksum := []byte(fmt.Sprintf("%x  %s\n", digest, archiveName))
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	signature := []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, archive)) + "\n")
+	badSignature := []byte(base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize)) + "\n")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -102,6 +110,10 @@ func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 			_, _ = w.Write(archive)
 		case "/checksum":
 			_, _ = w.Write(checksum)
+		case "/signature":
+			_, _ = w.Write(signature)
+		case "/bad-signature":
+			_, _ = w.Write(badSignature)
 		default:
 			http.NotFound(w, r)
 		}
@@ -120,13 +132,27 @@ func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 		Repository: "owner/repo",
 		GOOS:       "linux",
 		GOARCH:     "amd64",
+		PublicKey:  publicKey,
 	}
 	plan := Plan{
 		Version:          "1.0.0",
 		ArchiveName:      archiveName,
 		Archive:          Asset{Name: archiveName, BrowserDownloadURL: server.URL + "/archive", Size: int64(len(archive))},
 		Checksum:         Asset{Name: archiveName + ".sha256", BrowserDownloadURL: server.URL + "/checksum", Size: int64(len(checksum))},
+		Signature:        Asset{Name: archiveName + ".sig", BrowserDownloadURL: server.URL + "/signature", Size: int64(len(signature))},
 		NewerThanCurrent: true,
+	}
+	badPlan := plan
+	badPlan.Signature = Asset{Name: archiveName + ".sig", BrowserDownloadURL: server.URL + "/bad-signature", Size: int64(len(badSignature))}
+	if err := client.Install(context.Background(), badPlan, runningPath); err == nil {
+		t.Fatal("invalid release signature was accepted")
+	}
+	unchanged, err := os.ReadFile(runningPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged) != "old jabridge" {
+		t.Fatal("binary changed after invalid signature")
 	}
 	if err := client.Install(context.Background(), plan, runningPath); err != nil {
 		t.Fatal(err)
@@ -147,6 +173,27 @@ func TestExtractBinariesRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestValidateELFAcceptsPIE(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("ELF fixture uses the current Linux amd64 test binary")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < 18 {
+		t.Fatal("test executable has no ELF type field")
+	}
+	binary.LittleEndian.PutUint16(data[16:18], uint16(elf.ET_DYN))
+	if err := validateELF(data, "amd64"); err != nil {
+		t.Fatalf("PIE was rejected: %v", err)
+	}
+}
+
 func TestParseChecksumRequiresMatchingName(t *testing.T) {
 	digest := sha256.Sum256([]byte("archive"))
 	body := []byte(fmt.Sprintf("%x  wrong.tar.gz\n", digest))
@@ -155,11 +202,29 @@ func TestParseChecksumRequiresMatchingName(t *testing.T) {
 	}
 }
 
+func TestParseSignatureRejectsInvalidData(t *testing.T) {
+	if _, err := parseSignature([]byte("not-a-signature")); err == nil {
+		t.Fatal("invalid release signature was accepted")
+	}
+}
+
+func TestEmbeddedReleaseKeyMatchesSigningVector(t *testing.T) {
+	signature, err := base64.StdEncoding.DecodeString("+zyn6ipl/0KeKmJtTjYY/OngKBOGfCOYoVEz/W7pUwBSskFaEqCZEsomz9FJOS581732L7hV3cCxA1NhD/EDAQ==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := []byte("jabridge-release-key-self-test-v1")
+	if !ed25519.Verify(NewClient().PublicKey, message, signature) {
+		t.Fatal("embedded public key does not match the release signer")
+	}
+}
+
 func releaseAssets(base, version string) []Asset {
 	name := "jabridge_" + version + "_linux_amd64.tar.gz"
 	return []Asset{
 		{Name: name, BrowserDownloadURL: base + "/" + name, Size: 10},
 		{Name: name + ".sha256", BrowserDownloadURL: base + "/" + name + ".sha256", Size: 10},
+		{Name: name + ".sig", BrowserDownloadURL: base + "/" + name + ".sig", Size: 10},
 	}
 }
 

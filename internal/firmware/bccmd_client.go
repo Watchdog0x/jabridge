@@ -53,6 +53,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // BCCMD variable IDs (varid). In CSR BCCMD the 16-bit "opcode" is a varid —
@@ -121,7 +123,7 @@ func OpenBCCMD(hidrawPath string) (*BCCMDClient, error) {
 	// Jabra products (varies by chip).
 	rptID, err := c.pickVendorReportID()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("pick report id: %w", err)
 	}
 	c.reportID = rptID
@@ -292,28 +294,37 @@ func (c *BCCMDClient) buildBCCMDPacket(msgType, opcode uint16, payload []byte) [
 	return report
 }
 
-// readWithTimeout performs a polling read on the hidraw fd with a deadline.
-// Uses non-blocking I/O + sleep loop (stdlib-only, no x/sys/unix dep).
+// readWithTimeout performs a poll-based read on the hidraw fd with a deadline.
 // Returns the bytes read, or an error on timeout / I/O failure.
 func (c *BCCMDClient) readWithTimeout(timeout time.Duration) ([]byte, error) {
 	fd := int(c.fd.Fd())
-	if err := syscall.SetNonblock(fd, true); err != nil {
-		return nil, fmt.Errorf("set non-block: %w", err)
-	}
-	defer syscall.SetNonblock(fd, false)
-
 	deadline := time.Now().Add(timeout)
 	buf := make([]byte, 128)
 	for {
-		n, err := syscall.Read(fd, buf)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("read timeout after %s — device did not respond to BCCMD request", timeout)
+		}
+		milliseconds := int((remaining + time.Millisecond - 1) / time.Millisecond)
+		pollFDs := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		ready, err := unix.Poll(pollFDs, milliseconds)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("hid poll: %w", err)
+		}
+		if ready == 0 {
+			return nil, fmt.Errorf("read timeout after %s — device did not respond to BCCMD request", timeout)
+		}
+		if pollFDs[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+			return nil, fmt.Errorf("hid poll failed: revents=0x%x", pollFDs[0].Revents)
+		}
+		n, err := unix.Read(fd, buf)
 		if err == nil {
 			return buf[:n], nil
 		}
-		if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
-			if time.Now().After(deadline) {
-				return nil, fmt.Errorf("read timeout after %s — device did not respond to BCCMD request", timeout)
-			}
-			time.Sleep(10 * time.Millisecond)
+		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
 			continue
 		}
 		return nil, fmt.Errorf("hid read: %w", err)
@@ -367,27 +378,4 @@ func (c *BCCMDClient) PSRead(pskeyID uint16, maxWords uint16) ([]byte, error) {
 		return nil, fmt.Errorf("response too short: %d bytes", len(resp))
 	}
 	return resp, nil
-}
-
-// ── Demo entry point ──────────────────────────────────────────────────────
-
-// Demo function — not the main, so this file coexists with firmware.go.
-// To run: build as a separate binary or temporarily wire into main().
-func bccmdDemo(hidrawPath string) error {
-	client, err := OpenBCCMD(hidrawPath)
-	if err != nil {
-		return fmt.Errorf("open: %w", err)
-	}
-	defer client.Close()
-
-	fmt.Printf("Opened %s  (vendor Report ID: 0x%02x)\n", hidrawPath, client.ReportID())
-
-	// PS key 0x01 (PSKEY_BDADDR on BlueCore — the device's Bluetooth address).
-	// Safe to read; every CSR BlueCore chip responds to this.
-	resp, err := client.PSRead(0x0001, 8)
-	if err != nil {
-		return fmt.Errorf("PSRead: %w", err)
-	}
-	fmt.Printf("Response (%d bytes): % x\n", len(resp), resp)
-	return nil
 }

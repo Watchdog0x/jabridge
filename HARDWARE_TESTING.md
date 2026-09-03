@@ -16,16 +16,17 @@ test reads device information. It must not change your device.
 
 ## Run the safe test
 
-Download the Linux x86-64 archive and checksum from the
-[v1.0.0-rc.1 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.1).
+Download the Linux x86-64 archive, checksum, and signature from the
+[v1.0.0-rc.2 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.2).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.1_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.1_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.1_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.2_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.2_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.2_linux_amd64
 ./jabridge --version
 ./jabridge status
 ./jabridge firmware
+source <(./jabridge completion bash)
 ./jabridge
 ```
 
@@ -35,6 +36,9 @@ Then exit without choosing an action that changes the device.
 
 The TUI opens the device directly. Do not run `jabridge --daemon` during this
 test.
+
+If `hidraw` access is denied, install `system/70-jabridge.rules` as described
+in the README and reconnect the USB device. Do not run Jabridge with `sudo`.
 
 ## Send your result
 

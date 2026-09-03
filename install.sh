@@ -34,7 +34,15 @@ ldflags="-s -w -X ${module_path}/internal/buildinfo.Version=${version}"
 
 install -Dm755 "$build_dir/jabridge" "$prefix/bin/jabridge"
 install -Dm644 "$script_dir/internal/completion/jabridge.bash" "$prefix/share/bash-completion/completions/jabridge"
+install -Dm644 "$script_dir/dist/jabridge.service" "$prefix/lib/systemd/user/jabridge.service"
+
+if [[ "${INSTALL_UDEV_RULES:-0}" == "1" ]]; then
+    udev_rules_dir="${UDEV_RULES_DIR:-/usr/lib/udev/rules.d}"
+    install -Dm644 "$script_dir/dist/70-jabridge.rules" "$udev_rules_dir/70-jabridge.rules"
+    printf 'Installed device-access rule to %s\n' "$udev_rules_dir"
+fi
 
 printf 'Installed Jabridge %s to %s/bin\n' "$version" "$prefix"
 printf 'Installed Bash completion to %s/share/bash-completion/completions\n' "$prefix"
+printf 'Installed user service to %s/lib/systemd/user\n' "$prefix"
 printf '%s\n' "No proprietary vendor library or updater was installed."

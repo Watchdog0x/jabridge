@@ -9,9 +9,8 @@
 //   - read(fd, buf, report_size) receives the next input report
 // Report ID is the first byte of both buffers.
 //
-// We use syscall.Read with non-blocking mode + a polling loop so Read()
-// can honor a user-supplied deadline without needing a dedicated goroutine.
-// This matches bccmd_client.go's style (no cgo, no libusb, no libhidapi).
+// We use poll(2) so Read can honor a deadline without spinning or changing
+// descriptor flags shared with another goroutine.
 
 package firmware
 
@@ -19,10 +18,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // HidrawTransport is an OtaTransport bound to a single /dev/hidrawN node.
@@ -65,22 +65,32 @@ func (t *HidrawTransport) Write(report []byte) error {
 	return nil
 }
 
-// Read pulls the next HID input report with a polling loop bounded by
-// timeout. Uses non-blocking I/O so we don't need a goroutine or a
-// blocking-read cancellation mechanism. The poll interval (2ms) is
-// short enough that device-side event latency is the dominant factor
-// and long enough that we don't burn CPU.
+// Read pulls the next HID input report with poll(2), bounded by timeout.
 func (t *HidrawTransport) Read(timeout time.Duration) ([]byte, error) {
 	fd := int(t.f.Fd())
-	if err := syscall.SetNonblock(fd, true); err != nil {
-		return nil, fmt.Errorf("hidraw setnonblock: %w", err)
-	}
-	defer syscall.SetNonblock(fd, false)
-
 	deadline := time.Now().Add(timeout)
 	buf := make([]byte, 256) // large enough for any HID report size
 	for {
-		n, err := syscall.Read(fd, buf)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("hidraw read timeout after %s", timeout)
+		}
+		milliseconds := int((remaining + time.Millisecond - 1) / time.Millisecond)
+		pollFDs := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		ready, err := unix.Poll(pollFDs, milliseconds)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("hidraw poll: %w", err)
+		}
+		if ready == 0 {
+			return nil, fmt.Errorf("hidraw read timeout after %s", timeout)
+		}
+		if pollFDs[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+			return nil, fmt.Errorf("hidraw poll failed: revents=0x%x", pollFDs[0].Revents)
+		}
+		n, err := unix.Read(fd, buf)
 		if err == nil {
 			// Discard non-GNP reports. The Jabra device sends multiple
 			// HID report types (audio, buttons, etc.) — only report ID
@@ -93,16 +103,7 @@ func (t *HidrawTransport) Read(timeout time.Duration) ([]byte, error) {
 			}
 			return append([]byte(nil), buf[:n]...), nil
 		}
-		if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
-			if time.Now().After(deadline) {
-				return nil, fmt.Errorf("hidraw read timeout after %s", timeout)
-			}
-			// Yield without sleeping. Go's time.Sleep has ~1ms
-			// kernel granularity that throttles throughput to
-			// ~10 chunks/sec. Busy-yield gets ~200+ chunks/sec
-			// matching jfwu's native throughput. CPU cost is
-			// acceptable for a 3-minute flash operation.
-			runtime.Gosched()
+		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
 			continue
 		}
 		return nil, fmt.Errorf("hidraw read: %w", err)
@@ -315,7 +316,7 @@ func DetectGnpReportSize(hidrawPath string) int {
 	if err != nil {
 		return 63
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Step 1: get descriptor size
 	var size int32

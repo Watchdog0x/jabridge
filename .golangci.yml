@@ -2,11 +2,6 @@ version: "2"
 
 linters:
   default: standard
-  # The protocol layer keeps parity fields and future handlers that are not
-  # wired into the preview yet. Cleanup-error debt is tracked separately.
-  disable:
-    - errcheck
-    - unused
 
 formatters:
   enable:

@@ -32,4 +32,4 @@ _jabridge_completion() {
     esac
 }
 
-complete -F _jabridge_completion jabridge
+complete -F _jabridge_completion jabridge ./jabridge

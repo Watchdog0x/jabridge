@@ -29,7 +29,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -183,10 +182,17 @@ func GetFirmwareVersion(dev *JabraDevice) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 
-	seq := byte(0x01)
-	query := buildInitQuery(GnpSrcHost, seq, 0x02, 0x03)
+	source := GnpSrcHost
+	if dev.IsDongle {
+		source = 0x01
+	}
+	return queryFirmwareVersion(tr, source, 0x01)
+}
+
+func queryFirmwareVersion(tr OtaTransport, source, seq byte) (string, error) {
+	query := buildInitQuery(source, seq, 0x02, 0x03)
 	if err := tr.Write(query); err != nil {
 		return "", fmt.Errorf("write: %w", err)
 	}
@@ -235,7 +241,7 @@ func GetDeviceGNPInfo(dev *JabraDevice) (*DeviceGNPInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 
 	seq := byte(0x00)
 	query := buildInitQuery(GnpSrcHost, seq, 0x02, 0x02)
@@ -275,7 +281,7 @@ func GetLanguageID(dev *JabraDevice) (uint16, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 
 	seq := byte(0x02)
 	query := buildInitQuery(GnpSrcHost, seq, 0x13, 0x08)
@@ -412,154 +418,6 @@ func hidUeventMatches(data []byte, vid, pid uint16) bool {
 		return vidErr == nil && pidErr == nil && uint16(gotVID) == vid && uint16(gotPID) == pid
 	}
 	return false
-}
-
-// ── Device manager (replaces Jabra_InitializeV2 callback model) ─────���─
-
-// DeviceEvent is emitted when a device is attached or detached.
-type DeviceEvent struct {
-	Device   *JabraDevice
-	Attached bool
-}
-
-// DeviceManager handles USB device discovery and lifecycle. It replaces
-// libjabra.so's Jabra_InitializeV2 callback mechanism with a channel-
-// based event model that's more natural in Go.
-type DeviceManager struct {
-	mu       sync.RWMutex
-	devices  map[uint16]*JabraDevice // keyed by productID (unique enough for most setups)
-	events   chan DeviceEvent
-	stop     chan struct{}
-	nextID   uint16
-	pollRate time.Duration
-}
-
-// NewDeviceManager creates a manager that polls sysfs for Jabra devices.
-// Events are delivered on the Events() channel.
-func NewDeviceManager(pollRate time.Duration) *DeviceManager {
-	if pollRate <= 0 {
-		pollRate = time.Second
-	}
-	return &DeviceManager{
-		devices:  make(map[uint16]*JabraDevice),
-		events:   make(chan DeviceEvent, 16),
-		stop:     make(chan struct{}),
-		pollRate: pollRate,
-	}
-}
-
-// Start begins polling for Jabra USB devices. Call Stop() to end.
-func (dm *DeviceManager) Start() {
-	go dm.pollLoop()
-}
-
-// Stop ends the polling loop and closes the events channel.
-func (dm *DeviceManager) Stop() {
-	close(dm.stop)
-}
-
-// Events returns the channel that receives attach/detach events.
-func (dm *DeviceManager) Events() <-chan DeviceEvent {
-	return dm.events
-}
-
-// Devices returns a snapshot of all currently attached devices.
-func (dm *DeviceManager) Devices() []*JabraDevice {
-	dm.mu.RLock()
-	defer dm.mu.RUnlock()
-	out := make([]*JabraDevice, 0, len(dm.devices))
-	for _, d := range dm.devices {
-		out = append(out, d)
-	}
-	return out
-}
-
-func (dm *DeviceManager) pollLoop() {
-	// Initial scan
-	dm.scan()
-
-	ticker := time.NewTicker(dm.pollRate)
-	defer ticker.Stop()
-	defer close(dm.events)
-
-	for {
-		select {
-		case <-dm.stop:
-			return
-		case <-ticker.C:
-			dm.scan()
-		}
-	}
-}
-
-func (dm *DeviceManager) scan() {
-	usbDevs, err := enumerateUSB()
-	if err != nil {
-		return
-	}
-
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
-
-	// Build set of currently-seen serial numbers
-	seen := make(map[string]bool, len(usbDevs))
-	for _, ud := range usbDevs {
-		key := fmt.Sprintf("%04x:%s", ud.ProductID, ud.Serial)
-		seen[key] = true
-
-		// Check if already tracked
-		found := false
-		for _, existing := range dm.devices {
-			if existing.ProductID == ud.ProductID && existing.SerialNumber == ud.Serial {
-				found = true
-				break
-			}
-		}
-		if found {
-			continue
-		}
-
-		// New device
-		dev := &JabraDevice{
-			DeviceID:      dm.nextID,
-			ProductID:     ud.ProductID,
-			VendorID:      ud.VendorID,
-			DeviceName:    ud.Product,
-			USBDevicePath: ud.SysPath,
-			SerialNumber:  ud.Serial,
-			IsDongle:      isDonglePID(ud.ProductID),
-			ConnType:      ConnUSB,
-		}
-		dm.nextID++
-
-		// Try to find hidraw + power_supply paths
-		if hidraw, err := findHidrawForDevice(dev); err == nil {
-			dev.HidrawPath = hidraw
-		}
-		if ps, err := findPowerSupply(dev); err == nil {
-			dev.PowerSupply = ps
-		}
-
-		dm.devices[dev.DeviceID] = dev
-
-		// Non-blocking send
-		select {
-		case dm.events <- DeviceEvent{Device: dev, Attached: true}:
-		default:
-		}
-	}
-
-	// Check for removals
-	for id, existing := range dm.devices {
-		key := fmt.Sprintf("%04x:%s", existing.ProductID, existing.SerialNumber)
-		if !seen[key] {
-			delete(dm.devices, id)
-			select {
-			case dm.events <- DeviceEvent{Device: existing, Attached: false}:
-			default:
-			}
-		}
-	}
 }
 
 // isDonglePID returns true if a product ID is a known Jabra dongle.

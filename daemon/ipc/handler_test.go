@@ -47,17 +47,27 @@ func sendRequest(t *testing.T, conn net.Conn, method string, params interface{})
 	id := json.RawMessage(`1`)
 	req := Request{JSONRPC: "2.0", ID: id, Method: method}
 	if params != nil {
-		p, _ := json.Marshal(params)
+		p, err := json.Marshal(params)
+		if err != nil {
+			t.Fatal(err)
+		}
 		req.Params = p
 	}
-	data, _ := json.Marshal(req)
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	data = append(data, '\n')
-	conn.SetWriteDeadline(time.Now().Add(time.Second))
+	if err := conn.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := conn.Write(data); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	scanner := bufio.NewScanner(conn)
 	if !scanner.Scan() {
 		t.Fatal("no response")
@@ -73,7 +83,7 @@ func setupTest(t *testing.T) (client net.Conn, cleanup func()) {
 	t.Helper()
 	server, client := net.Pipe()
 	go HandleConnection(server, &mockAPI{})
-	return client, func() { client.Close() }
+	return client, func() { _ = client.Close() }
 }
 
 func TestVersion(t *testing.T) {
@@ -191,6 +201,52 @@ func TestUnknownMethod(t *testing.T) {
 	if resp.Error.Code != ErrCodeMethodNF {
 		t.Errorf("code = %d, want %d", resp.Error.Code, ErrCodeMethodNF)
 	}
+}
+
+func TestInvalidWriteParamsAreRejected(t *testing.T) {
+	tests := []Request{
+		{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "bt.pair", Params: json.RawMessage(`{"enable":"yes"}`)},
+		{JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "bt.pair"},
+		{JSONRPC: "2.0", ID: json.RawMessage(`3`), Method: "bt.autopair", Params: json.RawMessage(`{"unknown":true}`)},
+		{JSONRPC: "2.0", ID: json.RawMessage(`4`), Method: "device.busylight", Params: json.RawMessage(`{"mode":7}`)},
+	}
+	api := &mockAPI{}
+	for _, request := range tests {
+		response := dispatch(request, api)
+		if response.Error == nil || response.Error.Code != ErrCodeInvalidP {
+			t.Fatalf("%s response = %#v, want invalid params", request.Method, response)
+		}
+	}
+}
+
+func TestConnectionRejectsWrongJSONRPCVersion(t *testing.T) {
+	client, cleanup := setupTest(t)
+	defer cleanup()
+	if _, err := client.Write([]byte(`{"jsonrpc":"1.0","id":1,"method":"version"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var response Response
+	if err := json.NewDecoder(client).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error == nil || response.Error.Code != ErrCodeInvalidReq {
+		t.Fatalf("response = %#v, want invalid request", response)
+	}
+}
+
+func TestIdleConnectionIsClosed(t *testing.T) {
+	server, client := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		HandleConnectionWithTimeout(server, &mockAPI{}, 25*time.Millisecond)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("idle IPC connection was not closed")
+	}
+	_ = client.Close()
 }
 
 func TestMultipleRequests(t *testing.T) {

@@ -6,6 +6,8 @@
 package daemon
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -26,6 +28,9 @@ type Config struct {
 	SocketPath      string          // default: $XDG_RUNTIME_DIR/jabridge.sock
 	PIDPath         string          // default: $XDG_RUNTIME_DIR/jabridge.pid
 	BusylightSender BusylightSender // nil if device has no busylight
+	MaxConnections  int
+	IdleTimeout     time.Duration
+	DisablePipeWire bool // tests and hosts without PipeWire
 }
 
 // DefaultConfig returns paths under $XDG_RUNTIME_DIR.
@@ -35,8 +40,10 @@ func DefaultConfig() Config {
 		dir = fmt.Sprintf("/run/user/%d", os.Getuid())
 	}
 	return Config{
-		SocketPath: filepath.Join(dir, "jabridge.sock"),
-		PIDPath:    filepath.Join(dir, "jabridge.pid"),
+		SocketPath:     filepath.Join(dir, "jabridge.sock"),
+		PIDPath:        filepath.Join(dir, "jabridge.pid"),
+		MaxConnections: 32,
+		IdleTimeout:    30 * time.Second,
 	}
 }
 
@@ -44,76 +51,94 @@ func DefaultConfig() Config {
 type Daemon struct {
 	cfg       Config
 	listener  net.Listener
-	stopPoll  chan struct{}
+	stopPoll  context.CancelFunc
 	done      chan struct{}
 	api       ipc.API
 	pwMon     *pipewire.Monitor
 	busylight *BusylightController
 	stopOnce  sync.Once
+	connSlots chan struct{}
 }
 
-// Start creates the PID file, opens the Unix socket, and begins
-// accepting connections. Blocks until Stop() is called or a signal
-// (SIGTERM/SIGINT) is received. The api parameter provides the
-// device management functions for the IPC handler.
-func Start(cfg Config, pollFunc func(stop <-chan struct{}), api ipc.API) error {
+// Start runs the service until SIGTERM or SIGINT.
+func Start(cfg Config, pollFunc func(context.Context), api ipc.API) error {
+	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stopSignals()
+	return Run(ctx, cfg, pollFunc, api)
+}
+
+// Run creates the PID file and Unix socket, then serves until ctx is canceled.
+// It is the programmatic entry point used by tests and service managers.
+func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ipc.API) error {
+	if cfg.MaxConnections <= 0 {
+		cfg.MaxConnections = 32
+	}
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = 30 * time.Second
+	}
 	// Single-instance check
-	if err := checkExistingPID(cfg.PIDPath); err != nil {
+	if err := createPIDFile(cfg.PIDPath); err != nil {
 		return err
 	}
+	cleanupPID := true
+	defer func() {
+		if cleanupPID {
+			_ = os.Remove(cfg.PIDPath)
+		}
+	}()
 
-	// Write PID file
-	if err := os.WriteFile(cfg.PIDPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
-		return fmt.Errorf("write PID file: %w", err)
+	if err := removeStaleSocket(cfg.SocketPath); err != nil {
+		return err
 	}
-
-	// Remove stale socket
-	os.Remove(cfg.SocketPath)
 
 	// Create Unix socket
 	ln, err := net.Listen("unix", cfg.SocketPath)
 	if err != nil {
-		os.Remove(cfg.PIDPath)
 		return fmt.Errorf("listen %s: %w", cfg.SocketPath, err)
 	}
+	if err := os.Chmod(cfg.SocketPath, 0o600); err != nil {
+		_ = ln.Close()
+		_ = os.Remove(cfg.SocketPath)
+		return fmt.Errorf("secure socket %s: %w", cfg.SocketPath, err)
+	}
+	pollContext, stopPoll := context.WithCancel(context.Background())
 
 	d := &Daemon{
-		cfg:      cfg,
-		listener: ln,
-		stopPoll: make(chan struct{}),
-		done:     make(chan struct{}),
+		cfg:       cfg,
+		listener:  ln,
+		stopPoll:  stopPoll,
+		done:      make(chan struct{}),
+		connSlots: make(chan struct{}, cfg.MaxConnections),
 	}
 
 	// Start device polling
-	go pollFunc(d.stopPoll)
+	go pollFunc(pollContext)
 
 	// Start PipeWire monitor for meeting detection + busylight
 	d.busylight = NewBusylightController(cfg.BusylightSender)
 	d.api = &busylightAPI{API: api, ctrl: d.busylight}
-	d.pwMon = pipewire.NewMonitor(500*time.Millisecond, func(state pipewire.CallState) {
-		// Forward to busylight controller (handles feature check internally)
-		d.busylight.OnCallStateChange(state)
-		if state.InCall {
-			fmt.Fprintf(os.Stderr, "[jabridge] call started: %s\n", state.AppName)
-		} else {
-			fmt.Fprintln(os.Stderr, "[jabridge] call ended")
-		}
-	})
-	go d.pwMon.Start()
+	if !cfg.DisablePipeWire {
+		d.pwMon = pipewire.NewMonitor(2*time.Second, func(state pipewire.CallState) {
+			// Forward to busylight controller (handles feature check internally)
+			d.busylight.OnCallStateChange(state)
+			if state.InCall {
+				fmt.Fprintf(os.Stderr, "[jabridge] call started: %s\n", state.AppName)
+			} else {
+				fmt.Fprintln(os.Stderr, "[jabridge] call ended")
+			}
+		})
+		go d.pwMon.Start()
+	}
 
 	// Accept connections
 	go d.acceptLoop()
 
-	// Signal handling
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-
 	fmt.Fprintf(os.Stderr, "[jabridge] daemon started (pid=%d socket=%s)\n", os.Getpid(), cfg.SocketPath)
 
-	// Block until signal
-	<-sigCh
+	<-ctx.Done()
 	fmt.Fprintln(os.Stderr, "[jabridge] shutting down...")
 	d.Stop()
+	cleanupPID = false
 	return nil
 }
 
@@ -121,17 +146,19 @@ func Start(cfg Config, pollFunc func(stop <-chan struct{}), api ipc.API) error {
 func (d *Daemon) Stop() {
 	d.stopOnce.Do(func() {
 		if d.listener != nil {
-			d.listener.Close()
+			_ = d.listener.Close()
 		}
 
 		if d.pwMon != nil {
 			d.pwMon.Stop()
 		}
 
-		close(d.stopPoll)
+		if d.stopPoll != nil {
+			d.stopPoll()
+		}
 
-		os.Remove(d.cfg.SocketPath)
-		os.Remove(d.cfg.PIDPath)
+		_ = os.Remove(d.cfg.SocketPath)
+		_ = os.Remove(d.cfg.PIDPath)
 
 		close(d.done)
 		fmt.Fprintln(os.Stderr, "[jabridge] shutdown complete")
@@ -145,12 +172,20 @@ func (d *Daemon) acceptLoop() {
 			// Listener closed — normal during shutdown
 			return
 		}
-		go d.handleConnection(conn)
+		select {
+		case d.connSlots <- struct{}{}:
+			go func() {
+				defer func() { <-d.connSlots }()
+				d.handleConnection(conn)
+			}()
+		default:
+			_ = conn.Close()
+		}
 	}
 }
 
 func (d *Daemon) handleConnection(conn net.Conn) {
-	ipc.HandleConnection(conn, d.api)
+	ipc.HandleConnectionWithTimeout(conn, d.api, d.cfg.IdleTimeout)
 }
 
 type busylightAPI struct {
@@ -163,8 +198,7 @@ func (a *busylightAPI) SetBusylightMode(mode string) error {
 	if err != nil {
 		return err
 	}
-	a.ctrl.SetMode(parsed)
-	return nil
+	return a.ctrl.SetMode(parsed)
 }
 
 func (a *busylightAPI) GetBusylightMode() string {
@@ -173,12 +207,22 @@ func (a *busylightAPI) GetBusylightMode() string {
 
 // checkExistingPID checks if another daemon instance is already running.
 func checkExistingPID(pidPath string) error {
+	info, err := os.Lstat(pidPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect PID file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing unsafe PID path %s", pidPath)
+	}
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
-		return nil // no PID file — OK
+		return fmt.Errorf("read PID file: %w", err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
+	if err != nil || pid <= 1 {
 		return nil // corrupt PID file — OK to overwrite
 	}
 	// Check if process is alive
@@ -191,4 +235,52 @@ func checkExistingPID(pidPath string) error {
 		return nil // process is dead — stale PID file
 	}
 	return fmt.Errorf("another jabridge daemon is running (pid=%d)", pid)
+}
+
+func createPIDFile(pidPath string) error {
+	if err := checkExistingPID(pidPath); err != nil {
+		return err
+	}
+	if err := os.Remove(pidPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale PID file: %w", err)
+	}
+	file, err := os.OpenFile(pidPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create PID file: %w", err)
+	}
+	created := true
+	defer func() {
+		_ = file.Close()
+		if created {
+			_ = os.Remove(pidPath)
+		}
+	}()
+	if _, err := fmt.Fprintf(file, "%d", os.Getpid()); err != nil {
+		return fmt.Errorf("write PID file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync PID file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close PID file: %w", err)
+	}
+	created = false
+	return nil
+}
+
+func removeStaleSocket(socketPath string) error {
+	info, err := os.Lstat(socketPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect socket path: %w", err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("refusing to remove non-socket path %s", socketPath)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		return fmt.Errorf("remove stale socket: %w", err)
+	}
+	return nil
 }

@@ -1,11 +1,16 @@
 package daemon
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon/pipewire"
 )
+
+type failingSender struct{}
+
+func (failingSender) SetBusylight(bool) error { return errors.New("device rejected command") }
 
 type mockSender struct {
 	calls []bool // true=on, false=off
@@ -55,7 +60,9 @@ func TestBusylightAutoMode_NoDoubleToggle(t *testing.T) {
 func TestBusylightManualOn(t *testing.T) {
 	sender := &mockSender{}
 	ctrl := NewBusylightController(sender)
-	ctrl.SetMode(BusylightOn)
+	if err := ctrl.SetMode(BusylightOn); err != nil {
+		t.Fatal(err)
+	}
 
 	if !ctrl.IsOn() {
 		t.Fatal("light should be ON in manual-on mode")
@@ -79,7 +86,9 @@ func TestBusylightManualOff(t *testing.T) {
 	}
 
 	// Switch to manual off
-	ctrl.SetMode(BusylightOff)
+	if err := ctrl.SetMode(BusylightOff); err != nil {
+		t.Fatal(err)
+	}
 	if ctrl.IsOn() {
 		t.Fatal("light should be OFF after switching to off mode")
 	}
@@ -99,9 +108,21 @@ func TestBusylightModeSwitch(t *testing.T) {
 		t.Errorf("default mode = %v, want auto", ctrl.Mode())
 	}
 
-	ctrl.SetMode(BusylightOn)
+	if err := ctrl.SetMode(BusylightOn); err != nil {
+		t.Fatal(err)
+	}
 	if ctrl.Mode() != BusylightOn {
 		t.Errorf("mode = %v, want on", ctrl.Mode())
+	}
+}
+
+func TestBusylightModeRollsBackOnHardwareError(t *testing.T) {
+	ctrl := NewBusylightController(failingSender{})
+	if err := ctrl.SetMode(BusylightOn); err == nil {
+		t.Fatal("hardware error was swallowed")
+	}
+	if ctrl.Mode() != BusylightAuto || ctrl.IsOn() {
+		t.Fatal("controller state changed after failed hardware write")
 	}
 }
 

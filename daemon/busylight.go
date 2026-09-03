@@ -70,18 +70,25 @@ func NewBusylightController(sender BusylightSender) *BusylightController {
 }
 
 // SetMode changes the busy light mode and immediately applies it.
-func (c *BusylightController) SetMode(mode BusylightMode) {
+func (c *BusylightController) SetMode(mode BusylightMode) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	oldMode := c.mode
 	c.mode = mode
 
+	var err error
 	switch mode {
 	case BusylightOn:
-		c.setLight(true)
+		err = c.setLight(true)
 	case BusylightOff:
-		c.setLight(false)
+		err = c.setLight(false)
+	}
+	if err != nil {
+		c.mode = oldMode
+		return err
 	}
 	// Auto mode: light state is managed by OnCallStateChange
+	return nil
 }
 
 // Mode returns the current mode.
@@ -109,20 +116,26 @@ func (c *BusylightController) OnCallStateChange(state pipewire.CallState) {
 	}
 
 	if state.InCall && !c.lightOn {
-		c.setLight(true)
-		fmt.Fprintf(os.Stderr, "[busylight] auto ON — call from %s\n", state.AppName)
+		if err := c.setLight(true); err != nil {
+			fmt.Fprintf(os.Stderr, "[busylight] GNP error: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "[busylight] auto ON — call from %s\n", state.AppName)
+		}
 	} else if !state.InCall && c.lightOn {
-		c.setLight(false)
-		fmt.Fprintln(os.Stderr, "[busylight] auto OFF — call ended")
+		if err := c.setLight(false); err != nil {
+			fmt.Fprintf(os.Stderr, "[busylight] GNP error: %v\n", err)
+		} else {
+			fmt.Fprintln(os.Stderr, "[busylight] auto OFF — call ended")
+		}
 	}
 }
 
-func (c *BusylightController) setLight(on bool) {
+func (c *BusylightController) setLight(on bool) error {
 	if c.sender != nil {
 		if err := c.sender.SetBusylight(on); err != nil {
-			fmt.Fprintf(os.Stderr, "[busylight] GNP error: %v\n", err)
-			return
+			return err
 		}
 	}
 	c.lightOn = on
+	return nil
 }

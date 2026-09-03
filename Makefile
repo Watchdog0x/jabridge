@@ -37,15 +37,19 @@ test-static:
 completion-check:
 	bash -n internal/completion/jabridge.bash
 
-check: fmt vet test test-static completion-check
+check: fmt vet test test-static completion-check lint
 
 install: build
 	install -Dm755 $(BUILD_DIR)/$(BINARY_NAME) $(DESTDIR)$(PREFIX)/bin/$(BINARY_NAME)
 	install -Dm644 internal/completion/jabridge.bash $(DESTDIR)$(PREFIX)/share/bash-completion/completions/jabridge
+	install -Dm644 dist/jabridge.service $(DESTDIR)$(PREFIX)/lib/systemd/user/jabridge.service
+	install -Dm644 dist/70-jabridge.rules $(DESTDIR)/usr/lib/udev/rules.d/70-jabridge.rules
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(BINARY_NAME)
 	rm -f $(DESTDIR)$(PREFIX)/share/bash-completion/completions/jabridge
+	rm -f $(DESTDIR)$(PREFIX)/lib/systemd/user/jabridge.service
+	rm -f $(DESTDIR)/usr/lib/udev/rules.d/70-jabridge.rules
 
 clean:
 	rm -f $(BUILD_DIR)/$(BINARY_NAME)

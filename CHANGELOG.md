@@ -18,7 +18,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   step or vendor runtime libraries.
 - Explicit `jabridge update` command with platform matching, SHA-256 checking,
   safe archive handling, atomic replacement, and rollback on failure.
+- Ed25519-signed application releases and signature verification during
+  self-update.
 - Bash completion for the full `jabridge` command tree.
+- A user service and udev rule for non-root `hidraw` access.
 - CI, community templates, and native package definitions.
 
 ### Changed
@@ -29,6 +32,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   `jabridge firmware` so users need only one program.
 - Removed CGo, Jabra headers, libjabra.so, and their runtime dependencies.
 - Unsupported hardware operations now return errors rather than false success.
+- Device state now uses synchronized snapshots and one cancellable refresh loop.
+- Firmware status now shows installed and latest versions together.
+
+### Fixed
+
+- Removed invalid battery readings above 100% by using validated Linux
+  `power_supply` data instead of an unverified protocol byte.
+- Removed duplicate remembered devices returned through multiple Bluetooth
+  database types.
+- Removed stale USB devices after unplug and reconnect.
+- Prevented periodic TUI redraw flicker when device state has not changed.
+- Added read-only discovery of a headset connected through a supported dongle.
+- Added strict IPC parameter validation, idle timeouts, and connection limits.
+- Restricted daemon socket and PID files to the current user and rejected
+  unsafe filesystem paths.
+- Accepted both standard ELF executables and PIE binaries during app updates.
 
 ### Safety
 

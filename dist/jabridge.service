@@ -5,12 +5,21 @@ After=default.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/jabridge --daemon
+ExecStart=/usr/bin/env jabridge --daemon
 Restart=on-failure
 RestartSec=5
-
-# Cleanup socket on stop (in case of crash)
-ExecStopPost=/bin/rm -f %t/jabridge.sock %t/jabridge.pid
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+DevicePolicy=closed
+DeviceAllow=char-hidraw rw
 
 [Install]
 WantedBy=default.target

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestRootQQuitsTUI(t *testing.T) {
 	previous := menuState
@@ -40,5 +43,18 @@ func TestParseBasicNavigationKeys(t *testing.T) {
 		if events[i] != want[i] {
 			t.Fatalf("event %d = %v, want %v", i, events[i], want[i])
 		}
+	}
+}
+
+func TestUIActionResultIsNotDropped(t *testing.T) {
+	results := make(chan actionResult)
+	runUIAction(results, "done", func() error { return nil })
+	select {
+	case result := <-results:
+		if result.message != "done" || result.err != nil {
+			t.Fatalf("unexpected result: %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("UI action result was dropped")
 	}
 }

@@ -56,6 +56,23 @@ func TestGetFirmwareVersionFake(t *testing.T) {
 	}
 }
 
+func TestQueryFirmwareVersionForDongleSource(t *testing.T) {
+	transport := &fakeTransport{replies: [][]byte{padTo63([]byte{
+		0x05, 0x00, 0x01, 0x22, 0xCC, 0x02, 0x03,
+		0x06, '1', '.', '1', '6', '.', '0',
+	})}}
+	version, err := queryFirmwareVersion(transport, 0x01, 0x22)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "1.16.0" {
+		t.Fatalf("version = %q, want 1.16.0", version)
+	}
+	if got := transport.writes[0][1]; got != 0x01 {
+		t.Fatalf("dongle source = 0x%02x, want 0x01", got)
+	}
+}
+
 // TestGetDeviceGNPInfoFake verifies the GNP DeviceInfo query against
 // the live capture: TX 05 08 00 00 46 02 02 → RX 00 08 00 C9 02 02 02 01 67
 func TestGetDeviceGNPInfoFake(t *testing.T) {
@@ -158,19 +175,6 @@ func TestHIDUeventMatchHandlesKernelPadding(t *testing.T) {
 	}
 	if hidUeventMatches(data, JabraVendorID, 0x24b9) {
 		t.Fatal("wrong PID matched")
-	}
-}
-
-// TestDeviceManagerSnapshot verifies that the device manager can
-// return a snapshot of devices without panicking on an empty set.
-func TestDeviceManagerSnapshot(t *testing.T) {
-	dm := NewDeviceManager(time.Hour) // don't actually poll
-	devs := dm.Devices()
-	if devs == nil {
-		t.Fatal("Devices() returned nil, want empty slice")
-	}
-	if len(devs) != 0 {
-		t.Errorf("Devices() = %d devices, want 0 before Start()", len(devs))
 	}
 }
 

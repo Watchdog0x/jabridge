@@ -545,19 +545,6 @@ func isNak(buf []byte) bool {
 	return buf[4] == 0xFE
 }
 
-// drainPendingEvents reads and discards all currently-queued HID input
-// reports. Uses a very short timeout (10ms) per read — after the buffer
-// is empty the read times out and we return. This prevents the hidraw
-// kernel input buffer from overflowing during long chunk streams.
-func (u *CsrOtaUpdater) drainPendingEvents() {
-	for {
-		_, err := u.tr.Read(10 * time.Millisecond)
-		if err != nil {
-			return // buffer empty or timeout — done draining
-		}
-	}
-}
-
 // flashPartition runs the full 10-step sequence for a single partition.
 // Sequence from the capture, reproduced exactly:
 //
@@ -875,8 +862,6 @@ func UnpackGnVArchive(path string) (*UnpackedArchive, error) {
 // length, so padding is NOT needed. Confirmed by analysis of all
 // 36,415 chunks in the live capture: final chunks of each partition
 // have sizes 8, 16, 20, 28, etc. — NOT padded to 52.
-func splitChunks(data []byte) [][]byte { return splitChunksSized(data, OtaChunkBytes) }
-
 func splitChunksSized(data []byte, chunkSize int) [][]byte {
 	n := (len(data) + chunkSize - 1) / chunkSize
 	out := make([][]byte, n)
