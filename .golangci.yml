@@ -1,0 +1,38 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - typecheck
+    - gosimple
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+  govet:
+    enable-all: false
+  staticcheck:
+    checks:
+      - all
+
+issues:
+  exclude-rules:
+    # CGo generated code may have unusual patterns
+    - path: jabraApi\.go
+      linters:
+        - errcheck
+      text: "Jabra_"
+    # Allow fmt.Println in main package for TUI output
+    - path: cmd\.go
+      linters:
+        - errcheck
+      text: "fmt\\.Print"
+    - path: main\.go
+      linters:
+        - errcheck
+      text: "fmt\\.Print"

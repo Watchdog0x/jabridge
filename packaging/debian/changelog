@@ -1,0 +1,7 @@
+jlink (0.1.1-1) unstable; urgency=medium
+
+  * Initial packaging for Debian/Ubuntu
+  * Jabra Direct for Linux - manage Jabra headsets and dongles
+  * Features: device discovery, Bluetooth pairing, battery monitoring
+
+ -- Watchdog0x <jlink@users.noreply.github.com>  Mon, 01 Sep 2026 00:00:00 +0000
