@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v1.0.0-rc.5
+        description: Release tag, for example v1.0.0-rc.6
         required: true
         type: string
       prerelease:
@@ -62,13 +62,14 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           package="jabridge_${VERSION}_linux_amd64"
-          mkdir -p "release/$package/completions" "release/$package/system"
+          mkdir -p "release/$package/completions" "release/$package/system" "release/$package/docs"
           CGO_ENABLED=0 go build -trimpath \
             -ldflags="-s -w -X github.com/Watchdog0x/jabridge/internal/buildinfo.Version=${VERSION}" \
             -o "release/$package/jabridge" .
           test "$("release/$package/jabridge" --version)" = "Jabridge ${VERSION}"
           install -m 0644 README.md HARDWARE_TESTING.md CHANGELOG.md LICENSE "release/$package/"
           install -m 0644 internal/completion/jabridge.bash "release/$package/completions/"
+          install -m 0644 docs/IPC.md "release/$package/docs/"
           install -m 0644 dist/jabridge.service dist/70-jabridge.rules "release/$package/system/"
           tar --sort=name --owner=0 --group=0 --numeric-owner \
             --mtime="@$(git show -s --format=%ct HEAD)" \

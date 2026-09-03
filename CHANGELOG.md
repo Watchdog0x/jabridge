@@ -34,6 +34,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   ringtone/volume, and supported programmable buttons.
 - IPC subscriptions and device, battery, and pairing change notifications.
 - Simple `jabridge ipc` commands and an IPC quick-start guide.
+- The IPC guide is included inside the portable release archive.
 - One-command `jabridge setup` device access, with an automatic first-run
   prompt, user installation, udev reload, connected-device retrigger, and an
   enabled service at sign-in.
