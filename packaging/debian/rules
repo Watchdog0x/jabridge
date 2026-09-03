@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Binary is pre-built and provided in dist/
+	@echo "Skipping build - using pre-built binary"
+
+override_dh_auto_install:
+	install -Dm755 dist/jLink debian/jlink/usr/local/bin/jlink
+	install -Dm644 dist/libjabra.so debian/jlink/usr/lib/jabra/libjabra.so
+	ln -rs debian/jlink/usr/lib/jabra/libjabra.so debian/jlink/usr/lib/jabra/libjabra.so.1
+	install -dm755 debian/jlink/etc/udev/rules.d
+	echo 'ATTRS{idVendor}=="0b0e", MODE="0660", GROUP="users"' > debian/jlink/etc/udev/rules.d/99-jabra.rules
+	install -dm755 debian/jlink/etc/ld.so.conf.d
+	echo "/usr/lib/jabra" > debian/jlink/etc/ld.so.conf.d/jabra.conf
+
+override_dh_auto_test:
+	@echo "Skipping tests"
+
+override_dh_shlibdeps:
+	@echo "Skipping shlibdeps for pre-built binary"
