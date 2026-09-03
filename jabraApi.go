@@ -11,6 +11,7 @@ import "C"
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 	"unsafe"
 )
@@ -308,11 +309,16 @@ func updatePairingList() {
 			return
 		default:
 			if dongle, exists := deviceManager[selectedDongle]; exists {
-				updatePairingList := getPairingList(dongle.deviceID)
-				dongle.pairingList.count = updatePairingList.count
-				dongle.pairingList.listType = updatePairingList.listType
-				dongle.pairingList.pairedDevices = updatePairingList.pairedDevices
-
+				if dongle.pairingList == nil {
+					time.Sleep(time.Second)
+					continue
+				}
+				updated := getPairingList(dongle.deviceID)
+				if updated != nil {
+					dongle.pairingList.count = updated.count
+					dongle.pairingList.listType = updated.listType
+					dongle.pairingList.pairedDevices = updated.pairedDevices
+				}
 			}
 			time.Sleep(time.Second)
 		}
@@ -443,7 +449,8 @@ func serialNumberCheck(deviceInfo *jabra_DeviceInfo) bool {
 			if selectedDongle == -1 {
 				isNewDevice = true
 			} else {
-				panic("what is going on")
+				fmt.Fprintf(os.Stderr, "serialNumberCheck: selectedDongle=%d but device not in deviceManager\n", selectedDongle)
+				isNewDevice = false
 			}
 		}
 	} else {
@@ -461,7 +468,8 @@ func serialNumberCheck(deviceInfo *jabra_DeviceInfo) bool {
 			if selectedHeadset == -1 {
 				isNewDevice = true
 			} else {
-				panic("what is going on")
+				fmt.Fprintf(os.Stderr, "serialNumberCheck: selectedHeadset=%d but device not in deviceManager\n", selectedHeadset)
+				isNewDevice = false
 			}
 		}
 
@@ -479,7 +487,9 @@ func (d *devices) add(deviceInfo *jabra_DeviceInfo) {
 	if deviceInfo.isDongle {
 		if selectedDongle == -1 {
 			selectedDongle = id
-			go updatePairingList()
+			if deviceInfo.featureFlags != nil && deviceInfo.featureFlags.pairingList {
+				go updatePairingList()
+			}
 		}
 	} else {
 		if selectedHeadset == -1 {
