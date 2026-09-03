@@ -39,8 +39,11 @@ remains under the separate hardware-validation rules below.
 
 Protocol writes and firmware updates can make hardware unusable. A passing unit
 test, CI build, or simulated transport does not establish hardware safety.
-Hardware-write features remain disabled by default until independently
-validated on replaceable devices.
+Firmware writes remain disabled by default. Link 380 setting writes are limited
+to the settings that passed a change-and-read-back test. Destructive reset and
+forget actions require a second confirmation. Headset settings, pairing writes,
+factory reset, and firmware flashing are not release-qualified until they pass
+independent tests on replaceable devices.
 
 Jabra SDKs, Device Connector, firmware, and updater vulnerabilities should also
 be reported to Jabra through its official security process.
