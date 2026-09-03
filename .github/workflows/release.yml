@@ -1,6 +1,9 @@
 name: Signed release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -26,8 +29,9 @@ jobs:
       - name: Validate version
         id: version
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
+          RELEASE_TAG="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid release tag: $RELEASE_TAG" >&2
             exit 1
@@ -95,7 +99,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE_INPUT: ${{ inputs.prerelease }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release already exists: $RELEASE_TAG" >&2
@@ -108,7 +112,14 @@ jobs:
             --target "$GITHUB_SHA"
             --title "Jabridge ${RELEASE_TAG#v}"
             --notes "Signed Jabridge application release. Hardware writes remain subject to the validation status documented in the repository.")
-          if [[ "$PRERELEASE" == "true" ]]; then
+          prerelease="$PRERELEASE_INPUT"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            prerelease=false
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              prerelease=true
+            fi
+          fi
+          if [[ "$prerelease" == "true" ]]; then
             release_args+=(--prerelease)
           fi
           gh "${release_args[@]}"
