@@ -49,6 +49,32 @@ jLink brings the power of Jabra device management to your Linux system.
 
 
 
+## Build from source
+
+The Jabra SDK shared library is not committed to git (`lib/` is local only). Before building:
+
+```bash
+./setup-lib.sh          # creates lib/libjabra.so (or copies from /usr/lib/jabra if you ran install.sh)
+go build -o jLink .
+./jLink
+```
+
+Requires: Go 1.23+, gcc, ALSA and libcurl **development** packages.
+
+- **Fedora:** `sudo dnf install golang gcc alsa-lib-devel libcurl-devel`
+- **Debian/Ubuntu:** `sudo apt install golang gcc libasound2-dev libcurl4-openssl-dev`
+
+Then:
+
+```bash
+./setup-lib.sh
+go build -o jLink .
+```
+
+On Fedora, `setup-lib.sh` also downloads a compatible `libcurl.so.4` (Ubuntu build with `CURL_OPENSSL_4`) because Fedora’s system libcurl does not match the embedded Jabra SDK. Requires `curl`, `zstd`, and `ar` (binutils).
+
+Alternatively use the prebuilt binary: `curl -so- https://raw.githubusercontent.com/Watchdog0x/jLink/main/install.sh | sudo bash`
+
 ## Installation and update
 <div align="center">
   <img src="./src/install.png" alt="How jLink look" style="max-width: 100%; height: auto;">
@@ -75,7 +101,7 @@ wget -qO- https://raw.githubusercontent.com/Watchdog0x/jLink/main/install.sh | s
 
     1. Code Cleanup: Improve the current codebase, which is in need of refactoring.
     2.  Device Switching: Add support for switching between multiple connected devices.
-    3. Headset Settings: Implement features for configuring advanced headset settings.
+    3. ~~Headset Settings: Implement features for configuring advanced headset settings.~~ ✓ Done
     4. Sound Control: Integrate with PipeWire for precise sound management.
     5. Daemon Service: Create a background service using IPC shared memory for seamless operation
 
