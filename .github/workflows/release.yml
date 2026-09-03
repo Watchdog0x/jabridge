@@ -102,7 +102,17 @@ jobs:
           PRERELEASE_INPUT: ${{ inputs.prerelease }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release already exists: $RELEASE_TAG" >&2
+            existing_target=$(gh release view "$RELEASE_TAG" --json targetCommitish --jq .targetCommitish)
+            archive_digest=$(gh release view "$RELEASE_TAG" --json assets \
+              --jq ".assets[] | select(.name == \"$package.tar.gz\") | .digest")
+            asset_count=$(gh release view "$RELEASE_TAG" --json assets \
+              --jq "[.assets[] | select(.name == \"$package.tar.gz\" or .name == \"$package.tar.gz.sha256\" or .name == \"$package.tar.gz.sig\")] | length")
+            expected_digest="sha256:$(sha256sum "release/$package.tar.gz" | cut -d' ' -f1)"
+            if [[ "$existing_target" == "$GITHUB_SHA" && "$archive_digest" == "$expected_digest" && "$asset_count" == "3" ]]; then
+              echo "Release already exists with the expected commit and signed assets: $RELEASE_TAG"
+              exit 0
+            fi
+            echo "Release $RELEASE_TAG already exists but does not match this build" >&2
             exit 1
           fi
           release_args=(release create "$RELEASE_TAG"
