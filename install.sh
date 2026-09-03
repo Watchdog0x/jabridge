@@ -64,6 +64,25 @@ spinner() {
 
 trap 'tput cnorm' EXIT
 
+# Source os-release once for all functions
+if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+fi
+
+# Distro family detection using both $ID and $ID_LIKE
+is_debian_based() {
+    [[ "$ID" =~ ^(ubuntu|debian|linuxmint|devuan|zorin|pop|elementary|neon|kali|raspbian)$ ]] || \
+    [[ "$ID_LIKE" == *"debian"* ]] || [[ "$ID_LIKE" == *"ubuntu"* ]]
+}
+is_rhel_based() {
+    [[ "$ID" =~ ^(fedora|centos|rhel|rocky|alma)$ ]] || \
+    [[ "$ID_LIKE" == *"fedora"* ]] || [[ "$ID_LIKE" == *"rhel"* ]]
+}
+is_arch_based() {
+    [[ "$ID" =~ ^(arch|manjaro|endeavouros|garuda)$ ]] || \
+    [[ "$ID_LIKE" == *"arch"* ]]
+}
+
 check_dependencies() {
 
     command_exists() {
@@ -72,30 +91,20 @@ check_dependencies() {
 
     library_exists() {
         local lib="$1"
-        
-        # Check based on the distribution
-        if [[ -f /etc/os-release ]]; then
-            . /etc/os-release
-        fi
 
-        case "$ID" in
-            ubuntu|debian)
-                dpkg -l | grep -qw "$lib"
-                return $?
-                ;;
-            fedora|centos|rhel)
-                rpm -q "$lib"
-                return $?
-                ;;
-            arch|manjaro)
-                pacman -Qs "$lib" >/dev/null
-                return $?
-                ;;
-            *)
-                echo "Unsupported distribution: $ID"
-                return 1
-                ;;
-        esac
+        if is_debian_based; then
+            dpkg -l | grep -qw "$lib"
+            return $?
+        elif is_rhel_based; then
+            rpm -q "$lib"
+            return $?
+        elif is_arch_based; then
+            pacman -Qs "$lib" >/dev/null
+            return $?
+        else
+            echo "Unsupported distribution: $ID (ID_LIKE=$ID_LIKE)"
+            return 1
+        fi
     }
 
     local temp_to_install=()
@@ -107,29 +116,24 @@ check_dependencies() {
     done
 
     for lib in libcurl4 libasound2; do
-        case "$ID" in
-            ubuntu|debian)
-                pkg="$lib"
-                ;;
-            fedora|centos|rhel)
-                if [[ "$lib" == "libcurl4" ]]; then
-                    pkg="libcurl"
-                elif [[ "$lib" == "libasound2" ]]; then
-                    pkg="alsa-lib"
-                fi
-                ;;
-            arch|manjaro)
-                if [[ "$lib" == "libcurl4" ]]; then
-                    pkg="curl"
-                elif [[ "$lib" == "libasound2" ]]; then
-                    pkg="alsa-lib"
-                fi
-                ;;
-            *)
-                echo "Unsupported distribution: $ID"
-                continue
-                ;;
-        esac
+        if is_debian_based; then
+            pkg="$lib"
+        elif is_rhel_based; then
+            if [[ "$lib" == "libcurl4" ]]; then
+                pkg="libcurl"
+            elif [[ "$lib" == "libasound2" ]]; then
+                pkg="alsa-lib"
+            fi
+        elif is_arch_based; then
+            if [[ "$lib" == "libcurl4" ]]; then
+                pkg="curl"
+            elif [[ "$lib" == "libasound2" ]]; then
+                pkg="alsa-lib"
+            fi
+        else
+            echo "Unsupported distribution: $ID (ID_LIKE=$ID_LIKE)"
+            continue
+        fi
 
         if ! library_exists "$pkg"; then
             temp_to_install+=("$pkg")
@@ -147,38 +151,27 @@ installing_dependencies() {
     local to_install=()
     mapfile -t to_install < /tmp/to_install_list
 
-    # Detect distribution
-    if [[ -f /etc/os-release ]]; then
-        . /etc/os-release
+    # Update package list and set package manager based on the distribution
+    if is_debian_based; then
+        apt-get update
+        package_manager="apt-get"
+        install_cmd="install -y"
+    elif [[ "$ID" == "fedora" ]]; then
+        dnf check-update
+        package_manager="dnf"
+        install_cmd="install -y"
+    elif is_rhel_based; then
+        yum check-update
+        package_manager="yum"
+        install_cmd="install -y"
+    elif is_arch_based; then
+        pacman -Sy
+        package_manager="pacman"
+        install_cmd="-S --noconfirm"
+    else
+        echo "Unsupported distribution: $ID (ID_LIKE=$ID_LIKE)"
+        return 1
     fi
-
-    # Update package list based on the distribution
-    case "$ID" in
-        ubuntu|debian)
-            apt-get update
-            package_manager="apt-get"
-            install_cmd="install -y"
-            ;;
-        fedora)
-            dnf check-update
-            package_manager="dnf"
-            install_cmd="install -y"
-            ;;
-        centos|rhel)
-            yum check-update
-            package_manager="yum"
-            install_cmd="install -y"
-            ;;
-        arch|manjaro)
-            pacman -Sy
-            package_manager="pacman"
-            install_cmd="-S --noconfirm"
-            ;;
-        *)
-            echo "Unsupported distribution: $ID"
-            return 1
-            ;;
-    esac
 
     # Install packages
     for pkg in "${to_install[@]}"; do
@@ -226,12 +219,9 @@ installing_jabraSDK() {
 
 setup_udev() {
 
-    if ! getent group jlink > /dev/null; then
-         groupadd jlink
-    fi
-
-    # Create udev rule for JLink devices
-    echo 'ATTRS{idVendor}=="0b0e", MODE="0660", GROUP="users"' | sudo tee /etc/udev/rules.d/99-jabra.rules > /dev/null
+    # Create udev rule for Jabra devices using TAG+="uaccess" (systemd-logind)
+    # This grants device access to the physically logged-in user without group membership
+    echo 'ATTRS{idVendor}=="0b0e", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/99-jabra.rules > /dev/null
 
     # Reload udev rules
     udevadm control --reload
@@ -243,7 +233,16 @@ setup_udev() {
 }
 
 installing_jlink(){
-    curl -s -L -o /usr/local/bin/jlink "https://github.com/Watchdog0x/jLink/releases/download/${jlink_version}/jLink"
+    if ! curl -sf -L -o /usr/local/bin/jlink "https://github.com/Watchdog0x/jLink/releases/download/${jlink_version}/jLink"; then
+        echo "Failed to download jLink binary. Check your internet connection and that release v${jlink_version} exists."
+        return 1
+    fi
+    # Verify the downloaded file is an ELF binary (not a 404 HTML page)
+    if ! file /usr/local/bin/jlink | grep -q ELF; then
+        echo "Downloaded file is not a valid binary. The release asset may be missing."
+        rm -f /usr/local/bin/jlink
+        return 1
+    fi
     chmod +x /usr/local/bin/jlink
     return 0
 }
@@ -264,9 +263,15 @@ main() {
         spinner "Installing jabraSDK" installing_jabraSDK
     fi
 
-    read -p "Do you want to run jLink without root privileges? (y/n): " response < /dev/tty
+    if [ -c /dev/tty ]; then
+        read -p "Do you want to run jLink without root privileges? (y/n): " response < /dev/tty
+    else
+        echo "No terminal available for interactive prompt. Skipping udev setup."
+        echo "Run the installer interactively or manually set up udev rules."
+        response="n"
+    fi
     if [[ "$response" =~ ^[Yy]$ ]]; then
-        spinner "Setting up jLink group and udev rule" setup_udev
+        spinner "Setting up udev rule for Jabra devices" setup_udev
     fi
 
     spinner "Installing jlink" installing_jlink

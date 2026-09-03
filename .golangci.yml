@@ -1,0 +1,55 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - typecheck
+    - gosimple
+    - misspell
+    - revive
+    - gocritic
+    - prealloc
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+  govet:
+    enable-all: false
+  staticcheck:
+    checks:
+      - all
+
+issues:
+  exclude-rules:
+    # CGo generated code may have unusual patterns
+    - path: jabraApi\.go
+      linters:
+        - errcheck
+      text: "Jabra_"
+    # Allow fmt.Println in main package for TUI output
+    - path: cmd\.go
+      linters:
+        - errcheck
+      text: "fmt\\.Print"
+    - path: main\.go
+      linters:
+        - errcheck
+      text: "fmt\\.Print"
+    # Suppress misspell for existing identifiers until renamed
+    - linters:
+        - misspell
+      source: "dongleSettigns|Settigns"
+    # Suppress gocritic in test files
+    - path: _test\.go
+      linters:
+        - gocritic
+        - errcheck
+    # Suppress revive exported-type warnings in package main
+    - linters:
+        - revive
+      text: "exported"

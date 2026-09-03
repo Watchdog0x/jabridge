@@ -3,7 +3,7 @@
 
 #include "Common.h"
 
-// extern void firstScanForDevicesDone(void);
+extern void firstScanForDevicesDone(void);
 
 extern void deviceAttachedFunc(Jabra_DeviceInfo deviceInfo);
 

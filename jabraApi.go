@@ -2,7 +2,6 @@ package main
 
 /*
 #cgo CFLAGS: -Iheaders
-#cgo LDFLAGS: -Llib -ljabra
 
 #include "Common.h"
 #include "JabraDeviceConfig.h"
@@ -12,6 +11,8 @@ import "C"
 import (
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -36,6 +37,7 @@ type jabra_DeviceInfo struct {
 	featureFlags           *featureFlags
 	batteryStatus          *batteryStatus
 	pairingList            *pairingList
+	deviceSettings         *deviceSettings
 }
 
 type batteryComponent int
@@ -220,17 +222,33 @@ var (
 	// Stop Channels
 	stopUpdateBattery     = make(chan struct{})
 	stopUpdatePairingList = make(chan struct{})
+
+	// First scan completion flag
+	firstScanComplete bool
 )
 
 /****************************************************************************/
 /*                             C CALLBACKS	                                */
 /****************************************************************************/
 
+// isAccessory returns true if the device name matches known non-headset
+// accessories that should not be treated as the primary headset.
+func isAccessory(name string) bool {
+	lower := strings.ToLower(name)
+	for _, pattern := range []string{"deskstand", "charger", "cradle", "busy light", "busylight"} {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 // Reminder: If you plan to use this function, make sure to update the `goWrapper.h` file accordingly.
-// //export firstScanForDevicesDone
-// func firstScanForDevicesDone() {
-// 	 fmt.Println("First scan for devices done!")
-// }
+
+//export firstScanForDevicesDone
+func firstScanForDevicesDone() {
+	firstScanComplete = true
+}
 
 //export deviceAttachedFunc
 func deviceAttachedFunc(deviceInfo C.Jabra_DeviceInfo) {
@@ -255,12 +273,27 @@ func deviceAttachedFunc(deviceInfo C.Jabra_DeviceInfo) {
 	goDeviceInfo.deviceEventsMask = getDeviceEventsMask(goDeviceInfo.deviceID)
 	goDeviceInfo.featureFlags = getSupportedFeature(goDeviceInfo.deviceID)
 
+	// Skip known non-headset accessories (deskstands, chargers, cradles)
+	// to prevent them from being assigned as the primary headset (#29)
+	if !goDeviceInfo.isDongle && isAccessory(goDeviceInfo.deviceName) {
+		fmt.Fprintf(os.Stderr, "Skipping accessory device: %s\n", goDeviceInfo.deviceName)
+		C.Jabra_FreeDeviceInfo(deviceInfo)
+		return
+	}
+
 	if !goDeviceInfo.isDongle {
 		battery, err := getBatteryStatus(goDeviceInfo.deviceID)
 		if err != nil {
 			fmt.Printf("Get Battery Status for %s: %s\n", goDeviceInfo.deviceName, err)
 		} else {
 			goDeviceInfo.batteryStatus = battery
+		}
+
+		ds, err := getDeviceSettings(goDeviceInfo.deviceID)
+		if err != nil {
+			fmt.Printf("Get Device Settings for %s: %s\n", goDeviceInfo.deviceName, err)
+		} else {
+			goDeviceInfo.deviceSettings = ds
 		}
 	} else {
 		if goDeviceInfo.featureFlags.pairingList {
@@ -301,11 +334,16 @@ func updatePairingList() {
 			return
 		default:
 			if dongle, exists := deviceManager[selectedDongle]; exists {
-				updatePairingList := getPairingList(dongle.deviceID)
-				dongle.pairingList.count = updatePairingList.count
-				dongle.pairingList.listType = updatePairingList.listType
-				dongle.pairingList.pairedDevices = updatePairingList.pairedDevices
-
+				if dongle.pairingList == nil {
+					time.Sleep(time.Second)
+					continue
+				}
+				updated := getPairingList(dongle.deviceID)
+				if updated != nil {
+					dongle.pairingList.count = updated.count
+					dongle.pairingList.listType = updated.listType
+					dongle.pairingList.pairedDevices = updated.pairedDevices
+				}
 			}
 			time.Sleep(time.Second)
 		}
@@ -409,9 +447,9 @@ func updateStartMenu() {
 	// 	startMenu = append(startMenu, menuItem{id: 3, label: "Switch Device"})
 	// }
 
-	// if device, deviceexists := deviceManager[selectedHeadset]; deviceexists {
-	// 	startMenu = append(startMenu, menuItem{id: 4, label: fmt.Sprintf("%s Settings", device.deviceName)})
-	// }
+	if headset, ok := deviceManager[selectedHeadset]; ok && headset.deviceSettings != nil {
+		startMenu = append(startMenu, menuItem{id: 4, label: fmt.Sprintf("%s Settings", headset.deviceName)})
+	}
 
 	startMenu = append(startMenu, menuItem{id: 5, label: "Exit"})
 
@@ -436,7 +474,8 @@ func serialNumberCheck(deviceInfo *jabra_DeviceInfo) bool {
 			if selectedDongle == -1 {
 				isNewDevice = true
 			} else {
-				panic("what is going on")
+				fmt.Fprintf(os.Stderr, "serialNumberCheck: selectedDongle=%d but device not in deviceManager\n", selectedDongle)
+				isNewDevice = false
 			}
 		}
 	} else {
@@ -454,7 +493,8 @@ func serialNumberCheck(deviceInfo *jabra_DeviceInfo) bool {
 			if selectedHeadset == -1 {
 				isNewDevice = true
 			} else {
-				panic("what is going on")
+				fmt.Fprintf(os.Stderr, "serialNumberCheck: selectedHeadset=%d but device not in deviceManager\n", selectedHeadset)
+				isNewDevice = false
 			}
 		}
 
@@ -472,7 +512,9 @@ func (d *devices) add(deviceInfo *jabra_DeviceInfo) {
 	if deviceInfo.isDongle {
 		if selectedDongle == -1 {
 			selectedDongle = id
-			go updatePairingList()
+			if deviceInfo.featureFlags != nil && deviceInfo.featureFlags.pairingList {
+				go updatePairingList()
+			}
 		}
 	} else {
 		if selectedHeadset == -1 {
@@ -489,6 +531,16 @@ func (d *devices) add(deviceInfo *jabra_DeviceInfo) {
 func (d *devices) removed(deviceID uint16) {
 	if *d == nil {
 		return
+	}
+
+	// Free C memory for the device being removed.
+	for i := 0; i < len(*d); i++ {
+		device, exists := (*d)[i]
+		if exists && device.deviceID == deviceID {
+			freeDeviceSettings(device.deviceSettings)
+			device.deviceSettings = nil
+			break
+		}
 	}
 
 	var (

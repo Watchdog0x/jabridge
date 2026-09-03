@@ -1,0 +1,18 @@
+Source: jlink
+Section: utils
+Priority: optional
+Maintainer: Watchdog0x <jlink@users.noreply.github.com>
+Build-Depends: debhelper (>= 12)
+Standards-Version: 4.5.1
+Homepage: https://github.com/Watchdog0x/jLink
+Rules-Requires-Root: no
+
+Package: jlink
+Architecture: amd64
+Depends: libasound2, libcurl4, ${misc:Depends}
+Description: Jabra Direct for Linux
+ jLink is a TUI (terminal user interface) application for managing Jabra
+ headsets and Bluetooth dongles on Linux. It provides device discovery,
+ Bluetooth pairing, battery monitoring, and dongle configuration features.
+ .
+ Think of it as Jabra Direct for Linux.

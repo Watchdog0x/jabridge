@@ -2,7 +2,7 @@ package main
 
 /*
 #cgo CFLAGS: -Iheaders
-#cgo LDFLAGS: -Llib -ljabra
+#cgo LDFLAGS: -L${SRCDIR}/lib -Wl,-rpath,${SRCDIR}/lib -ljabra -l:libcurl.so.4
 
 #include "Common.h"
 #include "GoWrapper.h"
@@ -34,13 +34,13 @@ func main() {
 	// Callback parameters: FirstScanForDevicesDoneFunc, DeviceAttachedFunc, DeviceRemovedFunc,
 	// ButtonInDataRawHidFunc, ButtonInDataTranslatedFunc, nonJabraDeviceDetection, configParams
 	if init := C.Jabra_InitializeV2(
-		nil,                              // FirstScanForDevicesDoneFunc (not used here)
-		(*[0]byte)(C.deviceAttachedFunc), // Callback for when a device is attached
-		(*[0]byte)(C.deviceRemovedFunc),  // Callback for when a device is removed
-		nil,                              // Callback for raw HID button input (not used here)
-		nil,                              // Callback for translated button input (not used here)
-		false,                            // nonJabraDeviceDetection (not used here)
-		nil,                              // Additional configuration parameters (not used here)
+		(*[0]byte)(C.firstScanForDevicesDone), // Callback when USB scan is complete
+		(*[0]byte)(C.deviceAttachedFunc),       // Callback for when a device is attached
+		(*[0]byte)(C.deviceRemovedFunc),        // Callback for when a device is removed
+		nil,                                    // Callback for raw HID button input (not used here)
+		nil,                                    // Callback for translated button input (not used here)
+		false,                                  // nonJabraDeviceDetection (not used here)
+		nil,                                    // Additional configuration parameters (not used here)
 	); !init {
 		log.Fatalln("Failed to initialize Jabra SDK")
 	}
