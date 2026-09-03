@@ -9,7 +9,7 @@ Go, GCC, .NET, Node.js, the Jabra SDK, or Jabra Device Connector.
 
 > [!WARNING]
 > Version 1.0.0 is still a hardware test preview. Safe, read-only checks pass on
-> one Link 380 dongle. RC1 testing with an Evolve2 65 found headset bugs. RC2
+> one Link 380 dongle. RC1 testing with an Evolve2 65 found headset bugs. RC3
 > contains fixes that still need the same headset retest. Pairing changes,
 > reset, busylight changes, and firmware flashing are not ready for normal use
 > and stay blocked by default.
@@ -104,6 +104,9 @@ automatic busylight behavior.
 - Shows a clear dongle-only screen when no headset is connected.
 - Reads Link 380 firmware information.
 - Reads Link 380 auto-pairing state and saved pairing records.
+- Changes and restores the Link 380 auto-pairing setting in controlled test
+  mode.
+- Keeps menu text and the selected action still while device data changes.
 - Checks that a firmware file matches the attached device model.
 - Runs as a TUI or a local background service.
 - Builds as one static Linux program.
@@ -116,7 +119,7 @@ automatic busylight behavior.
 - Real headsets connected by USB or through a dongle.
 - Headset connect, disconnect, battery, and reconnect behavior.
 - Bluetooth pairing changes.
-- Device reset and busylight changes.
+- Factory reset and busylight changes.
 - Interrupted firmware updates and recovery.
 - Firmware flashing on replaceable test hardware.
 

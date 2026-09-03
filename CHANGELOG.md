@@ -34,6 +34,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Unsupported hardware operations now return errors rather than false success.
 - Device state now uses synchronized snapshots and one cancellable refresh loop.
 - Firmware status now shows installed and latest versions together.
+- The TUI now composes each screen off-screen and writes one complete frame.
+- Link 380 test mode can toggle auto-pairing and exposes a two-step,
+  model-limited factory-reset command.
 
 ### Fixed
 
@@ -43,6 +46,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   database types.
 - Removed stale USB devices after unplug and reconnect.
 - Prevented periodic TUI redraw flicker when device state has not changed.
+- Prevented selected menu labels from moving sideways.
+- Kept the same logical action selected when asynchronous device data inserts
+  or removes menu entries.
+- Preserved batched and split terminal key sequences instead of dropping keys.
 - Added read-only discovery of a headset connected through a supported dongle.
 - Added strict IPC parameter validation, idle timeouts, and connection limits.
 - Restricted daemon socket and PID files to the current user and rejected
@@ -52,6 +59,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 ### Safety
 
 - Hardware writes are disabled by default.
+- A Link 380 auto-pairing change-and-restore test passed; the original setting
+  was restored. Factory reset was not executed.
 - Vendor binaries and firmware are not distributed.
 - The 1.0.0 release remains blocked on real replacement-hardware validation.
 

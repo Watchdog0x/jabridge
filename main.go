@@ -173,10 +173,16 @@ func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
 	return out
 }
 
-func (j *jabraAPIBridge) SearchNewDevices() error            { return searchForNewDevices() }
-func (j *jabraAPIBridge) SetBTPairing(e bool) error          { return setDongleInBTPairing(e) }
-func (j *jabraAPIBridge) GetAutoPairing() (bool, error)      { return getAutoPairing() }
-func (j *jabraAPIBridge) SetAutoPairing(e bool) error        { return setAutoPairing(e) }
-func (j *jabraAPIBridge) FactoryReset() error                { return factoryReset(0) }
+func (j *jabraAPIBridge) SearchNewDevices() error       { return searchForNewDevices() }
+func (j *jabraAPIBridge) SetBTPairing(e bool) error     { return setDongleInBTPairing(e) }
+func (j *jabraAPIBridge) GetAutoPairing() (bool, error) { return getAutoPairing() }
+func (j *jabraAPIBridge) SetAutoPairing(e bool) error   { return setAutoPairing(e) }
+func (j *jabraAPIBridge) FactoryReset() error {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists {
+		return fmt.Errorf("no dongle found")
+	}
+	return factoryReset(dongle.deviceID)
+}
 func (j *jabraAPIBridge) SetBusylightMode(mode string) error { return nil } // wired in daemon
 func (j *jabraAPIBridge) GetBusylightMode() string           { return "auto" }

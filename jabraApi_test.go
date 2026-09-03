@@ -55,6 +55,19 @@ func TestValidatedPairingReadsAreNarrowlyAllowlisted(t *testing.T) {
 	}
 }
 
+func TestExperimentalDongleWritesAreNarrowlyAllowlisted(t *testing.T) {
+	for _, pid := range []uint16{0x24c7, 0x24c8} {
+		if !supportsExperimentalDongleWrites(pid) {
+			t.Errorf("Link 380 PID 0x%04x should be allowlisted", pid)
+		}
+	}
+	for _, pid := range []uint16{0x0a17, 0x2483, 0x2484, 0x24b9} {
+		if supportsExperimentalDongleWrites(pid) {
+			t.Errorf("unvalidated PID 0x%04x was allowlisted for writes", pid)
+		}
+	}
+}
+
 func TestAccessoryNames(t *testing.T) {
 	for _, name := range []string{"Jabra Evolve2 75 Deskstand", "Charging Cradle", "Jabra Busy Light"} {
 		if !isAccessoryName(name) {
@@ -153,6 +166,14 @@ func TestPairingPacketBuildersMatchCurrentSDK(t *testing.T) {
 	}
 	if want := []byte{0x05, 0x01, 0x00, 0x21, 0x88, 0x0d, 0x20, 0x07, 0x3c}; !bytes.Equal(write[:len(want)], want) {
 		t.Fatalf("search write = %x, want %x", write[:len(want)], want)
+	}
+
+	reset, err := buildGNPReport(gnpSrcDongle, 0x22, gnpFlagCmd, gnpClassPairingDevice, gnpOpFactoryDefaultBT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []byte{0x05, 0x01, 0x00, 0x22, 0x86, 0x0d, 0x13}; !bytes.Equal(reset[:len(want)], want) {
+		t.Fatalf("factory reset = %x, want %x", reset[:len(want)], want)
 	}
 }
 

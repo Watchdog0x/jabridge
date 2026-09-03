@@ -225,6 +225,7 @@ const (
 	gnpOpGetDBName        byte = 0x32
 	gnpOpBluetoothPair    byte = 0x30
 	gnpOpAutoPairing      byte = 0x40
+	gnpOpFactoryDefaultBT byte = 0x13
 
 	// Device writes stay disabled until the command is validated on supported
 	// hardware. Read-only enumeration and metadata do not require this switch.
@@ -420,7 +421,7 @@ func gnpCommand(h *hidrawConn, src, seq, class, op byte, payload []byte) error {
 		if len(resp) > 0 && resp[0] == gnpReportID {
 			resp = resp[1:]
 		}
-		if len(resp) >= 5 && resp[3] == 0xca && resp[4] == 0xff {
+		if len(resp) >= 5 && resp[2] == seq && resp[3] == 0xca && resp[4] == 0xff {
 			return nil // ACK received
 		}
 		// Check for NAK
@@ -588,6 +589,15 @@ func isKnownDonglePID(pid uint16) bool {
 }
 
 func supportsValidatedPairingReads(pid uint16) bool {
+	return pid == 0x24c7 || pid == 0x24c8
+}
+
+// supportsExperimentalDongleWrites deliberately stays narrower than dongle
+// discovery. These are the two Link 380 variants for which the read side and
+// command framing have been checked. Writes still require the explicit
+// developer acknowledgement and an operation-specific confirmation in the
+// TUI.
+func supportsExperimentalDongleWrites(pid uint16) bool {
 	return pid == 0x24c7 || pid == 0x24c8
 }
 
@@ -962,18 +972,26 @@ func updateDongleSettings() {
 			if autoPairing {
 				label = "On"
 			}
+			action := "read only"
+			if experimentalDeviceWritesEnabled() && supportsExperimentalDongleWrites(dongle.productID) {
+				action = "press 1 to toggle"
+			}
 			dongleSettingsLines = append(dongleSettingsLines,
-				menuItem{id: -1, label: fmt.Sprintf("Auto pairing:        %s (change locked)", label)},
+				menuItem{id: -1, label: fmt.Sprintf("Auto pairing:        %s (%s)", label, action)},
 			)
 		}
 		remembered := 0
 		if dongle.pairingList != nil {
 			remembered = len(dongle.pairingList.pairedDevices)
 		}
+		factoryResetLabel := "Factory reset:       Hardware test required (issue #36)"
+		if experimentalDeviceWritesEnabled() && supportsExperimentalDongleWrites(dongle.productID) {
+			factoryResetLabel = "Factory reset:       Press 2 twice (erases remembered headsets)"
+		}
 		dongleSettingsLines = append(dongleSettingsLines,
 			menuItem{id: -1, label: fmt.Sprintf("Remembered devices: %d", remembered)},
 			menuItem{id: -1, label: "Pair a headset:      Locked"},
-			menuItem{id: -1, label: "Factory reset:       Not ready"},
+			menuItem{id: -1, label: factoryResetLabel},
 		)
 	}
 	requestUIRedraw()
@@ -1039,8 +1057,28 @@ func addDevice(deviceInfo *jabra_DeviceInfo) {
 }
 
 func factoryReset(deviceID uint16) error {
-	// TODO: requires GNP command opcode from live capture
-	return ErrNotSupported
+	if err := requireExperimentalDeviceWrite("factory reset"); err != nil {
+		return err
+	}
+	dongle, err := selectedDongleDevice()
+	if err != nil {
+		return err
+	}
+	if deviceID != dongle.deviceID {
+		return fmt.Errorf("factory reset target %d is not the selected dongle %d", deviceID, dongle.deviceID)
+	}
+	if !supportsExperimentalDongleWrites(dongle.productID) {
+		return fmt.Errorf("factory reset is not enabled for dongle PID 0x%04x: %w", dongle.productID, ErrNotSupported)
+	}
+	h := openDeviceHidraw(dongle)
+	if h == nil {
+		return fmt.Errorf("open dongle GNP interface")
+	}
+	defer h.close()
+
+	// Link 380 uses the Bluetooth-device factory-default operation. It clears
+	// the dongle pairing database and disconnects any attached headset.
+	return gnpCommand(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpFactoryDefaultBT, nil)
 }
 
 // getSupportedFeature queries the device via GNP class=0x04 op=0x2d.
@@ -1282,6 +1320,9 @@ func setAutoPairing(autoPairing bool) error {
 	dongle, err := selectedDongleDevice()
 	if err != nil {
 		return err
+	}
+	if !supportsExperimentalDongleWrites(dongle.productID) {
+		return fmt.Errorf("auto-pairing write is not enabled for dongle PID 0x%04x: %w", dongle.productID, ErrNotSupported)
 	}
 	h := openDeviceHidraw(dongle)
 	if h == nil {

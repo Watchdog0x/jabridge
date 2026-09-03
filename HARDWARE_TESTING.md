@@ -17,12 +17,12 @@ test reads device information. It must not change your device.
 ## Run the safe test
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.2 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.2).
+[v1.0.0-rc.3 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.3).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.2_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.2_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.2_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.3_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.3_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.3_linux_amd64
 ./jabridge --version
 ./jabridge status
 ./jabridge firmware
@@ -59,5 +59,6 @@ Never post a serial number or Bluetooth address.
 
 One Link 380 (`0b0e:24c7`) passed device discovery, firmware-version reads,
 auto-pairing reads, saved-pairing reads, firmware-file matching, and reconnect
-checks. No headset was available. No firmware was flashed and no setting was
-changed.
+checks. Its auto-pairing setting also passed a controlled change-and-restore
+test, and the original value was restored. No headset was available. No
+factory reset or firmware flash was attempted.

@@ -35,10 +35,11 @@ const (
 )
 
 type actionResult struct {
-	message            string
-	err                error
-	returnToMainMenu   bool
-	clearSearchResults bool
+	message               string
+	err                   error
+	returnToMainMenu      bool
+	clearSearchResults    bool
+	refreshDongleSettings bool
 }
 
 var (
@@ -56,13 +57,23 @@ var (
 	currentSelection = 0
 	menuState        = 0
 
+	// startMenuSelectionID remembers which logical home-screen action is
+	// highlighted. The home menu is rebuilt from device state on every frame,
+	// so an index alone would slide onto a different action as soon as an
+	// asynchronous scan inserts or removes an entry.
+	startMenuSelectionID = -1
+
+	// screen is the off-screen buffer every render pass paints into.
+	screen = newFrame(0, 0)
+
 	selectedItemsSearchForNewDevices = -1
 	menuItemsSearchForNewDevices     = [2]string{"Q Back", "1 Connect"}
 
-	statusMessage string
-	statusIsError bool
-	statusUntil   time.Time
-	flashUntil    time.Time
+	statusMessage     string
+	statusIsError     bool
+	statusUntil       time.Time
+	flashUntil        time.Time
+	resetConfirmUntil time.Time
 
 	nextSearchRefresh time.Time
 	uiRevision        atomic.Uint64
@@ -79,10 +90,11 @@ type firmwareViewState struct {
 }
 
 const (
-	batteryFullChar     = "◼"
-	batteryEmptyChar    = "◻"
-	batteryWidth        = 10
-	lowBatteryThreshold = 20
+	batteryFullChar           = "◼"
+	batteryEmptyChar          = "◻"
+	batteryWidth              = 10
+	lowBatteryThreshold       = 20
+	factoryResetConfirmWindow = 10 * time.Second
 
 	screenStartMenu = iota
 	screenSearch
@@ -127,6 +139,7 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 	}
 
 	buf := make([]byte, 16)
+	decoder := &keyDecoder{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -136,7 +149,7 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 
 		n, err := os.Stdin.Read(buf)
 		if n > 0 {
-			for _, event := range parseKeyEvents(buf[:n]) {
+			for _, event := range decoder.feed(buf[:n]) {
 				select {
 				case keyEvents <- event:
 				case <-ctx.Done():
@@ -157,38 +170,71 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 	}
 }
 
-func parseKeyEvents(input []byte) []keyEvent {
-	if len(input) >= 3 && input[0] == 0x1B && input[1] == '[' {
-		switch input[2] {
-		case 'A':
-			return []keyEvent{keyUp}
-		case 'B':
-			return []keyEvent{keyDown}
-		}
-	}
+type keyDecoder struct {
+	pending []byte
+}
 
-	events := make([]keyEvent, 0, len(input))
-	for _, b := range input {
-		switch b {
-		case 'w', 'W':
-			events = append(events, keyUp)
-		case 's', 'S':
-			events = append(events, keyDown)
-		case '\r', '\n':
-			events = append(events, keyEnter)
-		case 'q', 'Q':
-			events = append(events, keyBack)
-		case '1':
-			events = append(events, keyAction1)
-		case '2':
-			events = append(events, keyAction2)
-		case '3':
-			events = append(events, keyAction3)
-		case '4':
-			events = append(events, keyAction4)
+// feed accepts arbitrary terminal read chunks. Escape sequences may be split
+// across reads or several keys may arrive together, so it retains incomplete
+// bytes and consumes every complete event in order.
+func (d *keyDecoder) feed(input []byte) []keyEvent {
+	d.pending = append(d.pending, input...)
+	events := make([]keyEvent, 0, len(d.pending))
+	for len(d.pending) > 0 {
+		if d.pending[0] == 0x1b {
+			if len(d.pending) < 2 {
+				break
+			}
+			if d.pending[1] != '[' {
+				d.pending = d.pending[1:]
+				continue
+			}
+			if len(d.pending) < 3 {
+				break
+			}
+			switch d.pending[2] {
+			case 'A':
+				events = append(events, keyUp)
+			case 'B':
+				events = append(events, keyDown)
+			}
+			d.pending = d.pending[3:]
+			continue
 		}
+
+		if event := basicKeyEvent(d.pending[0]); event != keyNone {
+			events = append(events, event)
+		}
+		d.pending = d.pending[1:]
 	}
 	return events
+}
+
+func parseKeyEvents(input []byte) []keyEvent {
+	decoder := &keyDecoder{}
+	return decoder.feed(input)
+}
+
+func basicKeyEvent(b byte) keyEvent {
+	switch b {
+	case 'w', 'W':
+		return keyUp
+	case 's', 'S':
+		return keyDown
+	case '\r', '\n':
+		return keyEnter
+	case 'q', 'Q':
+		return keyBack
+	case '1':
+		return keyAction1
+	case '2':
+		return keyAction2
+	case '3':
+		return keyAction3
+	case '4':
+		return keyAction4
+	}
+	return keyNone
 }
 
 func handleKeyEvent(event keyEvent, results chan<- actionResult) bool {
@@ -212,14 +258,13 @@ func handleBackKey(results chan<- actionResult) bool {
 	case screenStartMenu:
 		return true
 	case screenSearch:
-		menuState = screenStartMenu
-		currentSelection = 0
+		returnToStartMenu()
 		runUIAction(results, "Pairing stopped", func() error {
 			return setDongleInBTPairing(false)
 		})
 	case screenPairedDevices, screenDongleSettings, screenSwitchDevice, screenFirmware:
-		menuState = screenStartMenu
-		currentSelection = 0
+		resetConfirmUntil = time.Time{}
+		returnToStartMenu()
 	}
 	return false
 }
@@ -229,13 +274,18 @@ func handleEnterKey(results chan<- actionResult) bool {
 	case screenStartMenu:
 		if currentSelection < 0 || currentSelection >= len(startMenu) {
 			currentSelection = clampSelection(currentSelection, len(startMenu))
+			rememberStartMenuSelection()
 			return false
 		}
 		return activateStartMenuItem(startMenu[currentSelection], results)
 	case screenDongleSettings:
-		setStatus("Untested setting changes are locked", false)
+		if experimentalDeviceWritesEnabled() {
+			setStatus("Press 1 to toggle auto pairing or 2 twice to factory reset", false)
+		} else {
+			setStatus("Settings are read-only; hardware-write testing is tracked in issue #36", false)
+		}
 	case screenFirmware:
-		setStatus("Press 1 to download. Firmware install is locked.", false)
+		setStatus(firmwareActionHint(), false)
 	}
 	return false
 }
@@ -262,7 +312,7 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 	case 5:
 		return true
 	default:
-		menuState = screenStartMenu
+		returnToStartMenu()
 	}
 	return false
 }
@@ -286,6 +336,8 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 		}, withReturnToMainMenu())
 	case screenPairedDevices:
 		setStatus("Pairing changes are locked in this preview", true)
+	case screenDongleSettings:
+		handleDongleSettingsAction(event, results)
 	case screenFirmware:
 		if event != keyAction1 {
 			return
@@ -310,11 +362,69 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 	}
 }
 
+func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists {
+		setStatus("No dongle connected", true)
+		return
+	}
+	if !supportsExperimentalDongleWrites(dongle.productID) {
+		setStatus(fmt.Sprintf("Writes are not supported for dongle PID 0x%04x", dongle.productID), true)
+		return
+	}
+	if !experimentalDeviceWritesEnabled() {
+		setStatus("Read-only mode; hardware-write testing is tracked in issue #36", true)
+		return
+	}
+
+	switch event {
+	case keyAction1:
+		resetConfirmUntil = time.Time{}
+		setStatus("Changing auto-pairing setting...", false)
+		runUIAction(results, "Auto-pairing setting changed", func() error {
+			current, err := getAutoPairing()
+			if err != nil {
+				return err
+			}
+			return setAutoPairing(!current)
+		}, withDongleSettingsRefresh())
+	case keyAction2:
+		if !confirmFactoryReset(time.Now()) {
+			setStatus("WARNING: reset erases remembered headsets; press 2 again within 10 seconds", true)
+			return
+		}
+		deviceID := dongle.deviceID
+		setStatus("Sending factory-reset command...", false)
+		runUIAction(results, "Factory-reset command accepted; waiting for dongle reconnect", func() error {
+			return factoryReset(deviceID)
+		})
+	}
+}
+
+// confirmFactoryReset implements a deliberate two-press confirmation. The
+// first press arms a short window; the second press consumes it and allows the
+// caller to perform the destructive operation.
+func confirmFactoryReset(now time.Time) bool {
+	if !resetConfirmUntil.IsZero() && !now.After(resetConfirmUntil) {
+		resetConfirmUntil = time.Time{}
+		return true
+	}
+	resetConfirmUntil = now.Add(factoryResetConfirmWindow)
+	requestUIRedraw()
+	return false
+}
+
 type actionOption func(*actionResult)
 
 func withReturnToMainMenu() actionOption {
 	return func(result *actionResult) {
 		result.returnToMainMenu = true
+	}
+}
+
+func withDongleSettingsRefresh() actionOption {
+	return func(result *actionResult) {
+		result.refreshDongleSettings = true
 	}
 }
 
@@ -384,20 +494,78 @@ func applyActionResult(result actionResult) {
 		setStatus(result.message, false)
 	}
 	if result.returnToMainMenu {
-		menuState = screenStartMenu
-		currentSelection = 0
+		returnToStartMenu()
 	}
 	if result.clearSearchResults {
 		clearSearchResults()
+	}
+	if result.refreshDongleSettings && menuState == screenDongleSettings {
+		updateDongleSettings()
 	}
 }
 
 func handleUpKey() {
 	currentSelection = clampSelection(currentSelection-1, currentMenuLength())
+	rememberStartMenuSelection()
 }
 
 func handleDownKey() {
 	currentSelection = clampSelection(currentSelection+1, currentMenuLength())
+	rememberStartMenuSelection()
+}
+
+// rememberStartMenuSelection records the id of the home-screen item under the
+// cursor so a later menu rebuild can put the highlight back on the same action.
+func rememberStartMenuSelection() {
+	if menuState != screenStartMenu {
+		return
+	}
+	if currentSelection >= 0 && currentSelection < len(startMenu) {
+		startMenuSelectionID = startMenu[currentSelection].id
+		return
+	}
+	startMenuSelectionID = -1
+}
+
+// syncStartMenuSelection re-resolves currentSelection against the freshly
+// rebuilt home menu. The remembered item keeps the highlight wherever it moved
+// to; only if it disappeared entirely do we fall back to the nearest index.
+func syncStartMenuSelection() {
+	if menuState != screenStartMenu {
+		return
+	}
+	if len(startMenu) == 0 {
+		currentSelection = 0
+		startMenuSelectionID = -1
+		return
+	}
+	if index := indexOfStartMenuID(startMenuSelectionID); index >= 0 {
+		currentSelection = index
+		return
+	}
+	currentSelection = clampSelection(currentSelection, len(startMenu))
+	startMenuSelectionID = startMenu[currentSelection].id
+}
+
+// indexOfStartMenuID returns the position of id in the home menu, or -1.
+func indexOfStartMenuID(id int) int {
+	if id < 0 {
+		return -1
+	}
+	for i, item := range startMenu {
+		if item.id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// returnToStartMenu goes home and puts the highlight on the first action.
+func returnToStartMenu() {
+	menuState = screenStartMenu
+	currentSelection = 0
+	startMenuSelectionID = -1
+	syncStartMenuSelection()
 }
 
 func currentMenuLength() int {
@@ -431,18 +599,129 @@ func clampSelection(selection, count int) int {
 	return selection
 }
 
-func moveCursor(row, col int) {
-	if row < 1 {
-		row = 1
-	}
-	if col < 1 {
-		col = 1
-	}
-	fmt.Printf("\033[%d;%dH", row, col)
+// SGR parameter lists used by the UI. Every style carries an explicit
+// background so a cell is self-describing and the frame never depends on
+// whatever attributes the terminal happened to be left in.
+const (
+	styleBase     = "0;40;97"
+	styleText     = "0;40;97"
+	styleBorder   = "0;40;97"
+	styleTitle    = "1;40;96"
+	styleWarn     = "1;40;93"
+	styleSelected = "1;30;106"
+	styleAction   = "1;30;107"
+	styleBadge    = "1;30;103"
+	styleAlert    = "1;97;41"
+	styleBattOK   = "0;40;32"
+	styleBattWarn = "0;40;33"
+	styleBattLow  = "0;40;31"
+)
+
+// cell is one character position of a composed frame.
+type cell struct {
+	ch    rune
+	style string
 }
 
+// frame is an off-screen character buffer. A render pass paints a complete
+// frame and flushFrame emits it in a single write, so the terminal is never
+// shown a cleared or half-drawn screen.
+type frame struct {
+	width  int
+	height int
+	cells  []cell
+}
+
+func newFrame(width, height int) *frame {
+	f := &frame{}
+	f.resize(width, height)
+	return f
+}
+
+// resize prepares the buffer for a frame of the given size and blanks it.
+func (f *frame) resize(width, height int) {
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	if f.width != width || f.height != height {
+		f.width, f.height = width, height
+		f.cells = make([]cell, width*height)
+	}
+	for i := range f.cells {
+		f.cells[i] = cell{ch: ' ', style: styleBase}
+	}
+}
+
+// setText paints text with its first character at the 1-based (row, col)
+// position. Anything outside the frame is clipped. text must be plain text:
+// styling is carried by style, never by escapes embedded in the string.
+func (f *frame) setText(row, col int, text, style string) {
+	if row < 1 || row > f.height {
+		return
+	}
+	if style == "" {
+		style = styleBase
+	}
+	base := (row - 1) * f.width
+	for _, r := range text {
+		if col > f.width {
+			return
+		}
+		if col >= 1 {
+			f.cells[base+col-1] = cell{ch: r, style: style}
+		}
+		col++
+	}
+}
+
+// render serializes the frame as one escape-sequence string. It homes the
+// cursor and rewrites each row in place, erasing the tail of the row with
+// the base style instead of clearing the screen first. That keeps updates
+// free of the flash a full clear produces.
+func (f *frame) render() string {
+	var b strings.Builder
+	b.Grow(len(f.cells) + f.height*16 + 8)
+	for row := 0; row < f.height; row++ {
+		if row == 0 {
+			b.WriteString("\033[H")
+		} else {
+			fmt.Fprintf(&b, "\033[%d;1H", row+1)
+		}
+
+		line := f.cells[row*f.width : (row+1)*f.width]
+		// Trailing default-styled blanks are covered by the erase below.
+		end := f.width
+		for end > 0 && line[end-1].ch == ' ' && line[end-1].style == styleBase {
+			end--
+		}
+
+		style := ""
+		for i := 0; i < end; i++ {
+			if line[i].style != style {
+				style = line[i].style
+				b.WriteString("\033[" + style + "m")
+			}
+			b.WriteRune(line[i].ch)
+		}
+		if style != styleBase {
+			b.WriteString("\033[" + styleBase + "m")
+		}
+		b.WriteString("\033[K")
+	}
+	return b.String()
+}
+
+// flushFrame writes the composed frame to the terminal in one syscall.
+func flushFrame(f *frame) {
+	_, _ = os.Stdout.WriteString(f.render())
+}
+
+// clearScreen is only used once when entering the alternate screen.
 func clearScreen() {
-	fmt.Print("\033[0;40;97m\033[2J\033[H")
+	fmt.Print("\033[" + styleBase + "m\033[2J\033[H")
 }
 
 func getScreenSize() {
@@ -467,18 +746,14 @@ func drawingBox() {
 	}
 
 	line := strings.Repeat("━", innerWidth)
-	moveCursor(topRow, leftCol)
-	fmt.Printf("\033[97m%s%s%s\033[0;40;97m", leftCornerTop, line, rightCornerTop)
+	screen.setText(topRow, leftCol, leftCornerTop+line+rightCornerTop, styleBorder)
 
 	for row := topRow + 1; row < bottomRow; row++ {
-		moveCursor(row, leftCol)
-		fmt.Printf("\033[97m%s\033[0;40;97m", verticalLine)
-		moveCursor(row, rightCol)
-		fmt.Printf("\033[97m%s\033[0;40;97m", verticalLine)
+		screen.setText(row, leftCol, verticalLine, styleBorder)
+		screen.setText(row, rightCol, verticalLine, styleBorder)
 	}
 
-	moveCursor(bottomRow, leftCol)
-	fmt.Printf("\033[97m%s%s%s\033[0;40;97m", leftCornerBottom, line, rightCornerBottom)
+	screen.setText(bottomRow, leftCol, leftCornerBottom+line+rightCornerBottom, styleBorder)
 }
 
 func panelBounds() (left, right, bottom int) {
@@ -500,60 +775,57 @@ func panelBounds() (left, right, bottom int) {
 
 func header() {
 	left, right, _ := panelBounds()
-	moveCursor(1, left)
-	fmt.Printf("\033[1;96mJabridge\033[0;40;97m  %s", buildinfo.Version)
+	const title = "Jabridge"
+	screen.setText(1, left, title, styleTitle)
+	screen.setText(1, left+displayWidth(title)+2, buildinfo.Version, styleText)
+
 	mode := "READ-ONLY PREVIEW"
+	modeStyle := styleBadge
 	if experimentalDeviceWritesEnabled() {
 		mode = "DEVELOPER WRITES ENABLED"
+		modeStyle = styleAlert
 	}
-	moveCursor(1, max(left, right-displayWidth(mode)-2))
-	if experimentalDeviceWritesEnabled() {
-		fmt.Printf("\033[1;97;41m %s \033[0;40;97m", mode)
-	} else {
-		fmt.Printf("\033[1;30;103m %s \033[0;40;97m", mode)
-	}
+	screen.setText(1, max(left, right-displayWidth(mode)-2), " "+mode+" ", modeStyle)
 
-	moveCursor(2, left)
 	dongle, exists := selectedDongleSnapshot()
-	if !exists {
-		if firstScanComplete.Load() {
-			if headset, headsetExists := selectedHeadsetSnapshot(); headsetExists {
-				fmt.Printf("USB: %s", trimToWidth(headset.deviceName, max(10, width/3)))
-			} else {
-				fmt.Print("Dongle: Not connected")
-			}
+	switch {
+	case exists:
+		screen.setText(2, left, "Dongle: "+trimToWidth(dongle.deviceName, max(10, width/3)), styleText)
+	case !firstScanComplete.Load():
+		screen.setText(2, left, "Dongle: Scanning "+loading[loadingIndex], styleText)
+		loadingIndex = (loadingIndex + 1) % len(loading)
+	default:
+		if headset, headsetExists := selectedHeadsetSnapshot(); headsetExists {
+			screen.setText(2, left, "USB: "+trimToWidth(headset.deviceName, max(10, width/3)), styleText)
 		} else {
-			fmt.Printf("Dongle: Scanning %s", loading[loadingIndex])
-			loadingIndex = (loadingIndex + 1) % len(loading)
+			screen.setText(2, left, "Dongle: Not connected", styleText)
 		}
-	} else {
-		fmt.Printf("Dongle: %s", trimToWidth(dongle.deviceName, max(10, width/3)))
 	}
 
+	drawHeadsetStatus(left, right)
+}
+
+// drawHeadsetStatus paints the right half of the second header row: the
+// headset name and, when available, a coloured battery gauge. The gauge is
+// laid out as three plain-text segments so the frame keeps one style per cell.
+func drawHeadsetStatus(left, right int) {
 	headset, exists := selectedHeadsetSnapshot()
 	if !exists {
 		label := "Headset: Scanning"
 		if firstScanComplete.Load() {
 			label = "Headset: Not connected"
 		}
-		moveCursor(2, max(left, right-displayWidth(label)))
-		fmt.Printf("\033[97m%s\033[0;40;97m", label)
+		screen.setText(2, max(left, right-displayWidth(label)), label, styleText)
 		return
 	}
-	if headset.batteryStatus == nil {
+
+	if headset.batteryStatus == nil || headset.batteryStatus.levelInPercent > 100 {
 		label := fmt.Sprintf("Headset: %s  Battery unavailable", headset.deviceName)
-		moveCursor(2, max(left, right-displayWidth(label)))
-		fmt.Printf("\033[97m%s\033[0;40;97m", label)
+		screen.setText(2, max(left, right-displayWidth(label)), label, styleText)
 		return
 	}
 
 	levelInPercent := headset.batteryStatus.levelInPercent
-	if levelInPercent > 100 {
-		label := fmt.Sprintf("Headset: %s  Battery unavailable", headset.deviceName)
-		moveCursor(2, max(left, right-displayWidth(label)))
-		fmt.Printf("\033[97m%s\033[0;40;97m", label)
-		return
-	}
 	filledSegments := int(math.Round(float64(levelInPercent) / 100 * batteryWidth))
 	if filledSegments < 0 {
 		filledSegments = 0
@@ -561,32 +833,31 @@ func header() {
 	if filledSegments > batteryWidth {
 		filledSegments = batteryWidth
 	}
-	emptySegments := batteryWidth - filledSegments
+	bar := strings.Repeat(batteryFullChar, filledSegments) +
+		strings.Repeat(batteryEmptyChar, batteryWidth-filledSegments)
 
-	color := "\033[32m"
+	barStyle := styleBattOK
 	switch {
 	case headset.batteryStatus.batteryLow || levelInPercent <= lowBatteryThreshold:
-		color = "\033[31m"
+		barStyle = styleBattLow
 	case levelInPercent <= 65:
-		color = "\033[33m"
+		barStyle = styleBattWarn
 	}
 
-	batteryBar := color +
-		strings.Repeat(batteryFullChar, filledSegments) +
-		strings.Repeat(batteryEmptyChar, emptySegments) +
-		"\033[0;40;97m"
-
-	label := fmt.Sprintf("Headset: %s  [%s] %d%%", headset.deviceName, batteryBar, levelInPercent)
+	prefix := fmt.Sprintf("Headset: %s  [", headset.deviceName)
+	suffix := fmt.Sprintf("] %d%%", levelInPercent)
 	if headset.batteryStatus.charging {
-		label = fmt.Sprintf("Headset: %s  [%s] %d%% charging", headset.deviceName, batteryBar, levelInPercent)
+		suffix += " charging"
 	}
-	moveCursor(2, max(left, right-displayWidth(label)))
-	fmt.Printf("\033[97m%s\033[0;40;97m", label)
+
+	col := max(left, right-(displayWidth(prefix)+batteryWidth+displayWidth(suffix)))
+	screen.setText(2, col, prefix, styleText)
+	screen.setText(2, col+displayWidth(prefix), bar, barStyle)
+	screen.setText(2, col+displayWidth(prefix)+batteryWidth, suffix, styleText)
 }
 
-func menu(_ int) {
+func menu() {
 	drawingBox()
-	currentSelection = clampSelection(currentSelection, len(startMenu))
 	renderHomeSummary()
 
 	if len(startMenu) == 0 {
@@ -611,24 +882,24 @@ func menu(_ int) {
 
 func renderHomeSummary() {
 	if !firstScanComplete.Load() {
-		drawCenteredStyled(6, "Looking for supported devices...", "\033[1;96m")
+		drawCenteredStyled(6, "Looking for supported devices...", styleTitle)
 		return
 	}
 	dongle, hasDongle := selectedDongleSnapshot()
 	headset, hasHeadset := selectedHeadsetSnapshot()
 	switch {
 	case hasDongle && hasHeadset:
-		drawCenteredStyled(6, "Headset connected", "\033[1;96m")
+		drawCenteredStyled(6, "Headset connected", styleTitle)
 		drawCentered(7, trimToWidth(headset.deviceName, max(12, width-16)), false)
 	case hasDongle:
-		drawCenteredStyled(6, "Dongle ready", "\033[1;96m")
+		drawCenteredStyled(6, "Dongle ready", styleTitle)
 		drawCentered(7, fmt.Sprintf("%s  •  USB 0b0e:%04x", dongle.deviceName, dongle.productID), false)
 		drawCentered(8, "No headset connected. Turn it on or connect it by USB.", false)
 	case hasHeadset:
-		drawCenteredStyled(6, "USB headset connected", "\033[1;96m")
+		drawCenteredStyled(6, "USB headset connected", styleTitle)
 		drawCentered(7, trimToWidth(headset.deviceName, max(12, width-16)), false)
 	default:
-		drawCenteredStyled(6, "No supported device found", "\033[1;93m")
+		drawCenteredStyled(6, "No supported device found", styleWarn)
 		drawCentered(8, "Connect a Jabra headset or USB dongle.", false)
 	}
 }
@@ -693,7 +964,6 @@ func menuPairedDevices() {
 	if len(dongle.pairingList.pairedDevices) == 0 {
 		drawCentered(5, "No paired devices remembered", false)
 	} else {
-		currentSelection = clampSelection(currentSelection, len(dongle.pairingList.pairedDevices))
 		for i, pairedDevice := range dongle.pairingList.pairedDevices {
 			row := 5 + i
 			_, _, panelBottom := panelBounds()
@@ -713,7 +983,7 @@ func menuPairedDevices() {
 
 func renderDongleSettings() {
 	drawingBox()
-	drawCenteredStyled(6, "Dongle settings", "\033[1;96m")
+	drawCenteredStyled(6, "Dongle settings", styleTitle)
 
 	if len(dongleSettingsLines) == 0 {
 		drawCentered(8, "No dongle connected", false)
@@ -728,12 +998,20 @@ func renderDongleSettings() {
 		}
 	}
 
-	drawActionBar([]string{"Q Back", "Read-only"}, -1)
+	actions := []string{"Q Back", "Read-only"}
+	if dongle, exists := selectedDongleSnapshot(); exists &&
+		experimentalDeviceWritesEnabled() && supportsExperimentalDongleWrites(dongle.productID) {
+		actions = []string{"Q Back", "1 Toggle auto pairing", "2 Factory reset"}
+		if !resetConfirmUntil.IsZero() && time.Now().Before(resetConfirmUntil) {
+			actions = []string{"Q Cancel", "2 CONFIRM factory reset"}
+		}
+	}
+	drawActionBar(actions, -1)
 }
 
 func renderFirmware() {
 	drawingBox()
-	drawCenteredStyled(6, "Firmware", "\033[1;96m")
+	drawCenteredStyled(6, "Firmware", styleTitle)
 	firmwareViewMu.RLock()
 	view := firmwareView
 	firmwareViewMu.RUnlock()
@@ -759,12 +1037,39 @@ func renderFirmware() {
 	if view.downloadedPath != "" {
 		lines = append(lines, fmt.Sprintf("Downloaded:          %s", view.downloadedPath))
 	}
-	lines = append(lines, "Firmware install:    Locked until hardware test")
+	lines = append(lines, firmwareInstallStatus(view))
 	for _, line := range lines {
 		drawListItem(row, left+4, line, false)
 		row++
 	}
-	drawActionBar([]string{"Q Back", "1 Download", "Install locked"}, -1)
+	actions := []string{"Q Back", "1 Download"}
+	if view.currentVersion != "" && view.currentVersion == view.latestVersion {
+		actions = append(actions, "Already up to date")
+	} else {
+		actions = append(actions, "Install test: issue #36")
+	}
+	drawActionBar(actions, -1)
+}
+
+func firmwareInstallStatus(view firmwareViewState) string {
+	switch {
+	case view.currentVersion != "" && view.currentVersion == view.latestVersion:
+		return "Install:            Not needed (already up to date)"
+	case view.downloadedPath == "":
+		return "Install:            Download the update first"
+	default:
+		return "Install:            Recovery test required (issue #36)"
+	}
+}
+
+func firmwareActionHint() string {
+	firmwareViewMu.RLock()
+	view := firmwareView
+	firmwareViewMu.RUnlock()
+	if view.currentVersion != "" && view.currentVersion == view.latestVersion {
+		return "Firmware is already up to date; press 1 only to download a copy"
+	}
+	return "Press 1 to download; installation testing is tracked in issue #36"
 }
 
 func valueOrUnknown(value string) string {
@@ -781,32 +1086,45 @@ func renderSwitchDevice() {
 	drawActionBar([]string{"Q Back"}, -1)
 }
 
+// selectionPadding is how far the selected-row highlight extends on each side
+// of the label. It is painted around the label rather than inserted before it,
+// so selecting a row never moves its text.
+const selectionPadding = 2
+
 func drawCentered(row int, label string, selected bool) {
-	col := (width - displayWidth(label)) / 2
-	drawListItem(row, col, label, selected)
+	drawListItem(row, labelColumnFor(label), label, selected)
 }
 
 func drawCenteredStyled(row int, label, style string) {
-	col := (width - displayWidth(label)) / 2
-	moveCursor(row, col)
-	fmt.Printf("%s%s\033[0;40;97m", style, label)
+	screen.setText(row, labelColumnFor(label), label, style)
 }
 
+// labelColumnFor returns the column a centred label starts at. It depends only
+// on the label, never on whether the row is selected.
+func labelColumnFor(label string) int {
+	return (width - displayWidth(label)) / 2
+}
+
+// drawListItem paints label with its first character at column col. col is the
+// column of the text itself in both states: the selection highlight is drawn
+// into the padding columns on either side, so a row keeps exactly the same
+// text column whether or not it is selected.
 func drawListItem(row, col int, label string, selected bool) {
-	if row < 1 || row >= height {
+	if row < 1 || row > height {
 		return
 	}
 	left, right, _ := panelBounds()
-	if col < left+3 {
-		col = left + 3
+	// Keep the highlight, not just the text, inside the panel border.
+	if col < left+1+selectionPadding {
+		col = left + 1 + selectionPadding
 	}
-	label = trimToWidth(label, max(1, right-col-2))
-	moveCursor(row, col)
-	if selected {
-		fmt.Printf("\033[1;30;106m  %s  \033[0;40;97m", label)
+	label = trimToWidth(label, max(1, right-selectionPadding-col))
+	if !selected {
+		screen.setText(row, col, label, styleText)
 		return
 	}
-	fmt.Printf("\033[97m%s\033[0;40;97m", label)
+	pad := strings.Repeat(" ", selectionPadding)
+	screen.setText(row, col-selectionPadding, pad+label+pad, styleSelected)
 }
 
 func drawActionBar(items []string, selected int) {
@@ -824,12 +1142,11 @@ func drawActionBar(items []string, selected int) {
 			break
 		}
 		item = trimToWidth(item, max(1, right-col-2))
-		moveCursor(row, col)
+		style := styleAction
 		if i == selected {
-			fmt.Printf("\033[1;30;106m %s \033[0;40;97m", item)
-		} else {
-			fmt.Printf("\033[1;30;107m %s \033[0;40;97m", item)
+			style = styleSelected
 		}
+		screen.setText(row, col, " "+item+" ", style)
 		col += displayWidth(item) + 4
 	}
 }
@@ -846,12 +1163,11 @@ func renderStatus() {
 	}
 	col := left + 2
 	message := trimToWidth(statusMessage, max(1, right-col-2))
-	moveCursor(row, col)
 	if statusIsError {
-		fmt.Printf("\033[1;97;41m %s \033[0;40;97m", message)
+		screen.setText(row, col, " "+message+" ", styleAlert)
 		return
 	}
-	fmt.Printf("\033[1;96m%s\033[0;40;97m", message)
+	screen.setText(row, col, message, styleTitle)
 }
 
 func setStatus(message string, isError bool) {
@@ -866,8 +1182,7 @@ func requestUIRedraw() {
 }
 
 func renderSmallTerminal() {
-	moveCursor(1, 1)
-	fmt.Print("Terminal too small. Resize to at least 30x8.")
+	screen.setText(1, 1, "Terminal too small. Resize to at least 30x8.", styleText)
 }
 
 func resetExpiredFlash() {
@@ -876,6 +1191,14 @@ func resetExpiredFlash() {
 	}
 	selectedItemsSearchForNewDevices = -1
 	flashUntil = time.Time{}
+	requestUIRedraw()
+}
+
+func resetExpiredFactoryConfirmation() {
+	if resetConfirmUntil.IsZero() || time.Now().Before(resetConfirmUntil) {
+		return
+	}
+	resetConfirmUntil = time.Time{}
 	requestUIRedraw()
 }
 
@@ -922,6 +1245,48 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
+// updateSelectionState rebuilds the home menu from the current device state
+// and settles the selection before anything is drawn. Keeping this out of the
+// render pass means composing a frame never moves the highlight.
+func updateSelectionState() {
+	switch menuState {
+	case screenSearch, screenPairedDevices, screenDongleSettings, screenSwitchDevice, screenFirmware:
+	default:
+		menuState = screenStartMenu
+	}
+	updateStartMenu()
+	syncStartMenuSelection()
+	currentSelection = clampSelection(currentSelection, currentMenuLength())
+}
+
+// composeFrame paints the entire UI into the off-screen buffer and returns it.
+// It only reads state, so the same state always yields the same frame.
+func composeFrame() *frame {
+	screen.resize(width, height)
+	if width < 30 || height < 8 {
+		renderSmallTerminal()
+		return screen
+	}
+
+	header()
+	switch menuState {
+	case screenSearch:
+		menuSearchForNewDevices()
+	case screenPairedDevices:
+		menuPairedDevices()
+	case screenDongleSettings:
+		renderDongleSettings()
+	case screenSwitchDevice:
+		renderSwitchDevice()
+	case screenFirmware:
+		renderFirmware()
+	default:
+		menu()
+	}
+	renderStatus()
+	return screen
+}
+
 func startUi(parent context.Context) {
 	ctx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -952,6 +1317,7 @@ func startUi(parent context.Context) {
 			forceRedraw = true
 		case <-ticker.C:
 			resetExpiredFlash()
+			resetExpiredFactoryConfirmation()
 			clearExpiredStatus()
 			refreshSearchDeviceList()
 			if !firstScanComplete.Load() {
@@ -967,29 +1333,7 @@ func startUi(parent context.Context) {
 		lastRevision = revision
 		lastWidth, lastHeight = width, height
 
-		clearScreen()
-		if width < 30 || height < 8 {
-			renderSmallTerminal()
-			continue
-		}
-		updateStartMenu()
-		header()
-
-		switch menuState {
-		case screenSearch:
-			menuSearchForNewDevices()
-		case screenPairedDevices:
-			menuPairedDevices()
-		case screenDongleSettings:
-			renderDongleSettings()
-		case screenSwitchDevice:
-			renderSwitchDevice()
-		case screenFirmware:
-			renderFirmware()
-		default:
-			menuState = screenStartMenu
-			menu(width)
-		}
-		renderStatus()
+		updateSelectionState()
+		flushFrame(composeFrame())
 	}
 }
