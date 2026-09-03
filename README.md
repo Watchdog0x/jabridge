@@ -1,4 +1,4 @@
-# Jabridge
+# Jabridge: Linux control for Jabra devices
 
 Jabridge is a Linux tool for supported Jabra headsets and USB dongles. Version
 1.0.0 is a new Go rewrite of the old `jLink` project. It does not use CGo or
