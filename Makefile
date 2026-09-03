@@ -6,7 +6,7 @@ LIB_DIR := lib
 INSTALL_PREFIX := /usr/local/bin
 JABRA_LIB_DIR := /usr/lib/jabra
 
-.PHONY: all build clean extract-lib lint vet fmt test install uninstall help
+.PHONY: all build clean extract-lib lint vet fmt test coverage install uninstall help
 
 all: extract-lib build ## Build the project (default)
 
@@ -45,6 +45,11 @@ fmt: ## Check code formatting
 
 test: ## Run tests
 	$(GO) test -v -race ./...
+
+coverage: ## Run tests with coverage report
+	$(GO) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	$(GO) tool cover -func=coverage.out
+	@echo "HTML report: go tool cover -html=coverage.out -o coverage.html"
 
 install: build ## Install jLink to system
 	sudo install -Dm755 $(BINARY_NAME) $(INSTALL_PREFIX)/jlink

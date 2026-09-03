@@ -10,6 +10,10 @@ linters:
     - ineffassign
     - typecheck
     - gosimple
+    - misspell
+    - revive
+    - gocritic
+    - prealloc
 
 linters-settings:
   errcheck:
@@ -36,3 +40,16 @@ issues:
       linters:
         - errcheck
       text: "fmt\\.Print"
+    # Suppress misspell for existing identifiers until renamed
+    - linters:
+        - misspell
+      source: "dongleSettigns|Settigns"
+    # Suppress gocritic in test files
+    - path: _test\.go
+      linters:
+        - gocritic
+        - errcheck
+    # Suppress revive exported-type warnings in package main
+    - linters:
+        - revive
+      text: "exported"
