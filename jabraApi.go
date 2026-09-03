@@ -222,6 +222,9 @@ var (
 	// Stop Channels
 	stopUpdateBattery     = make(chan struct{})
 	stopUpdatePairingList = make(chan struct{})
+
+	// First scan completion flag
+	firstScanComplete bool
 )
 
 /****************************************************************************/
@@ -241,10 +244,11 @@ func isAccessory(name string) bool {
 }
 
 // Reminder: If you plan to use this function, make sure to update the `goWrapper.h` file accordingly.
-// //export firstScanForDevicesDone
-// func firstScanForDevicesDone() {
-// 	 fmt.Println("First scan for devices done!")
-// }
+
+//export firstScanForDevicesDone
+func firstScanForDevicesDone() {
+	firstScanComplete = true
+}
 
 //export deviceAttachedFunc
 func deviceAttachedFunc(deviceInfo C.Jabra_DeviceInfo) {

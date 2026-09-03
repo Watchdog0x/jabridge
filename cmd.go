@@ -375,8 +375,21 @@ func header() {
 	moveCursor(2, 5)
 	dongle, exists := deviceManager[selectedDongle]
 	if !exists {
-		fmt.Printf("Looking For Dongle %s", loading[loadingIndex])
-		loadingIndex = (loadingIndex + 1) % len(loading)
+		if firstScanComplete {
+			// First scan done but no dongle found -- show helpful message
+			if selectedHeadset != -1 {
+				if headset, hsExists := deviceManager[selectedHeadset]; hsExists {
+					fmt.Printf("No dongle - USB device: %s", headset.deviceName)
+				} else {
+					fmt.Printf("No Jabra dongle detected")
+				}
+			} else {
+				fmt.Printf("No Jabra dongle detected")
+			}
+		} else {
+			fmt.Printf("Looking For Dongle %s", loading[loadingIndex])
+			loadingIndex = (loadingIndex + 1) % len(loading)
+		}
 		return
 	}
 	fmt.Printf("%s", dongle.deviceName)
