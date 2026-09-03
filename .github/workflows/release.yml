@@ -31,8 +31,8 @@ jobs:
           mkdir -p lib
           sed -n 's/^libjabraSo="//;s/"$//p' install.sh | xxd -r -p > lib/libjabra.so
           chmod 644 lib/libjabra.so
-
-      - name: Get version from tag
+          # Link system libcurl into lib/ for CGo build (required by PR #27 LDFLAGS)
+          ln -sf /usr/lib/x86_64-linux-gnu/libcurl.so.4 lib/libcurl.so.4
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 

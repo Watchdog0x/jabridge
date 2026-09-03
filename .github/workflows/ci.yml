@@ -22,11 +22,17 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev
+
       - name: Extract libjabra.so from install.sh
         run: |
           mkdir -p lib
           sed -n 's/^libjabraSo="//;s/"$//p' install.sh | xxd -r -p > lib/libjabra.so
           chmod 644 lib/libjabra.so
+          ln -sf /usr/lib/x86_64-linux-gnu/libcurl.so.4 lib/libcurl.so.4
 
       - name: Check formatting
         run: |
@@ -71,6 +77,7 @@ jobs:
           mkdir -p lib
           sed -n 's/^libjabraSo="//;s/"$//p' install.sh | xxd -r -p > lib/libjabra.so
           chmod 644 lib/libjabra.so
+          ln -sf /usr/lib/x86_64-linux-gnu/libcurl.so.4 lib/libcurl.so.4
 
       - name: Build
         run: go build -v -ldflags="-s -w" -o jLink .
@@ -107,6 +114,7 @@ jobs:
           mkdir -p lib
           sed -n 's/^libjabraSo="//;s/"$//p' install.sh | xxd -r -p > lib/libjabra.so
           chmod 644 lib/libjabra.so
+          ln -sf /usr/lib/x86_64-linux-gnu/libcurl.so.4 lib/libcurl.so.4
 
       - name: Run tests with race detector and coverage
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
