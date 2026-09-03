@@ -16,6 +16,11 @@ Go, GCC, .NET, Node.js, the Jabra SDK, or Jabra Device Connector.
 The new name avoids confusion with SEGGER J-Link, which also uses the `jlink`
 name on Linux.
 
+![Jabridge TUI showing a Link 380 with no headset connected](src/image.png)
+
+The TUI uses a high-contrast theme. The picture shows the tested Link 380-only
+state; it is not proof of headset support.
+
 ## Download and run
 
 Download the Linux x86-64 archive and checksum from
