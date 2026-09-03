@@ -91,6 +91,35 @@ func TestDecodeLengthPrefixedString(t *testing.T) {
 	}
 }
 
+func TestFirmwareReadDestinations(t *testing.T) {
+	if got := firmwareReadDestinations(&jabra_DeviceInfo{isDongle: true}); len(got) != 1 || got[0] != gnpSrcDongle {
+		t.Fatalf("dongle destinations = %v", got)
+	}
+	got := firmwareReadDestinations(&jabra_DeviceInfo{})
+	if len(got) != 2 || got[0] != gnpSrcHost || got[1] != 3 {
+		t.Fatalf("headset/controller destinations = %v", got)
+	}
+}
+
+func TestDecodeFirmwareVersionPayload(t *testing.T) {
+	got, err := decodeFirmwareVersionPayload([]byte{6, '1', '.', '2', '.', '3', '4'})
+	if err != nil || got != "1.2.34" {
+		t.Fatalf("version = %q, %v", got, err)
+	}
+	if _, err := decodeFirmwareVersionPayload([]byte{5, '1'}); err == nil {
+		t.Fatal("short firmware version was accepted")
+	}
+}
+
+func TestDecodeDeviceVariant(t *testing.T) {
+	if got, ok := decodeDeviceVariant([]byte{1, 0x04, 0x0b}); !ok || got != "04-0B" {
+		t.Fatalf("variant = %q, %v", got, ok)
+	}
+	if _, ok := decodeDeviceVariant([]byte{1, 2}); ok {
+		t.Fatal("short variant payload was accepted")
+	}
+}
+
 func TestHIDUeventMatchHandlesKernelPadding(t *testing.T) {
 	data := []byte("DRIVER=jabra\nHID_ID=0003:00000B0E:000024C7\nHID_NAME=Jabra Link 380\n")
 	if !hidUeventMatches(data, 0x0b0e, 0x24c7) {
@@ -204,14 +233,17 @@ func TestParsePairingListRecords(t *testing.T) {
 	}
 
 	record := []byte{0x00, 0x00, 0x03, 0x00, 0x00, 0x01, 1, 2, 3, 4, 5, 6}
-	device, err := parsePairingRecord(name, record)
+	device, err := parsePairingRecord(name, record, 7, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !device.isConnected || device.deviceBTAddr != [6]byte{1, 2, 3, 4, 5, 6} {
 		t.Fatalf("pairing record parsed incorrectly: %#v", device)
 	}
-	if _, err := parsePairingRecord(name, record[:11]); err == nil {
+	if device.databaseIndex != 7 || device.bluetoothType != 1 {
+		t.Fatalf("pairing record metadata = index %d type %d", device.databaseIndex, device.bluetoothType)
+	}
+	if _, err := parsePairingRecord(name, record[:11], 7, 1); err == nil {
 		t.Fatal("truncated pairing record was accepted")
 	}
 }
@@ -328,6 +360,42 @@ func TestBatteryCapacityRejectsSignalLikeValues(t *testing.T) {
 	}
 }
 
+func TestAggregateBatteryComponentsUsesLowestValidLevel(t *testing.T) {
+	components := []batteryComponentStatus{
+		{label: "Left", levelInPercent: 72, component: batteryLeft},
+		{label: "Right", levelInPercent: 48, charging: true, component: batteryRight},
+	}
+	battery := aggregateBatteryComponents(components)
+	if battery.levelInPercent != 48 || !battery.charging || battery.component != batteryCombined {
+		t.Fatalf("aggregate battery = %#v", battery)
+	}
+	if len(battery.components) != 2 {
+		t.Fatalf("component count = %d", len(battery.components))
+	}
+}
+
+func TestBatteryComponentLabels(t *testing.T) {
+	tests := []struct {
+		path      string
+		index     int
+		total     int
+		wantLabel string
+		wantType  batteryComponent
+	}{
+		{"/sys/class/power_supply/headset-left-battery", 0, 2, "Left", batteryLeft},
+		{"/sys/class/power_supply/headset-right-battery", 1, 2, "Right", batteryRight},
+		{"/sys/class/power_supply/charging-case", 2, 3, "Case", batteryCradle},
+		{"/sys/class/power_supply/hid-battery", 0, 1, "Headset", batteryHeadband},
+		{"/sys/class/power_supply/hid-battery-a", 1, 2, "Battery 2", batteryHeadband},
+	}
+	for _, test := range tests {
+		label, component := batteryLabelForPath(test.path, test.index, test.total)
+		if label != test.wantLabel || component != test.wantType {
+			t.Errorf("batteryLabelForPath(%q) = %q/%d, want %q/%d", test.path, label, component, test.wantLabel, test.wantType)
+		}
+	}
+}
+
 func TestBatteryUsesValidatedPowerSupply(t *testing.T) {
 	powerSupply := t.TempDir()
 	if err := os.WriteFile(powerSupply+"/capacity", []byte("48\n"), 0o600); err != nil {
@@ -347,6 +415,9 @@ func TestBatteryUsesValidatedPowerSupply(t *testing.T) {
 	}
 	if battery.levelInPercent != 48 || !battery.charging {
 		t.Fatalf("battery = %#v, want 48%% charging", battery)
+	}
+	if len(battery.components) != 1 || battery.components[0].levelInPercent != 48 {
+		t.Fatalf("battery components = %#v", battery.components)
 	}
 	if err := os.WriteFile(powerSupply+"/capacity", []byte("51\n"), 0o600); err != nil {
 		t.Fatal(err)

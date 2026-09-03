@@ -41,6 +41,13 @@ func (m *mockAPI) SetAutoPairing(bool) error     { return nil }
 func (m *mockAPI) FactoryReset() error           { return nil }
 func (m *mockAPI) SetBusylightMode(string) error { return nil }
 func (m *mockAPI) GetBusylightMode() string      { return "auto" }
+func (m *mockAPI) ListSettings(device string) ([]SettingInfo, error) {
+	return []SettingInfo{{Device: device, Key: "test", Label: "Test", Value: "On", Editable: true}}, nil
+}
+func (m *mockAPI) SetSetting(device, key, value string) (SettingInfo, error) {
+	return SettingInfo{Device: device, Key: key, Label: "Test", Value: value, Editable: true}, nil
+}
+func (m *mockAPI) SelectDevice(uint16) error { return nil }
 
 func sendRequest(t *testing.T, conn net.Conn, method string, params interface{}) Response {
 	t.Helper()
@@ -100,6 +107,49 @@ func TestVersion(t *testing.T) {
 	}
 	if m["version"] != "1.0.0" {
 		t.Errorf("version = %v, want 1.0.0", m["version"])
+	}
+}
+
+func TestServicePing(t *testing.T) {
+	client, cleanup := setupTest(t)
+	defer cleanup()
+	response := sendRequest(t, client, "service.ping", nil)
+	if response.Error != nil {
+		t.Fatalf("ping error: %v", response.Error)
+	}
+	result := response.Result.(map[string]interface{})
+	if result["ok"] != true {
+		t.Fatalf("ping result = %#v", result)
+	}
+}
+
+func TestSubscribeReceivesNotification(t *testing.T) {
+	server, client := net.Pipe()
+	bus := NewEventBus()
+	go HandleConnectionWithBus(server, &mockAPI{}, bus, time.Second)
+	defer func() { _ = client.Close() }()
+
+	encoder := json.NewEncoder(client)
+	decoder := json.NewDecoder(client)
+	request := Request{JSONRPC: "2.0", ID: json.RawMessage(`7`), Method: "subscribe"}
+	if err := encoder.Encode(request); err != nil {
+		t.Fatal(err)
+	}
+	var response Response
+	if err := decoder.Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error != nil {
+		t.Fatalf("subscribe error: %v", response.Error)
+	}
+
+	bus.Publish("device.attached", DeviceInfo{Name: "Test", PID: 0x1234})
+	var notification Notification
+	if err := decoder.Decode(&notification); err != nil {
+		t.Fatal(err)
+	}
+	if notification.Method != "device.attached" {
+		t.Fatalf("notification = %#v", notification)
 	}
 }
 
@@ -190,6 +240,27 @@ func TestAutoPairGet(t *testing.T) {
 	}
 }
 
+func TestSettingsAndDeviceSelection(t *testing.T) {
+	client, cleanup := setupTest(t)
+	defer cleanup()
+	listed := sendRequest(t, client, "settings.list", map[string]string{"device": "dongle"})
+	if listed.Error != nil {
+		t.Fatalf("settings.list error: %v", listed.Error)
+	}
+	settings := listed.Result.([]interface{})
+	if len(settings) != 1 {
+		t.Fatalf("settings.list result = %#v", listed.Result)
+	}
+	set := sendRequest(t, client, "settings.set", map[string]string{"device": "dongle", "key": "test", "value": "Off"})
+	if set.Error != nil {
+		t.Fatalf("settings.set error: %v", set.Error)
+	}
+	selected := sendRequest(t, client, "device.select", map[string]uint16{"id": 2})
+	if selected.Error != nil {
+		t.Fatalf("device.select error: %v", selected.Error)
+	}
+}
+
 func TestUnknownMethod(t *testing.T) {
 	client, cleanup := setupTest(t)
 	defer cleanup()
@@ -209,6 +280,9 @@ func TestInvalidWriteParamsAreRejected(t *testing.T) {
 		{JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "bt.pair"},
 		{JSONRPC: "2.0", ID: json.RawMessage(`3`), Method: "bt.autopair", Params: json.RawMessage(`{"unknown":true}`)},
 		{JSONRPC: "2.0", ID: json.RawMessage(`4`), Method: "device.busylight", Params: json.RawMessage(`{"mode":7}`)},
+		{JSONRPC: "2.0", ID: json.RawMessage(`5`), Method: "device.select", Params: json.RawMessage(`{"id":"one"}`)},
+		{JSONRPC: "2.0", ID: json.RawMessage(`6`), Method: "settings.list", Params: json.RawMessage(`{"device":"other"}`)},
+		{JSONRPC: "2.0", ID: json.RawMessage(`7`), Method: "settings.set", Params: json.RawMessage(`{"device":"dongle","key":"","value":"on"}`)},
 	}
 	api := &mockAPI{}
 	for _, request := range tests {

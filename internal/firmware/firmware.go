@@ -330,6 +330,13 @@ func downloadFirmware(rel Release, outDir string) (string, error) {
 	}
 	f, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			if cachedErr := validateCachedFirmware(outPath, rel, resp.ContentLength); cachedErr != nil {
+				return "", fmt.Errorf("existing firmware file is not reusable: %w", cachedErr)
+			}
+			fmt.Fprintf(os.Stderr, "[jabridge firmware] using existing verified file %s\n", outPath)
+			return outPath, nil
+		}
 		return "", fmt.Errorf("create without overwrite: %w", err)
 	}
 	complete := false
@@ -353,6 +360,39 @@ func downloadFirmware(rel Release, outDir string) (string, error) {
 	complete = true
 	fmt.Fprintf(os.Stderr, "[jabridge firmware] downloaded %d bytes → %s\n", written, outPath)
 	return outPath, nil
+}
+
+func validateCachedFirmware(path string, release Release, expectedSize int64) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	if info.Size() <= 0 || info.Size() > MaxFirmwareSize {
+		return fmt.Errorf("invalid file size %d", info.Size())
+	}
+	if expectedSize > 0 && info.Size() != expectedSize {
+		return fmt.Errorf("size %d does not match server size %d", info.Size(), expectedSize)
+	}
+	format, err := detectFormat(path)
+	if err != nil {
+		return fmt.Errorf("detect format: %w", err)
+	}
+	if format == FormatUnknown {
+		return errors.New("unknown firmware format")
+	}
+	if format == FormatGnVArchive {
+		manifest, _, err := parseGnVArchive(path)
+		if err != nil {
+			return err
+		}
+		if release.Version != "" && manifest.Version != release.Version {
+			return fmt.Errorf("archive version %q does not match requested %q", manifest.Version, release.Version)
+		}
+	}
+	return nil
 }
 
 // ── Firmware format detection by magic bytes ──────────────────────────────
@@ -1007,12 +1047,10 @@ They remain blocked unless the exact development safety gate is enabled.`)
 }
 
 func cmdStatus() {
-	devs, err := enumerateUSB()
+	devs, err := enumerateFirmwareTargets()
 	if err != nil {
 		die("scan USB devices: %v", err)
 	}
-	devs = usableFirmwareDevices(devs)
-	devs = append(devs, connectedDongleChildren(devs)...)
 	fmt.Printf("jabridge firmware %s\n", buildinfo.Version)
 	if len(devs) == 0 {
 		fmt.Println("No supported Jabra USB device found.")
@@ -1163,18 +1201,21 @@ func cmdDownload(args []string) {
 		}
 	}
 	if !havePID {
-		devs, err := enumerateUSB()
+		devs, err := enumerateFirmwareTargets()
 		if err != nil {
 			die("scan USB devices: %v", err)
 		}
-		devs = usableFirmwareDevices(devs)
 		switch len(devs) {
 		case 0:
 			die("no supported device found; use --pid HEX for a device that is not attached")
 		case 1:
 			pid = devs[0].ProductID
 		default:
-			die("more than one device found; choose one with --pid HEX")
+			targets := make([]string, 0, len(devs))
+			for _, device := range devs {
+				targets = append(targets, fmt.Sprintf("%s (0x%04x)", device.Product, device.ProductID))
+			}
+			die("more than one firmware target found: %s; choose one with --pid HEX", strings.Join(targets, ", "))
 		}
 	}
 
@@ -1214,6 +1255,15 @@ func cmdDownload(args []string) {
 	fmt.Printf("Version:    %s\n", rel.Version)
 	fmt.Printf("Released:   %s\n", rel.ReleaseDate)
 	fmt.Println("No device was changed.")
+}
+
+func enumerateFirmwareTargets() ([]USBDevice, error) {
+	devices, err := enumerateUSB()
+	if err != nil {
+		return nil, err
+	}
+	devices = usableFirmwareDevices(devices)
+	return append(devices, connectedDongleChildren(devices)...), nil
 }
 
 func usableFirmwareDevices(devices []USBDevice) []USBDevice {

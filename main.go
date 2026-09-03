@@ -27,12 +27,20 @@ func main() {
 		fmt.Printf("%s %s\n", buildinfo.Name, buildinfo.Version)
 	case "status":
 		err = runStatus()
+	case "battery":
+		err = runBattery()
 	case "--daemon", "-d", "daemon":
 		err = runDaemon()
 	case "update":
 		err = runUpdate(os.Args[2:])
 	case "firmware", "fw":
 		err = runFirmware(os.Args[2:])
+	case "settings":
+		err = runSettings(os.Args[2:])
+	case "model", "models":
+		err = runModel()
+	case "sound", "audio":
+		err = runSound(os.Args[2:])
 	case "completion":
 		err = runCompletion(os.Args[2:])
 	default:
@@ -50,8 +58,12 @@ func printUsage() {
 Usage:
   jabridge             open the terminal UI; talks directly to the device
   jabridge status      show connected USB devices
+  jabridge battery     show headset battery from 0 to 100 percent
   jabridge update      update the app
   jabridge firmware    check or download device firmware
+  jabridge settings    list or change supported device settings
+  jabridge model       match devices with the online capability catalog
+  jabridge sound       show or change Jabra PipeWire sound controls
   jabridge --help      show help
 
 More:
@@ -94,19 +106,16 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 	var out []ipc.DeviceInfo
 	for _, dev := range deviceSnapshots() {
 		d := ipc.DeviceInfo{
+			ID:       dev.deviceID,
 			Name:     dev.deviceName,
 			PID:      dev.productID,
+			Variant:  dev.variantType,
 			Serial:   "",
 			IsDongle: dev.isDongle,
 			Firmware: getFirmwareVersion(dev.deviceID),
 		}
 		if dev.batteryStatus != nil {
-			d.Battery = &ipc.BatteryInfo{
-				Level:     dev.batteryStatus.levelInPercent,
-				Charging:  dev.batteryStatus.charging,
-				Low:       dev.batteryStatus.batteryLow,
-				Component: int(dev.batteryStatus.component),
-			}
+			d.Battery = ipcBatteryInfo(dev.batteryStatus)
 		}
 		out = append(out, d)
 	}
@@ -122,12 +131,28 @@ func (j *jabraAPIBridge) GetBattery() (*ipc.BatteryInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ipc.BatteryInfo{
-		Level:     bs.levelInPercent,
-		Charging:  bs.charging,
-		Low:       bs.batteryLow,
-		Component: int(bs.component),
-	}, nil
+	return ipcBatteryInfo(bs), nil
+}
+
+func ipcBatteryInfo(status *batteryStatus) *ipc.BatteryInfo {
+	if status == nil {
+		return nil
+	}
+	result := &ipc.BatteryInfo{
+		Level:     status.levelInPercent,
+		Charging:  status.charging,
+		Low:       status.batteryLow,
+		Component: int(status.component),
+	}
+	for _, component := range status.components {
+		result.Components = append(result.Components, ipc.BatteryComponentInfo{
+			Name:      component.label,
+			Level:     component.levelInPercent,
+			Charging:  component.charging,
+			Component: int(component.component),
+		})
+	}
+	return result
 }
 
 func (j *jabraAPIBridge) GetFirmware() string {
@@ -186,3 +211,76 @@ func (j *jabraAPIBridge) FactoryReset() error {
 }
 func (j *jabraAPIBridge) SetBusylightMode(mode string) error { return nil } // wired in daemon
 func (j *jabraAPIBridge) GetBusylightMode() string           { return "auto" }
+
+func (j *jabraAPIBridge) ListSettings(deviceName string) ([]ipc.SettingInfo, error) {
+	scope, err := ipcSettingScope(deviceName)
+	if err != nil {
+		return nil, err
+	}
+	device, exists := selectedSettingsDevice(scope)
+	if !exists {
+		return nil, fmt.Errorf("no %s connected", deviceName)
+	}
+	values := readSupportedDeviceSettings(device, scope)
+	result := make([]ipc.SettingInfo, 0, len(values))
+	for _, value := range values {
+		result = append(result, ipcSettingInfo(deviceName, value))
+	}
+	return result, nil
+}
+
+func (j *jabraAPIBridge) SetSetting(deviceName, key, value string) (ipc.SettingInfo, error) {
+	scope, err := ipcSettingScope(deviceName)
+	if err != nil {
+		return ipc.SettingInfo{}, err
+	}
+	device, exists := selectedSettingsDevice(scope)
+	if !exists {
+		return ipc.SettingInfo{}, fmt.Errorf("no %s connected", deviceName)
+	}
+	settings := readSupportedDeviceSettings(device, scope)
+	setting, exists := findDeviceSettingValue(settings, key)
+	if !exists {
+		return ipc.SettingInfo{}, fmt.Errorf("setting %s is not supported", key)
+	}
+	if _, _, err := applyDeviceSettingFromText(device, setting, value); err != nil {
+		return ipc.SettingInfo{}, err
+	}
+	refreshed := readSupportedDeviceSettings(refreshedSettingsDevice(device), scope)
+	updated, exists := findDeviceSettingValue(refreshed, key)
+	if !exists {
+		return ipc.SettingInfo{}, fmt.Errorf("setting %s disappeared after update", key)
+	}
+	return ipcSettingInfo(deviceName, updated), nil
+}
+
+func (j *jabraAPIBridge) SelectDevice(id uint16) error {
+	_, err := selectRegistryDevice(int(id))
+	return err
+}
+
+func ipcSettingScope(deviceName string) (settingScope, error) {
+	switch deviceName {
+	case "dongle":
+		return settingScopeDongle, nil
+	case "headset":
+		return settingScopeHeadset, nil
+	default:
+		return 0, fmt.Errorf("device must be dongle or headset")
+	}
+}
+
+func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingInfo {
+	info := ipc.SettingInfo{
+		Device: deviceName, Key: setting.key(), Label: setting.label(),
+		Value: setting.valueName(), Editable: setting.editable(),
+	}
+	if setting.Boolean != nil {
+		info.Choices = []string{"Off", "On"}
+	} else if setting.Choice != nil {
+		for _, choice := range setting.Choice.Definition.Choices {
+			info.Choices = append(info.Choices, choice.Name)
+		}
+	}
+	return info
+}

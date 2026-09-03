@@ -21,6 +21,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Ed25519-signed application releases and signature verification during
   self-update.
 - Bash completion for the full `jabridge` command tree.
+- `jabridge battery`, with strict 0-to-100 validation and separate battery
+  components when a model reports more than one battery.
+- `jabridge settings`, with capability-probed dongle and headset settings,
+  explicit values, and read-back after every change.
+- `jabridge model`, backed by Jabra's current public device-model catalog.
+- `jabridge sound`, with guarded PipeWire output, volume, and mute controls.
+- Device switching for multiple connected dongles and headsets.
+- Editable remembered-device actions for connect, disconnect, and two-step
+  forget operations.
+- Headset choice settings for voice prompts, sidetone level, controller
+  ringtone/volume, and supported programmable buttons.
+- IPC subscriptions and device, battery, and pairing change notifications.
 - A user service and udev rule for non-root `hidraw` access.
 - CI, community templates, and native package definitions.
 
@@ -37,6 +49,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - The TUI now composes each screen off-screen and writes one complete frame.
 - Link 380 test mode can toggle auto-pairing and exposes a two-step,
   model-limited factory-reset command.
+- Link 380 settings now include computer-audio priority, dedicated-call mode,
+  Bluetooth radio, and softphone integration.
+- Settings load without blocking the TUI, long lists scroll, and multi-choice
+  values cycle with Enter.
+- Firmware pages select an explicit dongle or headset target and reuse a valid
+  cached download.
 
 ### Fixed
 
@@ -52,15 +70,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Preserved batched and split terminal key sequences instead of dropping keys.
 - Added read-only discovery of a headset connected through a supported dongle.
 - Added strict IPC parameter validation, idle timeouts, and connection limits.
+- Added controller firmware probing for supported headset/controller pairs.
+- Added value-aware Bash completion for every implemented setting.
 - Restricted daemon socket and PID files to the current user and rejected
   unsafe filesystem paths.
 - Accepted both standard ELF executables and PIE binaries during app updates.
 
 ### Safety
 
-- Hardware writes are disabled by default.
-- A Link 380 auto-pairing change-and-restore test passed; the original setting
-  was restored. Factory reset was not executed.
+- Firmware writes remain disabled by default. Destructive reset and forget
+  actions require a second confirmation key press.
+- Controlled change-and-restore tests passed for all five Link 380 settings.
+  Every write was read back, and the original value was restored after each
+  test. Factory reset was not executed.
+- Headset setting writes, remembered-device writes, and firmware flashing are
+  not release-qualified yet.
 - Vendor binaries and firmware are not distributed.
 - The 1.0.0 release remains blocked on real replacement-hardware validation.
 

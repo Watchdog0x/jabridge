@@ -1,6 +1,9 @@
 package firmware
 
 import (
+	"archive/zip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -15,6 +18,56 @@ func TestRunFirmwareInstallFailsClosed(t *testing.T) {
 func TestRunUnknownCommandReturnsError(t *testing.T) {
 	if err := Run([]string{"unknown"}); err == nil {
 		t.Fatal("unknown firmware command returned nil")
+	}
+}
+
+func TestValidateCachedFirmwareArchive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "firmware.zip")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	entry, err := archive.Create("info.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte(`<buildVector version="1.2.3" productName="Test"><targetUsbPids><usbPid>1234</usbPid></targetUsbPids></buildVector>`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCachedFirmware(path, Release{Version: "1.2.3"}, info.Size()); err != nil {
+		t.Fatalf("valid cached archive rejected: %v", err)
+	}
+	if err := validateCachedFirmware(path, Release{Version: "9.9.9"}, info.Size()); err == nil {
+		t.Fatal("wrong cached firmware version was accepted")
+	}
+	if err := validateCachedFirmware(path, Release{Version: "1.2.3"}, info.Size()+1); err == nil {
+		t.Fatal("wrong cached firmware size was accepted")
+	}
+}
+
+func TestValidateCachedFirmwareRejectsSymlink(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "target.bin")
+	link := filepath.Join(directory, "firmware.bin")
+	if err := os.WriteFile(target, []byte("not firmware"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCachedFirmware(link, Release{}, 0); err == nil {
+		t.Fatal("firmware symlink was accepted")
 	}
 }
 

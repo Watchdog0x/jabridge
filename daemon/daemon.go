@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,6 +59,7 @@ type Daemon struct {
 	busylight *BusylightController
 	stopOnce  sync.Once
 	connSlots chan struct{}
+	events    *ipc.EventBus
 }
 
 // Start runs the service until SIGTERM or SIGINT.
@@ -109,6 +111,7 @@ func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ip
 		stopPoll:  stopPoll,
 		done:      make(chan struct{}),
 		connSlots: make(chan struct{}, cfg.MaxConnections),
+		events:    ipc.NewEventBus(),
 	}
 
 	// Start device polling
@@ -117,6 +120,7 @@ func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ip
 	// Start PipeWire monitor for meeting detection + busylight
 	d.busylight = NewBusylightController(cfg.BusylightSender)
 	d.api = &busylightAPI{API: api, ctrl: d.busylight}
+	go d.watchState(ctx)
 	if !cfg.DisablePipeWire {
 		d.pwMon = pipewire.NewMonitor(2*time.Second, func(state pipewire.CallState) {
 			// Forward to busylight controller (handles feature check internally)
@@ -185,7 +189,55 @@ func (d *Daemon) acceptLoop() {
 }
 
 func (d *Daemon) handleConnection(conn net.Conn) {
-	ipc.HandleConnectionWithTimeout(conn, d.api, d.cfg.IdleTimeout)
+	ipc.HandleConnectionWithBus(conn, d.api, d.events, d.cfg.IdleTimeout)
+}
+
+func (d *Daemon) watchState(ctx context.Context) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	previousDevices := indexDevices(d.api.ListDevices())
+	previousPairing := d.api.GetPairingList()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			currentDevices := indexDevices(d.api.ListDevices())
+			publishDeviceChanges(d.events, previousDevices, currentDevices)
+			previousDevices = currentDevices
+			currentPairing := d.api.GetPairingList()
+			if !reflect.DeepEqual(previousPairing, currentPairing) {
+				d.events.Publish("device.pairing.update", currentPairing)
+				previousPairing = append([]ipc.PairedDeviceInfo(nil), currentPairing...)
+			}
+		}
+	}
+}
+
+func indexDevices(devices []ipc.DeviceInfo) map[uint16]ipc.DeviceInfo {
+	result := make(map[uint16]ipc.DeviceInfo, len(devices))
+	for _, device := range devices {
+		result[device.ID] = device
+	}
+	return result
+}
+
+func publishDeviceChanges(bus *ipc.EventBus, previous, current map[uint16]ipc.DeviceInfo) {
+	for id, device := range current {
+		old, existed := previous[id]
+		if !existed {
+			bus.Publish("device.attached", device)
+			continue
+		}
+		if !reflect.DeepEqual(old.Battery, device.Battery) {
+			bus.Publish("device.battery.update", device)
+		}
+	}
+	for id, device := range previous {
+		if _, exists := current[id]; !exists {
+			bus.Publish("device.detached", device)
+		}
+	}
 }
 
 type busylightAPI struct {

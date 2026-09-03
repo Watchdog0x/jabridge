@@ -35,11 +35,19 @@ const (
 )
 
 type actionResult struct {
-	message               string
-	err                   error
-	returnToMainMenu      bool
-	clearSearchResults    bool
-	refreshDongleSettings bool
+	message                string
+	err                    error
+	returnToMainMenu       bool
+	clearSearchResults     bool
+	refreshDongleSettings  bool
+	refreshHeadsetSettings bool
+	settingsLoad           *settingsLoadResult
+}
+
+type settingsLoadResult struct {
+	scope  settingScope
+	lines  []menuItem
+	values []deviceSettingValue
 }
 
 var (
@@ -61,7 +69,12 @@ var (
 	// highlighted. The home menu is rebuilt from device state on every frame,
 	// so an index alone would slide onto a different action as soon as an
 	// asynchronous scan inserts or removes an entry.
-	startMenuSelectionID = -1
+	startMenuSelectionID    = -1
+	switchDeviceSelectionID = -1
+	switchDeviceItems       = []switchDeviceItem{}
+	firmwareTargetID        = -1
+	firmwareTargetIndex     = 0
+	firmwareTargetItems     = []switchDeviceItem{}
 
 	// screen is the off-screen buffer every render pass paints into.
 	screen = newFrame(0, 0)
@@ -69,24 +82,30 @@ var (
 	selectedItemsSearchForNewDevices = -1
 	menuItemsSearchForNewDevices     = [2]string{"Q Back", "1 Connect"}
 
-	statusMessage     string
-	statusIsError     bool
-	statusUntil       time.Time
-	flashUntil        time.Time
-	resetConfirmUntil time.Time
+	statusMessage      string
+	statusIsError      bool
+	statusUntil        time.Time
+	flashUntil         time.Time
+	resetConfirmUntil  time.Time
+	forgetConfirmUntil time.Time
+	forgetConfirmAddr  [6]byte
 
-	nextSearchRefresh time.Time
-	uiRevision        atomic.Uint64
-	firmwareViewMu    sync.RWMutex
-	firmwareView      firmwareViewState
+	nextSearchRefresh      time.Time
+	uiRevision             atomic.Uint64
+	firmwareViewMu         sync.RWMutex
+	firmwareView           firmwareViewState
+	dongleSettingsLoading  bool
+	headsetSettingsLoading bool
 )
 
 type firmwareViewState struct {
-	loading        bool
-	deviceName     string
-	currentVersion string
-	latestVersion  string
-	downloadedPath string
+	targetRegistryID int
+	loading          bool
+	deviceName       string
+	currentVersion   string
+	latestVersion    string
+	downloadedPath   string
+	currentError     string
 }
 
 const (
@@ -100,6 +119,7 @@ const (
 	screenSearch
 	screenPairedDevices
 	screenDongleSettings
+	screenHeadsetSettings
 	screenSwitchDevice
 	screenFirmware
 )
@@ -262,8 +282,11 @@ func handleBackKey(results chan<- actionResult) bool {
 		runUIAction(results, "Pairing stopped", func() error {
 			return setDongleInBTPairing(false)
 		})
-	case screenPairedDevices, screenDongleSettings, screenSwitchDevice, screenFirmware:
+	case screenPairedDevices, screenDongleSettings, screenHeadsetSettings, screenSwitchDevice, screenFirmware:
 		resetConfirmUntil = time.Time{}
+		forgetConfirmUntil = time.Time{}
+		forgetConfirmAddr = [6]byte{}
+		switchDeviceSelectionID = -1
 		returnToStartMenu()
 	}
 	return false
@@ -278,13 +301,29 @@ func handleEnterKey(results chan<- actionResult) bool {
 			return false
 		}
 		return activateStartMenuItem(startMenu[currentSelection], results)
+	case screenPairedDevices:
+		handleRememberedDeviceAction(keyAction1, results)
 	case screenDongleSettings:
-		if experimentalDeviceWritesEnabled() {
-			setStatus("Press 1 to toggle auto pairing or 2 twice to factory reset", false)
-		} else {
-			setStatus("Settings are read-only; hardware-write testing is tracked in issue #36", false)
+		toggleSelectedSetting(settingScopeDongle, results)
+	case screenHeadsetSettings:
+		toggleSelectedSetting(settingScopeHeadset, results)
+	case screenSwitchDevice:
+		if currentSelection < 0 || currentSelection >= len(switchDeviceItems) {
+			setStatus("No connected device selected", true)
+			return false
 		}
+		name, err := selectRegistryDevice(switchDeviceItems[currentSelection].RegistryID)
+		if err != nil {
+			setStatus(err.Error(), true)
+			return false
+		}
+		setStatus("Now using "+name, false)
+		returnToStartMenu()
 	case screenFirmware:
+		if advanceFirmwareTarget() {
+			refreshFirmwareView(results)
+			return false
+		}
 		setStatus(firmwareActionHint(), false)
 	}
 	return false
@@ -303,12 +342,17 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 		menuState = screenPairedDevices
 	case 2:
 		menuState = screenDongleSettings
-		updateDongleSettings()
+		startSettingsLoad(results, settingScopeDongle)
+	case 6:
+		menuState = screenHeadsetSettings
+		startSettingsLoad(results, settingScopeHeadset)
 	case 4:
 		menuState = screenFirmware
+		refreshFirmwareTargets()
 		refreshFirmwareView(results)
 	case 3:
 		menuState = screenSwitchDevice
+		refreshSwitchDeviceItems()
 	case 5:
 		return true
 	default:
@@ -335,18 +379,24 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 			return connectNewDevice(uint16(selection))
 		}, withReturnToMainMenu())
 	case screenPairedDevices:
-		setStatus("Pairing changes are locked in this preview", true)
+		handleRememberedDeviceAction(event, results)
 	case screenDongleSettings:
 		handleDongleSettingsAction(event, results)
+	case screenHeadsetSettings:
+		if event == keyAction1 {
+			toggleSelectedSetting(settingScopeHeadset, results)
+		}
 	case screenFirmware:
 		if event != keyAction1 {
 			return
 		}
-		device, exists := selectedFirmwareDevice()
+		target, exists := selectedFirmwareTarget()
 		if !exists {
 			setStatus("No supported device connected", true)
 			return
 		}
+		device := target.Device
+		targetRegistryID := target.RegistryID
 		setStatus("Downloading firmware file...", false)
 		runUIAction(results, "Firmware downloaded to ./firmware", func() error {
 			result, err := firmwaretool.DownloadLatest(device.productID, "./firmware")
@@ -354,12 +404,62 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 				return err
 			}
 			firmwareViewMu.Lock()
-			firmwareView.downloadedPath = result.Path
+			if firmwareView.targetRegistryID == targetRegistryID {
+				firmwareView.downloadedPath = result.Path
+			}
 			firmwareViewMu.Unlock()
 			requestUIRedraw()
 			return nil
 		})
 	}
+}
+
+func handleRememberedDeviceAction(event keyEvent, results chan<- actionResult) {
+	device, err := rememberedDeviceAt(currentSelection)
+	if err != nil {
+		setStatus(err.Error(), true)
+		return
+	}
+	switch event {
+	case keyAction1:
+		forgetConfirmUntil = time.Time{}
+		forgetConfirmAddr = [6]byte{}
+		selection := currentSelection
+		if device.isConnected {
+			setStatus("Disconnecting "+device.deviceName+"...", false)
+			runUIAction(results, device.deviceName+" disconnected", func() error {
+				return disconnectRememberedDevice(selection)
+			})
+			return
+		}
+		setStatus("Connecting "+device.deviceName+"...", false)
+		runUIAction(results, device.deviceName+" connected", func() error {
+			return connectRememberedDevice(selection)
+		})
+	case keyAction2:
+		if !confirmForgetRememberedDevice(time.Now(), device.deviceBTAddr) {
+			setStatus("WARNING: press 2 again within 10 seconds to forget "+device.deviceName, true)
+			return
+		}
+		selection := currentSelection
+		setStatus("Forgetting "+device.deviceName+"...", false)
+		runUIAction(results, device.deviceName+" removed from remembered devices", func() error {
+			return forgetRememberedDevice(selection)
+		})
+	}
+}
+
+func confirmForgetRememberedDevice(now time.Time, address [6]byte) bool {
+	if address != [6]byte{} && address == forgetConfirmAddr &&
+		!forgetConfirmUntil.IsZero() && !now.After(forgetConfirmUntil) {
+		forgetConfirmUntil = time.Time{}
+		forgetConfirmAddr = [6]byte{}
+		return true
+	}
+	forgetConfirmAddr = address
+	forgetConfirmUntil = now.Add(factoryResetConfirmWindow)
+	requestUIRedraw()
+	return false
 }
 
 func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
@@ -368,27 +468,15 @@ func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
 		setStatus("No dongle connected", true)
 		return
 	}
-	if !supportsExperimentalDongleWrites(dongle.productID) {
-		setStatus(fmt.Sprintf("Writes are not supported for dongle PID 0x%04x", dongle.productID), true)
-		return
-	}
-	if !experimentalDeviceWritesEnabled() {
-		setStatus("Read-only mode; hardware-write testing is tracked in issue #36", true)
-		return
-	}
-
 	switch event {
 	case keyAction1:
 		resetConfirmUntil = time.Time{}
-		setStatus("Changing auto-pairing setting...", false)
-		runUIAction(results, "Auto-pairing setting changed", func() error {
-			current, err := getAutoPairing()
-			if err != nil {
-				return err
-			}
-			return setAutoPairing(!current)
-		}, withDongleSettingsRefresh())
+		toggleSelectedSetting(settingScopeDongle, results)
 	case keyAction2:
+		if !supportsExperimentalDongleWrites(dongle.productID) {
+			setStatus(fmt.Sprintf("Factory reset is not supported for dongle PID 0x%04x", dongle.productID), true)
+			return
+		}
 		if !confirmFactoryReset(time.Now()) {
 			setStatus("WARNING: reset erases remembered headsets; press 2 again within 10 seconds", true)
 			return
@@ -396,9 +484,57 @@ func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
 		deviceID := dongle.deviceID
 		setStatus("Sending factory-reset command...", false)
 		runUIAction(results, "Factory-reset command accepted; waiting for dongle reconnect", func() error {
-			return factoryReset(deviceID)
+			return factoryResetConfirmed(deviceID)
 		})
 	}
+}
+
+func selectedDeviceSetting(scope settingScope) (deviceSettingValue, bool) {
+	values := dongleSettingsValues
+	if scope == settingScopeHeadset {
+		values = headsetSettingsValues
+	}
+	if currentSelection < 0 || currentSelection >= len(values) {
+		return deviceSettingValue{}, false
+	}
+	return values[currentSelection], true
+}
+
+func selectedSettingsDevice(scope settingScope) (*jabra_DeviceInfo, bool) {
+	if scope == settingScopeDongle {
+		return selectedDongleSnapshot()
+	}
+	return selectedHeadsetSnapshot()
+}
+
+func toggleSelectedSetting(scope settingScope, results chan<- actionResult) {
+	setting, exists := selectedDeviceSetting(scope)
+	if !exists {
+		setStatus("No supported setting selected", true)
+		return
+	}
+	if !setting.editable() {
+		if setting.needsConfigMode() {
+			setStatus("This setting needs configuration mode and is read-only for now", true)
+		} else {
+			setStatus("This setting is read-only", true)
+		}
+		return
+	}
+	device, exists := selectedSettingsDevice(scope)
+	if !exists {
+		setStatus("Device disconnected", true)
+		return
+	}
+	wanted, err := setting.nextValueName()
+	if err != nil {
+		setStatus(err.Error(), true)
+		return
+	}
+	setStatus(fmt.Sprintf("Changing %s to %s...", setting.label(), wanted), false)
+	runUIAction(results, fmt.Sprintf("%s is now %s", setting.label(), wanted), func() error {
+		return writeNextDeviceSetting(device, setting)
+	}, withSettingsRefresh(scope))
 }
 
 // confirmFactoryReset implements a deliberate two-press confirmation. The
@@ -428,6 +564,48 @@ func withDongleSettingsRefresh() actionOption {
 	}
 }
 
+func withSettingsRefresh(scope settingScope) actionOption {
+	if scope == settingScopeDongle {
+		return withDongleSettingsRefresh()
+	}
+	return func(result *actionResult) {
+		result.refreshHeadsetSettings = true
+	}
+}
+
+func startSettingsLoad(results chan<- actionResult, scope settingScope) {
+	if scope == settingScopeDongle {
+		if dongleSettingsLoading {
+			return
+		}
+		dongleSettingsLoading = true
+	} else {
+		if headsetSettingsLoading {
+			return
+		}
+		headsetSettingsLoading = true
+	}
+	requestUIRedraw()
+	go func() {
+		var (
+			lines  []menuItem
+			values []deviceSettingValue
+			err    error
+		)
+		if scope == settingScopeDongle {
+			lines, values, err = loadDongleSettings()
+		} else {
+			lines, values, err = loadHeadsetSettings()
+		}
+		results <- actionResult{
+			err: err,
+			settingsLoad: &settingsLoadResult{
+				scope: scope, lines: lines, values: values,
+			},
+		}
+	}()
+}
+
 func runUIAction(results chan<- actionResult, successMessage string, action func() error, options ...actionOption) {
 	go func() {
 		result := actionResult{message: successMessage}
@@ -441,7 +619,8 @@ func runUIAction(results chan<- actionResult, successMessage string, action func
 }
 
 func refreshFirmwareView(results chan<- actionResult) {
-	selected, exists := selectedFirmwareDevice()
+	refreshFirmwareTargets()
+	target, exists := selectedFirmwareTarget()
 	if !exists {
 		firmwareViewMu.Lock()
 		firmwareView = firmwareViewState{}
@@ -449,9 +628,14 @@ func refreshFirmwareView(results chan<- actionResult) {
 		setStatus("No supported device connected", true)
 		return
 	}
-	device := *selected
+	device := *target.Device
+	targetRegistryID := target.RegistryID
 	firmwareViewMu.Lock()
-	firmwareView = firmwareViewState{loading: true, deviceName: device.deviceName}
+	firmwareView = firmwareViewState{
+		targetRegistryID: targetRegistryID,
+		loading:          true,
+		deviceName:       device.deviceName,
+	}
 	firmwareViewMu.Unlock()
 	requestUIRedraw()
 
@@ -460,9 +644,16 @@ func refreshFirmwareView(results chan<- actionResult) {
 		latest, latestErr := firmwaretool.LatestForPID(device.productID)
 
 		firmwareViewMu.Lock()
+		if firmwareView.targetRegistryID != targetRegistryID {
+			firmwareViewMu.Unlock()
+			return nil
+		}
 		firmwareView.loading = false
 		firmwareView.currentVersion = current
 		firmwareView.latestVersion = latest.Version
+		if currentErr != nil {
+			firmwareView.currentError = currentErr.Error()
+		}
 		firmwareViewMu.Unlock()
 		requestUIRedraw()
 
@@ -479,14 +670,59 @@ func refreshFirmwareView(results chan<- actionResult) {
 	})
 }
 
-func selectedFirmwareDevice() (*jabra_DeviceInfo, bool) {
-	if dongle, exists := selectedDongleSnapshot(); exists {
-		return dongle, true
+func refreshFirmwareTargets() {
+	items := switchableDevices()
+	firmwareTargetItems = items
+	if len(items) == 0 {
+		firmwareTargetID = -1
+		firmwareTargetIndex = 0
+		return
 	}
-	return selectedHeadsetSnapshot()
+	for index, item := range items {
+		if item.RegistryID == firmwareTargetID {
+			firmwareTargetIndex = index
+			return
+		}
+	}
+	firmwareTargetIndex = clampSelection(firmwareTargetIndex, len(items))
+	firmwareTargetID = items[firmwareTargetIndex].RegistryID
 }
 
-func applyActionResult(result actionResult) {
+func selectedFirmwareTarget() (switchDeviceItem, bool) {
+	if firmwareTargetIndex < 0 || firmwareTargetIndex >= len(firmwareTargetItems) {
+		return switchDeviceItem{}, false
+	}
+	return firmwareTargetItems[firmwareTargetIndex], true
+}
+
+func advanceFirmwareTarget() bool {
+	if len(firmwareTargetItems) <= 1 {
+		return false
+	}
+	firmwareTargetIndex = (firmwareTargetIndex + 1) % len(firmwareTargetItems)
+	firmwareTargetID = firmwareTargetItems[firmwareTargetIndex].RegistryID
+	return true
+}
+
+func applyActionResult(result actionResult, results chan<- actionResult) {
+	if result.settingsLoad != nil {
+		load := result.settingsLoad
+		if load.scope == settingScopeDongle {
+			dongleSettingsLoading = false
+			if result.err == nil {
+				dongleSettingsLines = load.lines
+				dongleSettingsValues = load.values
+			}
+		} else {
+			headsetSettingsLoading = false
+			if result.err == nil {
+				headsetSettingsLines = load.lines
+				headsetSettingsValues = load.values
+			}
+		}
+		currentSelection = clampSelection(currentSelection, currentMenuLength())
+		requestUIRedraw()
+	}
 	if result.err != nil {
 		setStatus(result.err.Error(), true)
 		return
@@ -500,18 +736,50 @@ func applyActionResult(result actionResult) {
 		clearSearchResults()
 	}
 	if result.refreshDongleSettings && menuState == screenDongleSettings {
-		updateDongleSettings()
+		startSettingsLoad(results, settingScopeDongle)
+	}
+	if result.refreshHeadsetSettings && menuState == screenHeadsetSettings {
+		startSettingsLoad(results, settingScopeHeadset)
 	}
 }
 
 func handleUpKey() {
 	currentSelection = clampSelection(currentSelection-1, currentMenuLength())
 	rememberStartMenuSelection()
+	rememberSwitchDeviceSelection()
 }
 
 func handleDownKey() {
 	currentSelection = clampSelection(currentSelection+1, currentMenuLength())
 	rememberStartMenuSelection()
+	rememberSwitchDeviceSelection()
+}
+
+func rememberSwitchDeviceSelection() {
+	if menuState != screenSwitchDevice || currentSelection < 0 || currentSelection >= len(switchDeviceItems) {
+		return
+	}
+	switchDeviceSelectionID = switchDeviceItems[currentSelection].RegistryID
+}
+
+func refreshSwitchDeviceItems() {
+	if switchDeviceSelectionID < 0 && currentSelection >= 0 && currentSelection < len(switchDeviceItems) {
+		switchDeviceSelectionID = switchDeviceItems[currentSelection].RegistryID
+	}
+	switchDeviceItems = switchableDevices()
+	if len(switchDeviceItems) == 0 {
+		currentSelection = 0
+		switchDeviceSelectionID = -1
+		return
+	}
+	for index, item := range switchDeviceItems {
+		if item.RegistryID == switchDeviceSelectionID {
+			currentSelection = index
+			return
+		}
+	}
+	currentSelection = clampSelection(currentSelection, len(switchDeviceItems))
+	switchDeviceSelectionID = switchDeviceItems[currentSelection].RegistryID
 }
 
 // rememberStartMenuSelection records the id of the home-screen item under the
@@ -579,7 +847,11 @@ func currentMenuLength() int {
 			return len(dongle.pairingList.pairedDevices)
 		}
 	case screenDongleSettings:
-		return 0
+		return len(dongleSettingsValues)
+	case screenHeadsetSettings:
+		return len(headsetSettingsValues)
+	case screenSwitchDevice:
+		return len(switchDeviceItems)
 	case screenFirmware:
 		return 0
 	}
@@ -779,10 +1051,10 @@ func header() {
 	screen.setText(1, left, title, styleTitle)
 	screen.setText(1, left+displayWidth(title)+2, buildinfo.Version, styleText)
 
-	mode := "READ-ONLY PREVIEW"
+	mode := "SETTINGS PREVIEW"
 	modeStyle := styleBadge
 	if experimentalDeviceWritesEnabled() {
-		mode = "DEVELOPER WRITES ENABLED"
+		mode = "HARDWARE TEST MODE"
 		modeStyle = styleAlert
 	}
 	screen.setText(1, max(left, right-displayWidth(mode)-2), " "+mode+" ", modeStyle)
@@ -820,7 +1092,21 @@ func drawHeadsetStatus(left, right int) {
 	}
 
 	if headset.batteryStatus == nil || headset.batteryStatus.levelInPercent > 100 {
-		label := fmt.Sprintf("Headset: %s  Battery unavailable", headset.deviceName)
+		label := fmt.Sprintf("Headset: %s  No battery reported", headset.deviceName)
+		screen.setText(2, max(left, right-displayWidth(label)), label, styleText)
+		return
+	}
+	if len(headset.batteryStatus.components) > 1 {
+		parts := make([]string, 0, len(headset.batteryStatus.components))
+		for _, component := range headset.batteryStatus.components {
+			part := fmt.Sprintf("%s %d%%", component.label, component.levelInPercent)
+			if component.charging {
+				part += "⚡"
+			}
+			parts = append(parts, part)
+		}
+		label := fmt.Sprintf("Headset: %s  %s", headset.deviceName, strings.Join(parts, "  "))
+		label = trimToWidth(label, max(12, right-left))
 		screen.setText(2, max(left, right-displayWidth(label)), label, styleText)
 		return
 	}
@@ -978,35 +1264,109 @@ func menuPairedDevices() {
 		}
 	}
 
-	drawActionBar([]string{"Q Back", "Read-only"}, -1)
+	actions := []string{"Q Back", "↑/↓ Select", "Enter Connect/Disconnect", "2 Forget"}
+	if !forgetConfirmUntil.IsZero() && time.Now().Before(forgetConfirmUntil) {
+		actions = []string{"Q Cancel", "2 CONFIRM forget"}
+	}
+	drawSplitActionBar(actions[:1], actions[1:])
 }
 
 func renderDongleSettings() {
 	drawingBox()
 	drawCenteredStyled(6, "Dongle settings", styleTitle)
+	if dongleSettingsLoading && len(dongleSettingsLines) == 0 {
+		drawCentered(9, "Loading settings...", false)
+		drawSplitActionBar([]string{"Q Back"}, nil)
+		return
+	}
+	lastRow := renderDeviceSettings(dongleSettingsLines, dongleSettingsValues)
 
-	if len(dongleSettingsLines) == 0 {
-		drawCentered(8, "No dongle connected", false)
-	} else {
-		for i, item := range dongleSettingsLines {
-			row := 8 + i
-			_, _, panelBottom := panelBounds()
-			if row >= panelBottom {
-				break
-			}
-			drawListItem(row, 10, item.label, false)
+	left, _, panelBottom := panelBounds()
+	if lastRow < panelBottom {
+		factoryLabel := "Factory reset: not supported on this dongle"
+		if dongle, exists := selectedDongleSnapshot(); exists && supportsExperimentalDongleWrites(dongle.productID) {
+			factoryLabel = "Factory reset: press 2 twice (erases remembered headsets)"
 		}
+		drawListItem(lastRow, left+4, factoryLabel, false)
 	}
 
-	actions := []string{"Q Back", "Read-only"}
-	if dongle, exists := selectedDongleSnapshot(); exists &&
-		experimentalDeviceWritesEnabled() && supportsExperimentalDongleWrites(dongle.productID) {
-		actions = []string{"Q Back", "1 Toggle auto pairing", "2 Factory reset"}
+	actions := settingsActionBar(dongleSettingsValues)
+	if dongle, exists := selectedDongleSnapshot(); exists && supportsExperimentalDongleWrites(dongle.productID) {
+		actions = append(actions, "2 Factory reset")
 		if !resetConfirmUntil.IsZero() && time.Now().Before(resetConfirmUntil) {
 			actions = []string{"Q Cancel", "2 CONFIRM factory reset"}
 		}
 	}
-	drawActionBar(actions, -1)
+	drawSplitActionBar(actions[:1], actions[1:])
+}
+
+func renderHeadsetSettings() {
+	drawingBox()
+	drawCenteredStyled(6, "Headset settings", styleTitle)
+	if headsetSettingsLoading && len(headsetSettingsLines) == 0 {
+		drawCentered(9, "Loading settings...", false)
+		drawSplitActionBar([]string{"Q Back"}, nil)
+		return
+	}
+	renderDeviceSettings(headsetSettingsLines, headsetSettingsValues)
+	actions := settingsActionBar(headsetSettingsValues)
+	drawSplitActionBar(actions[:1], actions[1:])
+}
+
+func renderDeviceSettings(lines []menuItem, values []deviceSettingValue) int {
+	left, _, panelBottom := panelBounds()
+	row := 8
+	if len(lines) == 0 {
+		drawCentered(row, "No device connected", false)
+		return row + 1
+	}
+	for _, item := range lines {
+		if row >= panelBottom {
+			return row
+		}
+		drawListItem(row, left+4, item.label, false)
+		row++
+	}
+	if len(values) == 0 {
+		if row < panelBottom {
+			drawListItem(row+1, left+4, "No supported settings found", false)
+		}
+		return row + 2
+	}
+	row++
+	visibleRows := panelBottom - row
+	start := 0
+	if visibleRows > 0 && currentSelection >= visibleRows {
+		start = currentSelection - visibleRows + 1
+	}
+	for i := start; i < len(values); i++ {
+		setting := values[i]
+		if row >= panelBottom {
+			break
+		}
+		drawListItem(row, left+4, formatDeviceSetting(setting), i == currentSelection)
+		row++
+	}
+	return row
+}
+
+func settingsActionBar(values []deviceSettingValue) []string {
+	actions := []string{"Q Back"}
+	if len(values) == 0 {
+		return append(actions, "No settings")
+	}
+	actions = append(actions, "↑/↓ Select")
+	if setting, exists := selectedDeviceSettingForValues(values); exists && setting.editable() {
+		return append(actions, "Enter Change")
+	}
+	return append(actions, "Read only")
+}
+
+func selectedDeviceSettingForValues(values []deviceSettingValue) (deviceSettingValue, bool) {
+	if currentSelection < 0 || currentSelection >= len(values) {
+		return deviceSettingValue{}, false
+	}
+	return values[currentSelection], true
 }
 
 func renderFirmware() {
@@ -1017,14 +1377,23 @@ func renderFirmware() {
 	firmwareViewMu.RUnlock()
 	if view.loading {
 		drawCentered(9, "Checking device and latest release...", false)
-		drawActionBar([]string{"Q Back"}, -1)
+		right := []string{}
+		if len(firmwareTargetItems) > 1 {
+			right = append(right, "Enter Next target")
+		}
+		drawSplitActionBar([]string{"Q Back"}, right)
 		return
 	}
 	left, _, _ := panelBounds()
 	row := 8
+	installed := valueOrUnknown(view.currentVersion)
+	if view.currentVersion == "" && strings.Contains(strings.ToLower(view.currentError), "permission denied") {
+		installed = "Permission denied (install included udev rule)"
+	}
 	lines := []string{
+		fmt.Sprintf("Target:             %d of %d", firmwareTargetIndex+1, max(1, len(firmwareTargetItems))),
 		fmt.Sprintf("Device:             %s", valueOrUnknown(view.deviceName)),
-		fmt.Sprintf("Installed:          %s", valueOrUnknown(view.currentVersion)),
+		fmt.Sprintf("Installed:          %s", installed),
 		fmt.Sprintf("Latest available:   %s", valueOrUnknown(view.latestVersion)),
 	}
 	if view.currentVersion != "" && view.latestVersion != "" {
@@ -1042,13 +1411,16 @@ func renderFirmware() {
 		drawListItem(row, left+4, line, false)
 		row++
 	}
-	actions := []string{"Q Back", "1 Download"}
+	actions := []string{"1 Download"}
+	if len(firmwareTargetItems) > 1 {
+		actions = append([]string{"Enter Next target"}, actions...)
+	}
 	if view.currentVersion != "" && view.currentVersion == view.latestVersion {
 		actions = append(actions, "Already up to date")
 	} else {
 		actions = append(actions, "Install test: issue #36")
 	}
-	drawActionBar(actions, -1)
+	drawSplitActionBar([]string{"Q Back"}, actions)
 }
 
 func firmwareInstallStatus(view firmwareViewState) string {
@@ -1081,9 +1453,24 @@ func valueOrUnknown(value string) string {
 
 func renderSwitchDevice() {
 	drawingBox()
-	drawCentered(5, "Switch Device", false)
-	drawCentered(7, "Device switching is not implemented yet", true)
-	drawActionBar([]string{"Q Back"}, -1)
+	drawCenteredStyled(6, "Switch device", styleTitle)
+	if len(switchDeviceItems) == 0 {
+		drawCentered(9, "No connected devices", false)
+		drawActionBar([]string{"Q Back"}, -1)
+		return
+	}
+	left, _, panelBottom := panelBounds()
+	row := 8
+	visibleRows := panelBottom - row
+	start := 0
+	if visibleRows > 0 && currentSelection >= visibleRows {
+		start = currentSelection - visibleRows + 1
+	}
+	for index := start; index < len(switchDeviceItems) && row < panelBottom; index++ {
+		drawListItem(row, left+4, switchDeviceLabel(switchDeviceItems[index]), index == currentSelection)
+		row++
+	}
+	drawActionBar([]string{"Q Back", "↑/↓ Select", "Enter Use"}, -1)
 }
 
 // selectionPadding is how far the selected-row highlight extends on each side
@@ -1151,6 +1538,49 @@ func drawActionBar(items []string, selected int) {
 	}
 }
 
+func drawSplitActionBar(leftItems, rightItems []string) {
+	if height < 8 {
+		return
+	}
+	left, right, bottom := panelBounds()
+	row := bottom + 2
+	if row >= height {
+		row = height - 1
+	}
+	leftWidth := actionItemsWidth(leftItems)
+	rightWidth := actionItemsWidth(rightItems)
+	leftCol := left + 2
+	rightCol := right - 2 - rightWidth
+	if rightCol <= leftCol+leftWidth+1 {
+		items := append(append([]string(nil), leftItems...), rightItems...)
+		drawActionBar(items, -1)
+		return
+	}
+	drawActionItems(row, leftCol, leftItems)
+	drawActionItems(row, rightCol, rightItems)
+}
+
+func actionItemsWidth(items []string) int {
+	width := 0
+	for index, item := range items {
+		if index > 0 {
+			width += 2
+		}
+		width += displayWidth(item) + 2
+	}
+	return width
+}
+
+func drawActionItems(row, col int, items []string) {
+	for index, item := range items {
+		if index > 0 {
+			col += 2
+		}
+		screen.setText(row, col, " "+item+" ", styleAction)
+		col += displayWidth(item) + 2
+	}
+}
+
 func renderStatus() {
 	if statusMessage == "" || time.Now().After(statusUntil) || height < 8 {
 		return
@@ -1202,6 +1632,15 @@ func resetExpiredFactoryConfirmation() {
 	requestUIRedraw()
 }
 
+func resetExpiredForgetConfirmation() {
+	if forgetConfirmUntil.IsZero() || time.Now().Before(forgetConfirmUntil) {
+		return
+	}
+	forgetConfirmUntil = time.Time{}
+	forgetConfirmAddr = [6]byte{}
+	requestUIRedraw()
+}
+
 func clearExpiredStatus() {
 	if statusMessage == "" || time.Now().Before(statusUntil) {
 		return
@@ -1250,11 +1689,17 @@ func stripANSI(s string) string {
 // render pass means composing a frame never moves the highlight.
 func updateSelectionState() {
 	switch menuState {
-	case screenSearch, screenPairedDevices, screenDongleSettings, screenSwitchDevice, screenFirmware:
+	case screenSearch, screenPairedDevices, screenDongleSettings, screenHeadsetSettings, screenSwitchDevice, screenFirmware:
 	default:
 		menuState = screenStartMenu
 	}
 	updateStartMenu()
+	if menuState == screenSwitchDevice {
+		refreshSwitchDeviceItems()
+	}
+	if menuState == screenFirmware {
+		refreshFirmwareTargets()
+	}
 	syncStartMenuSelection()
 	currentSelection = clampSelection(currentSelection, currentMenuLength())
 }
@@ -1276,6 +1721,8 @@ func composeFrame() *frame {
 		menuPairedDevices()
 	case screenDongleSettings:
 		renderDongleSettings()
+	case screenHeadsetSettings:
+		renderHeadsetSettings()
 	case screenSwitchDevice:
 		renderSwitchDevice()
 	case screenFirmware:
@@ -1313,11 +1760,12 @@ func startUi(parent context.Context) {
 			}
 			forceRedraw = true
 		case result := <-actionResults:
-			applyActionResult(result)
+			applyActionResult(result, actionResults)
 			forceRedraw = true
 		case <-ticker.C:
 			resetExpiredFlash()
 			resetExpiredFactoryConfirmation()
+			resetExpiredForgetConfirmation()
 			clearExpiredStatus()
 			refreshSearchDeviceList()
 			if !firstScanComplete.Load() {

@@ -1,64 +1,107 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0.
+Thank you for testing Jabridge 1.0.0 RC4.
 
-We need results from different Jabra dongles, headsets, and Linux systems. This
-test reads device information. It must not change your device.
+We need results from real Jabra dongles, wired headsets, wireless headsets, and
+Link/controller devices. This first test only reads information. It must not
+change your hardware.
 
 ## Do not run these actions
 
-- Do not flash firmware.
-- Do not start or remove Bluetooth pairing.
-- Do not reset a device.
-- Do not change busylight settings.
-- Do not run `jabridge firmware install` or developer firmware commands.
-- Do not enable either experimental hardware-write setting.
+- Do not press Enter on a setting.
+- Do not connect, disconnect, pair, or forget a headset.
+- Do not press `2` for factory reset.
+- Do not change sound or busylight settings.
+- Do not run `jabridge firmware install` or a firmware `dev` command.
+- Do not enable an experimental hardware-write environment variable.
 
-## Run the safe test
+## Download RC4
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.3 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.3).
+[v1.0.0-rc.4 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.4).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.3_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.3_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.3_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.4_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.4_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.4_linux_amd64
 ./jabridge --version
+```
+
+## Run the safe commands
+
+```bash
 ./jabridge status
+./jabridge battery
+./jabridge settings
+./jabridge model
+./jabridge sound
 ./jabridge firmware
+./jabridge update --check --prerelease
 source <(./jabridge completion bash)
 ./jabridge
 ```
 
-The last command opens the TUI. Check that it shows the right dongle and
-headset. Unplug and reconnect the device once. Check that the TUI recovers.
-Then exit without choosing an action that changes the device.
+In the TUI, check these items without changing them:
 
-The TUI opens the device directly. Do not run `jabridge --daemon` during this
-test.
+- The dongle, headset, and controller names are correct.
+- A direct-USB headset works without a dongle.
+- A headset connected through a dongle is detected.
+- `Switch device` lists every connected device when more than one is present.
+- Battery values stay between 0 and 100. Left, right, or case batteries remain
+  separate when the headset reports them separately.
+- `Remembered devices` lists each headset once.
+- Dongle and headset settings show their current values.
+- A long settings list scrolls with Up and Down.
+- A setting with several choices shows its current choice.
+- The firmware page shows the right target. Enter moves between targets when
+  both a dongle and headset are available.
+- The screen does not jump or flicker.
+- `q` returns to the previous screen and quits cleanly from the home screen.
 
-If `hidraw` access is denied, install `system/70-jabridge.rules` as described
-in the README and reconnect the USB device. Do not run Jabridge with `sudo`.
+Turn the headset off and on, then unplug and reconnect its USB cable once.
+Check that stale devices disappear and returning devices come back. Do not
+press Enter on a device or setting during this read-only test.
+
+The TUI still opens hardware directly. Do not run `jabridge --daemon` at the
+same time.
+
+## Permission denied
+
+Install the included access rule if Jabridge cannot open `/dev/hidraw*`:
+
+```bash
+sudo install -m 0644 system/70-jabridge.rules /usr/lib/udev/rules.d/70-jabridge.rules
+sudo udevadm control --reload-rules
+```
+
+Then physically unplug and reconnect the device. Run Jabridge as your normal
+user, not with `sudo`.
 
 ## Send your result
 
 Reply in [issue #34](https://github.com/Watchdog0x/jabridge/issues/34) with:
 
-- dongle and headset model;
+- dongle, headset, and controller model;
 - USB VID:PID, but no serial number;
-- direct USB, dongle, or dongle-only connection;
-- Linux distribution;
-- output of `uname -r` and `uname -m`;
-- output of `jabridge status` and `jabridge firmware`;
-- what the TUI showed before and after reconnecting the device;
-- any error, hang, flicker, or wrong device name.
+- direct USB, through a dongle, or dongle-only connection;
+- Linux distribution, `uname -r`, and `uname -m`;
+- output from the safe commands above;
+- what changed after headset power off/on and USB reconnect;
+- any wrong value, duplicate, delay, jump, flicker, or error.
 
 Never post a serial number or Bluetooth address.
 
 ## What has passed so far
 
-One Link 380 (`0b0e:24c7`) passed device discovery, firmware-version reads,
-auto-pairing reads, saved-pairing reads, firmware-file matching, and reconnect
-checks. Its auto-pairing setting also passed a controlled change-and-restore
-test, and the original value was restored. No headset was available. No
-factory reset or firmware flash was attempted.
+One Link 380 (`0b0e:24c7`) passes discovery, firmware reads, model matching,
+saved-pairing reads, firmware-file matching, reconnect checks, and all five
+current setting reads. Controlled tests changed and restored each of its five
+settings with read-back verification.
+
+An Engage 50 II with its Link controller was detected by RC3 and its firmware
+download completed, but missing `hidraw` permission blocked device reads. RC4
+adds clearer permission help and controller firmware probing. That headset
+still needs a normal-user retest after installing the udev rule.
+
+No Jabridge headset-setting write, remembered-device write, factory reset, or
+firmware flash has passed a replaceable-hardware test yet.

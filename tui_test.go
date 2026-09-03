@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,11 @@ func withMenuState(t *testing.T) {
 	oldWidth, oldHeight := width, height
 	oldScreen := screen
 	oldResetConfirmUntil := resetConfirmUntil
+	oldForgetConfirmUntil := forgetConfirmUntil
+	oldForgetConfirmAddr := forgetConfirmAddr
+	oldFirmwareTargetID := firmwareTargetID
+	oldFirmwareTargetIndex := firmwareTargetIndex
+	oldFirmwareTargetItems := firmwareTargetItems
 	t.Cleanup(func() {
 		menuState = oldState
 		currentSelection = oldSelection
@@ -25,6 +31,11 @@ func withMenuState(t *testing.T) {
 		width, height = oldWidth, oldHeight
 		screen = oldScreen
 		resetConfirmUntil = oldResetConfirmUntil
+		forgetConfirmUntil = oldForgetConfirmUntil
+		forgetConfirmAddr = oldForgetConfirmAddr
+		firmwareTargetID = oldFirmwareTargetID
+		firmwareTargetIndex = oldFirmwareTargetIndex
+		firmwareTargetItems = oldFirmwareTargetItems
 	})
 }
 
@@ -320,6 +331,83 @@ func TestFactoryResetConfirmationExpires(t *testing.T) {
 	}
 	if resetConfirmUntil != now.Add(2*time.Second).Add(factoryResetConfirmWindow) {
 		t.Fatal("expired confirmation was not re-armed")
+	}
+}
+
+func TestForgetRememberedDeviceRequiresSameDeviceTwice(t *testing.T) {
+	withMenuState(t)
+	now := time.Unix(200, 0)
+	first := [6]byte{1, 2, 3, 4, 5, 6}
+	second := [6]byte{6, 5, 4, 3, 2, 1}
+	if confirmForgetRememberedDevice(now, first) {
+		t.Fatal("first forget press confirmed")
+	}
+	if confirmForgetRememberedDevice(now.Add(time.Second), second) {
+		t.Fatal("different remembered device reused confirmation")
+	}
+	if !confirmForgetRememberedDevice(now.Add(2*time.Second), second) {
+		t.Fatal("second press for the same remembered device did not confirm")
+	}
+}
+
+func TestSplitActionBarPlacesActionsOnRight(t *testing.T) {
+	withMenuState(t)
+	f := newRenderTarget(t, 100, 24)
+	drawSplitActionBar([]string{"Q Back"}, []string{"Move", "Enter Change"})
+	_, _, bottom := panelBounds()
+	row := rowText(f, bottom+2)
+	back := strings.Index(row, "Q Back")
+	move := strings.Index(row, "Move")
+	enter := strings.Index(row, "Enter Change")
+	if back < 0 || move < 0 || enter < 0 {
+		t.Fatalf("action row is missing labels: %q", row)
+	}
+	if back >= move || move >= enter || move <= len(row)/2 {
+		t.Fatalf("actions are not split left/right: %q", row)
+	}
+}
+
+func TestDeviceSettingsScrollKeepsLargeListSelectionVisible(t *testing.T) {
+	withMenuState(t)
+	f := newRenderTarget(t, 80, 18)
+	currentSelection = 24
+	values := make([]deviceSettingValue, 0, 25)
+	for index := 0; index < 25; index++ {
+		value := boolSettingValue{
+			Definition: boolSettingDefinition{Key: fmt.Sprintf("setting-%02d", index), Label: fmt.Sprintf("Setting %02d", index)},
+			Value:      index%2 == 0,
+			Editable:   true,
+		}
+		values = append(values, deviceSettingValue{Boolean: &value})
+	}
+	renderDeviceSettings([]menuItem{{id: -1, label: "Device: Test headset"}}, values)
+
+	var rendered strings.Builder
+	for row := 1; row <= f.height; row++ {
+		rendered.WriteString(rowText(f, row))
+	}
+	if !strings.Contains(rendered.String(), "Setting 24") {
+		t.Fatalf("selected setting was not kept visible: %q", rendered.String())
+	}
+	if strings.Contains(rendered.String(), "Setting 00") {
+		t.Fatalf("large settings list did not scroll: %q", rendered.String())
+	}
+}
+
+func TestFirmwareTargetCyclesBetweenDongleAndHeadset(t *testing.T) {
+	withMenuState(t)
+	firmwareTargetItems = []switchDeviceItem{
+		{RegistryID: 4, Device: &jabra_DeviceInfo{deviceName: "Link 380", isDongle: true}},
+		{RegistryID: 7, Device: &jabra_DeviceInfo{deviceName: "Headset"}},
+	}
+	firmwareTargetIndex = 0
+	firmwareTargetID = 4
+
+	if !advanceFirmwareTarget() || firmwareTargetIndex != 1 || firmwareTargetID != 7 {
+		t.Fatalf("first target advance = index %d id %d", firmwareTargetIndex, firmwareTargetID)
+	}
+	if !advanceFirmwareTarget() || firmwareTargetIndex != 0 || firmwareTargetID != 4 {
+		t.Fatalf("wrapped target advance = index %d id %d", firmwareTargetIndex, firmwareTargetID)
 	}
 }
 

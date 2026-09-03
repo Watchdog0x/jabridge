@@ -27,6 +27,13 @@ func (n *nilAPI) SetAutoPairing(bool) error              { return nil }
 func (n *nilAPI) FactoryReset() error                    { return nil }
 func (n *nilAPI) SetBusylightMode(string) error          { return nil }
 func (n *nilAPI) GetBusylightMode() string               { return "off" }
+func (n *nilAPI) ListSettings(string) ([]ipc.SettingInfo, error) {
+	return nil, nil
+}
+func (n *nilAPI) SetSetting(device, key, value string) (ipc.SettingInfo, error) {
+	return ipc.SettingInfo{Device: device, Key: key, Value: value}, nil
+}
+func (n *nilAPI) SelectDevice(uint16) error { return nil }
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
@@ -252,4 +259,35 @@ func TestConnectionLimitRejectsExcessClient(t *testing.T) {
 	}
 	_ = first.Close()
 	daemon.Stop()
+}
+
+func TestPublishDeviceChangesEmitsAttachDetachAndBattery(t *testing.T) {
+	bus := ipc.NewEventBus()
+	events, cancel := bus.Subscribe()
+	defer cancel()
+	previous := map[uint16]ipc.DeviceInfo{
+		1: {ID: 1, Name: "Old", PID: 1},
+		2: {ID: 2, Name: "Battery", PID: 2, Battery: &ipc.BatteryInfo{Level: 40}},
+	}
+	current := map[uint16]ipc.DeviceInfo{
+		2: {ID: 2, Name: "Battery", PID: 2, Battery: &ipc.BatteryInfo{Level: 41}},
+		3: {ID: 3, Name: "New", PID: 3},
+	}
+	publishDeviceChanges(bus, previous, current)
+	want := map[string]bool{
+		"device.attached":       true,
+		"device.detached":       true,
+		"device.battery.update": true,
+	}
+	for range 3 {
+		select {
+		case event := <-events:
+			delete(want, event.Method)
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for state notification")
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing notifications: %v", want)
+	}
 }

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
@@ -20,8 +21,10 @@ import (
 
 // DeviceInfo is the JSON-serializable device representation for IPC.
 type DeviceInfo struct {
+	ID       uint16       `json:"id"`
 	Name     string       `json:"name"`
 	PID      uint16       `json:"pid"`
+	Variant  string       `json:"variant,omitempty"`
 	Serial   string       `json:"serial"`
 	IsDongle bool         `json:"isDongle"`
 	Battery  *BatteryInfo `json:"battery,omitempty"`
@@ -29,10 +32,18 @@ type DeviceInfo struct {
 }
 
 type BatteryInfo struct {
-	Level     uint8 `json:"level"`
-	Charging  bool  `json:"charging"`
-	Low       bool  `json:"low"`
-	Component int   `json:"component"`
+	Level      uint8                  `json:"level"`
+	Charging   bool                   `json:"charging"`
+	Low        bool                   `json:"low"`
+	Component  int                    `json:"component"`
+	Components []BatteryComponentInfo `json:"components,omitempty"`
+}
+
+type BatteryComponentInfo struct {
+	Name      string `json:"name"`
+	Level     uint8  `json:"level"`
+	Charging  bool   `json:"charging"`
+	Component int    `json:"component"`
 }
 
 type FeatureInfo struct {
@@ -50,6 +61,15 @@ type PairedDeviceInfo struct {
 	Connected bool   `json:"connected"`
 }
 
+type SettingInfo struct {
+	Device   string   `json:"device"`
+	Key      string   `json:"key"`
+	Label    string   `json:"label"`
+	Value    string   `json:"value"`
+	Editable bool     `json:"editable"`
+	Choices  []string `json:"choices,omitempty"`
+}
+
 // API is the interface the handler calls to interact with the device layer.
 // This decouples the IPC handler from jabraApi.go globals, making it testable.
 type API interface {
@@ -65,20 +85,39 @@ type API interface {
 	FactoryReset() error
 	SetBusylightMode(mode string) error
 	GetBusylightMode() string
+	ListSettings(device string) ([]SettingInfo, error)
+	SetSetting(device, key, value string) (SettingInfo, error)
+	SelectDevice(id uint16) error
 }
 
 // HandleConnection reads JSON-RPC requests from conn and dispatches them.
 // Blocks until the connection is closed or an error occurs.
 func HandleConnection(conn net.Conn, api API) {
-	HandleConnectionWithTimeout(conn, api, 30*time.Second)
+	HandleConnectionWithBus(conn, api, nil, 30*time.Second)
 }
 
 // HandleConnectionWithTimeout serves one client and closes idle connections.
 func HandleConnectionWithTimeout(conn net.Conn, api API, idleTimeout time.Duration) {
+	HandleConnectionWithBus(conn, api, nil, idleTimeout)
+}
+
+func HandleConnectionWithBus(conn net.Conn, api API, bus *EventBus, idleTimeout time.Duration) {
 	defer func() { _ = conn.Close() }()
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)
 	enc := json.NewEncoder(conn)
+	var writeMu sync.Mutex
+	writeResponse := func(response Response) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return encodeResponse(conn, enc, response, idleTimeout)
+	}
+	var unsubscribe func()
+	defer func() {
+		if unsubscribe != nil {
+			unsubscribe()
+		}
+	}()
 
 	for {
 		if idleTimeout > 0 {
@@ -96,20 +135,57 @@ func HandleConnectionWithTimeout(conn net.Conn, api API, idleTimeout time.Durati
 
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
-			if err := encodeResponse(conn, enc, ErrorResponse(nil, ErrCodeParse, "parse error"), idleTimeout); err != nil {
+			if err := writeResponse(ErrorResponse(nil, ErrCodeParse, "parse error")); err != nil {
 				return
 			}
 			continue
 		}
 		if req.JSONRPC != "2.0" || req.Method == "" {
-			if err := encodeResponse(conn, enc, ErrorResponse(req.ID, ErrCodeInvalidReq, "invalid JSON-RPC request"), idleTimeout); err != nil {
+			if err := writeResponse(ErrorResponse(req.ID, ErrCodeInvalidReq, "invalid JSON-RPC request")); err != nil {
 				return
 			}
 			continue
 		}
 
+		if req.Method == "subscribe" {
+			if bus == nil {
+				err := writeResponse(ErrorResponse(req.ID, ErrCodeInternal, "event subscriptions are unavailable"))
+				if err != nil {
+					return
+				}
+				continue
+			}
+			if unsubscribe != nil {
+				unsubscribe()
+			}
+			events, cancel := bus.Subscribe()
+			unsubscribe = cancel
+			err := writeResponse(SuccessResponse(req.ID, map[string]bool{"subscribed": true}))
+			if err != nil {
+				return
+			}
+			go streamNotifications(conn, enc, &writeMu, events, idleTimeout)
+			continue
+		}
+
 		resp := dispatch(req, api)
-		if err := encodeResponse(conn, enc, resp, idleTimeout); err != nil {
+		err := writeResponse(resp)
+		if err != nil {
+			return
+		}
+	}
+}
+
+func streamNotifications(conn net.Conn, encoder *json.Encoder, writeMu *sync.Mutex, events <-chan Notification, timeout time.Duration) {
+	for notification := range events {
+		writeMu.Lock()
+		if timeout > 0 {
+			_ = conn.SetWriteDeadline(time.Now().Add(timeout))
+		}
+		err := encoder.Encode(notification)
+		writeMu.Unlock()
+		if err != nil {
+			_ = conn.Close()
 			return
 		}
 	}
@@ -141,6 +217,8 @@ func decodeParams(raw json.RawMessage, target any) error {
 
 func dispatch(req Request, api API) Response {
 	switch req.Method {
+	case "service.ping":
+		return SuccessResponse(req.ID, map[string]bool{"ok": true})
 	case "version":
 		return SuccessResponse(req.ID, map[string]string{
 			"service": buildinfo.ServiceName,
@@ -150,6 +228,47 @@ func dispatch(req Request, api API) Response {
 	case "devices.list":
 		devs := api.ListDevices()
 		return SuccessResponse(req.ID, devs)
+
+	case "device.select":
+		var params struct {
+			ID *uint16 `json:"id"`
+		}
+		if err := decodeParams(req.Params, &params); err != nil || params.ID == nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "device.select requires numeric id")
+		}
+		if err := api.SelectDevice(*params.ID); err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, map[string]bool{"ok": true})
+
+	case "settings.list":
+		var params struct {
+			Device string `json:"device"`
+		}
+		if err := decodeParams(req.Params, &params); err != nil || (params.Device != "dongle" && params.Device != "headset") {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "settings.list requires device dongle or headset")
+		}
+		settings, err := api.ListSettings(params.Device)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, settings)
+
+	case "settings.set":
+		var params struct {
+			Device string `json:"device"`
+			Key    string `json:"key"`
+			Value  string `json:"value"`
+		}
+		if err := decodeParams(req.Params, &params); err != nil ||
+			(params.Device != "dongle" && params.Device != "headset") || params.Key == "" || params.Value == "" {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "settings.set requires device, key, and value")
+		}
+		setting, err := api.SetSetting(params.Device, params.Key, params.Value)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, setting)
 
 	case "device.battery":
 		bat, err := api.GetBattery()

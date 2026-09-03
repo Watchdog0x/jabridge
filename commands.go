@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	shellcompletion "github.com/Watchdog0x/jabridge/internal/completion"
@@ -91,6 +92,9 @@ func runStatus() error {
 			connection = "through dongle"
 		}
 		fmt.Printf("  Connection: %s\n", connection)
+		if device.variantType != "" {
+			fmt.Printf("  Variant:    %s\n", device.variantType)
+		}
 		if device.batteryStatus != nil {
 			charging := ""
 			if device.batteryStatus.charging {
@@ -108,6 +112,44 @@ func runStatus() error {
 		}
 	}
 	return nil
+}
+
+func runBattery() error {
+	scanAndAttachDevices()
+	refreshDongleChildDevice()
+	headset, exists := selectedHeadsetSnapshot()
+	if !exists {
+		fmt.Println("No headset connected.")
+		return nil
+	}
+	battery, err := getBatteryStatus(headset.deviceID)
+	if err != nil {
+		battery = nil
+	}
+	fmt.Println(formatBatteryLine(headset.deviceName, battery))
+	return nil
+}
+
+func formatBatteryLine(deviceName string, battery *batteryStatus) string {
+	if battery == nil || battery.levelInPercent > 100 {
+		return fmt.Sprintf("%s: No battery reported", deviceName)
+	}
+	if len(battery.components) > 1 {
+		parts := make([]string, 0, len(battery.components))
+		for _, component := range battery.components {
+			part := fmt.Sprintf("%s %d%%", component.label, component.levelInPercent)
+			if component.charging {
+				part += " charging"
+			}
+			parts = append(parts, part)
+		}
+		return fmt.Sprintf("%s: %s", deviceName, strings.Join(parts, ", "))
+	}
+	line := fmt.Sprintf("%s: %d%%", deviceName, battery.levelInPercent)
+	if battery.charging {
+		line += " (charging)"
+	}
+	return line
 }
 
 func printUpdateUsage() {

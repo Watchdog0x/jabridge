@@ -23,10 +23,14 @@ type Node struct {
 }
 
 type NodeProps struct {
-	MediaClass string `json:"media.class"`
-	AppName    string `json:"application.name"`
-	MediaRole  string `json:"media.role"`
-	NodeName   string `json:"node.name"`
+	MediaClass      string `json:"media.class"`
+	AppName         string `json:"application.name"`
+	MediaRole       string `json:"media.role"`
+	NodeName        string `json:"node.name"`
+	NodeDescription string `json:"node.description"`
+	NodeNick        string `json:"node.nick"`
+	CardName        string `json:"alsa.card_name"`
+	DeviceID        int    `json:"device.id"`
 }
 
 // Link is a PipeWire graph link connecting two nodes.
@@ -107,7 +111,7 @@ func ParseSnapshot(data []byte) (*Snapshot, error) {
 func (s *Snapshot) JabraSourceNodes() []Node {
 	var out []Node
 	for _, n := range s.Nodes {
-		if strings.Contains(n.Props.NodeName, "0b0e") &&
+		if isJabraNode(n) &&
 			(n.Props.MediaClass == "Audio/Source" || strings.Contains(n.Props.NodeName, "input")) {
 			out = append(out, n)
 		}
@@ -119,12 +123,22 @@ func (s *Snapshot) JabraSourceNodes() []Node {
 func (s *Snapshot) JabraSinkNodes() []Node {
 	var out []Node
 	for _, n := range s.Nodes {
-		if strings.Contains(n.Props.NodeName, "0b0e") &&
+		if isJabraNode(n) &&
 			(n.Props.MediaClass == "Audio/Sink" || strings.Contains(n.Props.NodeName, "output")) {
 			out = append(out, n)
 		}
 	}
 	return out
+}
+
+func isJabraNode(node Node) bool {
+	text := strings.ToLower(strings.Join([]string{
+		node.Props.NodeName,
+		node.Props.NodeDescription,
+		node.Props.NodeNick,
+		node.Props.CardName,
+	}, " "))
+	return strings.Contains(text, "0b0e") || strings.Contains(text, "jabra")
 }
 
 // StreamNodes returns all active application stream nodes.
