@@ -31,6 +31,8 @@ func main() {
 		err = runDaemon()
 	case "update":
 		err = runUpdate(os.Args[2:])
+	case "firmware", "fw":
+		err = runFirmware(os.Args[2:])
 	case "completion":
 		err = runCompletion(os.Args[2:])
 	default:
@@ -49,6 +51,7 @@ Usage:
   jabridge             open the terminal UI; talks directly to the device
   jabridge status      show connected USB devices
   jabridge update      update the app
+  jabridge firmware    check or download device firmware
   jabridge --help      show help
 
 More:
@@ -75,8 +78,8 @@ func runTUI() error {
 	stopPoll := make(chan struct{})
 	go pollDevices(stopPoll)
 
-	fmt.Print("\x1b[?1049h\x1b[?25l")
-	defer fmt.Print("\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
+	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[0;40;97m")
+	defer fmt.Print("\x1b[0m\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
 
 	defer close(stopUpdateBattery)
 	defer close(stopUpdatePairingList)

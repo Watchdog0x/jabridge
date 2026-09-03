@@ -148,7 +148,7 @@ func (c *Client) Check(ctx context.Context, currentVersion string, includePrerel
 	return plan, nil
 }
 
-// Install downloads, verifies, and atomically replaces jabridge and jafw.
+// Install downloads, verifies, and atomically replaces the jabridge binary.
 func (c *Client) Install(ctx context.Context, plan Plan, executablePath string) error {
 	if !plan.NewerThanCurrent {
 		return errors.New("release is not newer than the running version")
@@ -363,13 +363,12 @@ func extractBinaries(archive []byte) (map[string][]byte, error) {
 	}
 	defer gz.Close()
 
-	wanted := map[string]bool{"jabridge": true, "jafw": true}
+	wanted := map[string]bool{"jabridge": true}
 	allowedExtra := map[string]bool{
 		"README.md":           true,
 		"HARDWARE_TESTING.md": true,
 		"LICENSE":             true,
 		"jabridge.bash":       true,
-		"jafw.bash":           true,
 	}
 	files := make(map[string][]byte, len(wanted))
 	reader := tar.NewReader(gz)
@@ -389,7 +388,7 @@ func extractBinaries(archive []byte) (map[string][]byte, error) {
 		if header.Typeflag == tar.TypeDir {
 			continue
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+		if header.Typeflag != tar.TypeReg {
 			return nil, fmt.Errorf("unsupported archive entry %q", header.Name)
 		}
 		name := path.Base(clean)
@@ -439,7 +438,7 @@ func validateELF(data []byte, goarch string) error {
 		return fmt.Errorf("not a valid ELF program: %w", err)
 	}
 	defer file.Close()
-	want := elf.EM_NONE
+	var want elf.Machine
 	switch goarch {
 	case "amd64":
 		want = elf.EM_X86_64
@@ -492,10 +491,7 @@ func replaceBinaries(executablePath string, files map[string][]byte) error {
 		hadOld    bool
 		installed bool
 	}
-	updates := []updateFile{
-		{name: "jafw", target: filepath.Join(targetDir, "jafw")},
-		{name: "jabridge", target: resolved},
-	}
+	updates := []updateFile{{name: "jabridge", target: resolved}}
 	for i := range updates {
 		item := &updates[i]
 		data, ok := files[item.name]

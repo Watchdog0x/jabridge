@@ -14,6 +14,7 @@ Requirements:
     cd jabridge
     git remote add upstream https://github.com/Watchdog0x/jabridge.git
     make check
+    make lint
     make build
 
 The project builds with CGO_ENABLED=0; no Jabra shared library is required.
@@ -26,7 +27,7 @@ the TUI a client of that service.
 
 1. Create a focused branch from main.
 2. Add tests for changed behavior.
-3. Run make check and make build.
+3. Run `make check`, `make lint`, and `make build`.
 4. Document the tested device model, VID:PID, connection type, and Linux
    distribution.
 5. Distinguish unit/fake-transport results from real hardware results.
@@ -50,7 +51,7 @@ code must:
 The explicit development opt-in is not a safety certification:
 
     export JABRIDGE_ENABLE_EXPERIMENTAL_WRITES=I_ACCEPT_THE_BRICK_RISK
-    export JAFW_ENABLE_HARDWARE_WRITES=I_ACCEPT_THE_BRICK_RISK
+    export JABRIDGE_FIRMWARE_ENABLE_HARDWARE_WRITES=I_ACCEPT_THE_BRICK_RISK
 
 ## Code style
 

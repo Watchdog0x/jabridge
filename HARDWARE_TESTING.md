@@ -11,8 +11,7 @@ test reads device information. It must not change your device.
 - Do not start or remove Bluetooth pairing.
 - Do not reset a device.
 - Do not change busylight settings.
-- Do not run `jafw flash`, `jafw all`, or
-  `jafw bccmd-test`.
+- Do not run `jabridge firmware install` or developer firmware commands.
 - Do not enable either experimental hardware-write setting.
 
 ## Run the safe test
@@ -25,8 +24,8 @@ sha256sum -c jabridge_1.0.0-rc.1_linux_amd64.tar.gz.sha256
 tar -xzf jabridge_1.0.0-rc.1_linux_amd64.tar.gz
 cd jabridge_1.0.0-rc.1_linux_amd64
 ./jabridge --version
-./jafw version
-./jafw list
+./jabridge status
+./jabridge firmware
 ./jabridge
 ```
 
@@ -46,7 +45,7 @@ Reply in [issue #34](https://github.com/Watchdog0x/jabridge/issues/34) with:
 - direct USB, dongle, or dongle-only connection;
 - Linux distribution;
 - output of `uname -r` and `uname -m`;
-- output of the version commands and `jafw list`;
+- output of `jabridge status` and `jabridge firmware`;
 - what the TUI showed before and after reconnecting the device;
 - any error, hang, flicker, or wrong device name.
 

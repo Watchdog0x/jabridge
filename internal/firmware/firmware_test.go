@@ -1,6 +1,22 @@
-package main
+package firmware
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestRunFirmwareInstallFailsClosed(t *testing.T) {
+	err := Run([]string{"install", "/tmp/not-a-firmware-file"})
+	if err == nil || !strings.Contains(err.Error(), "installation is locked") {
+		t.Fatalf("firmware install error = %v, want disabled gate", err)
+	}
+}
+
+func TestRunUnknownCommandReturnsError(t *testing.T) {
+	if err := Run([]string{"unknown"}); err == nil {
+		t.Fatal("unknown firmware command returned nil")
+	}
+}
 
 // TestCompareVersions guards the numeric-semver comparison that sorts
 // Jabra firmware releases newest-first. String-sort would put "1.10.0"
@@ -36,7 +52,7 @@ func TestCompareVersions(t *testing.T) {
 }
 
 // TestRouteFor pins the format-to-backend dispatch table. This is what
-// makes `jafw dev flash` work across every Jabra firmware format without
+// makes `jabridge firmware dev flash` work across every Jabra firmware format without
 // having to teach each call site the routing rules.
 func TestRouteFor(t *testing.T) {
 	cases := []struct {
@@ -117,11 +133,11 @@ func TestFirmwareTargetsAttachedDevice(t *testing.T) {
 }
 
 func TestDisplaySerialIsRedactedByDefault(t *testing.T) {
-	t.Setenv("JAFW_SHOW_SERIAL", "")
+	t.Setenv("JABRIDGE_FIRMWARE_SHOW_SERIAL", "")
 	if got := displaySerial("A1B2C3D4E5F6"); got != "<redacted>" {
 		t.Fatalf("displaySerial = %q, want redacted", got)
 	}
-	t.Setenv("JAFW_SHOW_SERIAL", "1")
+	t.Setenv("JABRIDGE_FIRMWARE_SHOW_SERIAL", "1")
 	if got := displaySerial("A1B2C3D4E5F6"); got != "A1B2C3D4E5F6" {
 		t.Fatalf("displaySerial opt-in = %q", got)
 	}

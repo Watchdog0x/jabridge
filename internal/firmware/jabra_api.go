@@ -20,7 +20,7 @@
 //     not from the device itself. libjabra.so does the same but hides it.
 //   - No shared library, no LD_LIBRARY_PATH, no libasound/libcurl deps.
 
-package main
+package firmware
 
 import (
 	"encoding/binary"

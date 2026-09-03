@@ -16,7 +16,7 @@
 // This is exactly what libusb does under the hood on Linux, minus the
 // abstraction layers and the C dependency.
 
-package main
+package firmware
 
 import (
 	"fmt"

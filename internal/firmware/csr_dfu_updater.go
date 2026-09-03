@@ -15,7 +15,7 @@
 // EnterDFUMode returns an explicit error so this cannot look like a working
 // or validated flash path.
 
-package main
+package firmware
 
 import (
 	"context"
@@ -337,7 +337,7 @@ func realFlashDFUDevice(firmwarePath, dfuSysPath string) error {
 	if firmwarePath == "" {
 		return errors.New("firmware path is empty")
 	}
-	// Reuse jafw's existing dfu-util wrapper. It already handles
+	// Reuse the firmware package's dfu-util wrapper. It already handles
 	// path lookup, VID scoping, and honest success reporting.
 	return flashViaDfuUtil(firmwarePath)
 }
@@ -348,7 +348,7 @@ func realFlashDFUDevice(firmwarePath, dfuSysPath string) error {
 // fixed interval and emits CsrDfuEvents for add/remove transitions. The
 // returned channel is closed when the context is cancelled. This is the
 // no-dependency alternative to libudev — we already use sysfs for
-// enumeration in jafw.go, so it keeps the toolchain stdlib-only.
+// enumeration in firmware.go, so it keeps the toolchain stdlib-only.
 //
 // The poll interval is deliberately short (100ms) because mode-switch
 // windows are on the order of a second or two and we don't want to

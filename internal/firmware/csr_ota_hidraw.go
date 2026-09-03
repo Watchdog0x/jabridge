@@ -13,7 +13,7 @@
 // can honor a user-supplied deadline without needing a dedicated goroutine.
 // This matches bccmd_client.go's style (no cgo, no libusb, no libhidapi).
 
-package main
+package firmware
 
 import (
 	"errors"
@@ -356,7 +356,6 @@ func parseGnpOutputReportSize(desc []byte) int {
 		currentReportID   byte
 		currentReportSize int // in bits
 		currentReportCnt  int
-		inOutput          bool
 	)
 	i := 0
 	for i < len(desc) {
@@ -390,8 +389,7 @@ func parseGnpOutputReportSize(desc []byte) int {
 		case 0: // Main
 			switch bTag {
 			case 9: // Output
-				inOutput = true
-				if currentReportID == GnpReportID && inOutput {
+				if currentReportID == GnpReportID {
 					// Total bytes = Report Count * Report Size / 8, plus
 					// 1 byte for the Report ID prefix.
 					totalBytes := (currentReportCnt * currentReportSize / 8) + 1
@@ -399,7 +397,6 @@ func parseGnpOutputReportSize(desc []byte) int {
 						return totalBytes
 					}
 				}
-				inOutput = false
 			}
 		}
 	}

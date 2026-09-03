@@ -21,22 +21,17 @@ features remain experimental and disabled by default.
 %build
 mkdir -p dist/bin
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/bin/jabridge .
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/bin/jafw ./cmd/jafw
 
 %install
 rm -rf %{buildroot}
 
 install -Dm755 dist/bin/jabridge %{buildroot}/usr/bin/jabridge
-install -Dm755 dist/bin/jafw %{buildroot}/usr/bin/jafw
 install -Dm644 internal/completion/jabridge.bash %{buildroot}/usr/share/bash-completion/completions/jabridge
-install -Dm644 internal/completion/jafw.bash %{buildroot}/usr/share/bash-completion/completions/jafw
 
 %files
 %license LICENSE
 /usr/bin/jabridge
-/usr/bin/jafw
 /usr/share/bash-completion/completions/jabridge
-/usr/share/bash-completion/completions/jafw
 
 %changelog
 * Thu Sep 03 2026 Jabridge maintainers - 1.0.0-1

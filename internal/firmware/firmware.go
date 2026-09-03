@@ -1,11 +1,11 @@
-// jafw is Jabridge's independent firmware information tool.
+// Package firmware implements Jabridge firmware information and update flows.
 //
 // Normal commands list supported devices, read public firmware metadata,
 // download files, and verify the target model. They do not write to hardware.
 // Experimental developer paths remain locked and are not release-qualified.
 // No vendor program, library, or firmware is bundled.
 
-package main
+package firmware
 
 import (
 	"archive/zip"
@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
-	shellcompletion "github.com/Watchdog0x/jabridge/internal/completion"
 )
 
 // ── Service and protocol constants ────────────────────────────────────────
@@ -49,7 +48,7 @@ const (
 
 	// Hardware writes are intentionally opt-in while the native updater is
 	// awaiting validation on replaceable test hardware.
-	HardwareWriteEnv = "JAFW_ENABLE_HARDWARE_WRITES"
+	HardwareWriteEnv = "JABRIDGE_FIRMWARE_ENABLE_HARDWARE_WRITES"
 	HardwareWriteAck = "I_ACCEPT_THE_BRICK_RISK"
 )
 
@@ -82,6 +81,24 @@ type Release struct {
 type Language struct {
 	ID   string `xml:"id,attr"`
 	Name string `xml:",chardata"`
+}
+
+// LatestInfo is the newest firmware entry published for one product ID.
+type LatestInfo struct {
+	DeviceName  string
+	ProductID   uint16
+	Version     string
+	ReleaseDate string
+	FileName    string
+	FileSize    string
+}
+
+// DownloadResult describes a downloaded firmware file. Downloading does not
+// send anything to a device.
+type DownloadResult struct {
+	Path    string
+	Version string
+	Format  string
 }
 
 // ── USB device enumeration via sysfs ───────────────────────────────────────
@@ -198,6 +215,47 @@ func fetchFirmwareInfo(pid uint16) (*Firmware, error) {
 	return &fw, nil
 }
 
+// LatestForPID returns the latest published firmware for a product.
+func LatestForPID(pid uint16) (LatestInfo, error) {
+	info, err := fetchFirmwareInfo(pid)
+	if err != nil {
+		return LatestInfo{}, err
+	}
+	if len(info.Releases) == 0 {
+		return LatestInfo{}, fmt.Errorf("no firmware releases for PID 0x%04x", pid)
+	}
+	latest := info.Releases[0]
+	return LatestInfo{
+		DeviceName:  info.DeviceName,
+		ProductID:   pid,
+		Version:     latest.Version,
+		ReleaseDate: latest.ReleaseDate,
+		FileName:    latest.FileName,
+		FileSize:    latest.FileSize,
+	}, nil
+}
+
+// DownloadLatest downloads the latest firmware file without installing it.
+func DownloadLatest(pid uint16, outDir string) (DownloadResult, error) {
+	info, err := fetchFirmwareInfo(pid)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+	if len(info.Releases) == 0 {
+		return DownloadResult{}, fmt.Errorf("no firmware releases for PID 0x%04x", pid)
+	}
+	latest := info.Releases[0]
+	filePath, err := downloadFirmware(latest, outDir)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+	format, err := detectFormat(filePath)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+	return DownloadResult{Path: filePath, Version: latest.Version, Format: format.String()}, nil
+}
+
 // compareVersions does component-wise numeric semver compare. Avoids the
 // classic "1.10.0 < 1.2.0" string-sort bug — same logic as nxbench task 001.
 func compareVersions(a, b string) int {
@@ -292,7 +350,7 @@ func downloadFirmware(rel Release, outDir string) (string, error) {
 		return "", fmt.Errorf("close: %w", err)
 	}
 	complete = true
-	fmt.Fprintf(os.Stderr, "[jafw] downloaded %d bytes → %s\n", written, outPath)
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] downloaded %d bytes → %s\n", written, outPath)
 	return outPath, nil
 }
 
@@ -312,13 +370,13 @@ const (
 func (f FirmwareFormat) String() string {
 	switch f {
 	case FormatCSRDFU2:
-		return "CSR-dfu2 (proprietary CSR BlueCore format — needs jfwu)"
+		return "CSR DFU2 firmware"
 	case FormatUSBDFU11:
 		return "USB DFU-1.1 (standard — compatible with dfu-util)"
 	case FormatDfuSeSTM:
 		return "DfuSe (STMicro extended DFU — dfu-util with --alt)"
 	case FormatGnVArchive:
-		return "GnV archive (Jabra buildVector — needs jfwu for CSR protocol upload)"
+		return "Jabra firmware archive"
 	case FormatPlainZIP:
 		return "plain ZIP (unknown contents)"
 	}
@@ -586,16 +644,16 @@ func flashViaJfwu(archivePath string, extraArgs []string) error {
 
 	// Vendor binaries are never bundled. Use an explicitly configured path or
 	// a binary installed on PATH from an authorized Jabra distribution.
-	jfwuBin := os.Getenv("JAFW_VENDOR_FW_TOOL")
+	jfwuBin := os.Getenv("JABRIDGE_FIRMWARE_VENDOR_TOOL")
 	if jfwuBin == "" {
 		found, err := exec.LookPath("jfwu")
 		if err != nil {
-			return errors.New("jfwu binary not found; set JAFW_VENDOR_FW_TOOL to an authorized Jabra updater or install jfwu on PATH")
+			return errors.New("jfwu binary not found; set JABRIDGE_FIRMWARE_VENDOR_TOOL to an authorized Jabra updater or install jfwu on PATH")
 		}
 		jfwuBin = found
 	}
 	if info, err := os.Stat(jfwuBin); err != nil || info.IsDir() {
-		return fmt.Errorf("invalid JAFW_VENDOR_FW_TOOL path %q", jfwuBin)
+		return fmt.Errorf("invalid JABRIDGE_FIRMWARE_VENDOR_TOOL path %q", jfwuBin)
 	}
 
 	abs, err := filepath.Abs(archivePath)
@@ -626,11 +684,11 @@ func flashViaJfwu(archivePath string, extraArgs []string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
 
-	fmt.Fprintf(os.Stderr, "[jafw] exec: %s %s\n", jfwuBin, strings.Join(args, " "))
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] exec: %s %s\n", jfwuBin, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("jfwu exited non-zero: %w", err)
 	}
-	fmt.Fprintln(os.Stderr, "[jafw] jfwu exit=0 — partition upload completed successfully")
+	fmt.Fprintln(os.Stderr, "[jabridge firmware] jfwu exit=0 — partition upload completed successfully")
 	return nil
 }
 
@@ -653,12 +711,12 @@ func flashViaDfuUtil(firmwarePath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Fprintf(os.Stderr, "[jafw] exec: %s %s\n", dfuBin, strings.Join(args, " "))
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] exec: %s %s\n", dfuBin, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("dfu-util exited non-zero: %w", err)
 	}
 	// Do NOT claim success unless exit is 0. This is the draft-is-not-send rule.
-	fmt.Fprintln(os.Stderr, "[jafw] dfu-util exit=0 — firmware transfer completed successfully")
+	fmt.Fprintln(os.Stderr, "[jabridge firmware] dfu-util exit=0 — firmware transfer completed successfully")
 	return nil
 }
 
@@ -701,8 +759,8 @@ func routeFor(format FirmwareFormat) flashRoute {
 	return routeNone
 }
 
-// flashByFormat is the single entry point used by both `jafw dev flash` and
-// the end-to-end `jafw dev all` pipeline. It picks the correct backend via
+// flashByFormat is the single entry point used by both `jabridge firmware dev flash` and
+// the end-to-end `jabridge firmware dev all` pipeline. It picks the correct backend via
 // routeFor and delegates. Error reporting is honest: if no backend handles
 // the format, we return an error instead of silently skipping.
 func flashByFormat(path string, format FirmwareFormat) error {
@@ -715,7 +773,7 @@ func flashByFormat(path string, format FirmwareFormat) error {
 		}
 	}
 	route := routeFor(format)
-	fmt.Fprintf(os.Stderr, "[jafw] format=%s → route=%s\n", format.String(), route.String())
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] format=%s → route=%s\n", format.String(), route.String())
 	switch route {
 	case routeDfuUtil:
 		return flashViaDfuUtil(path)
@@ -727,41 +785,49 @@ func flashByFormat(path string, format FirmwareFormat) error {
 
 // ── CLI ────────────────────────────────────────────────────────────────────
 
-func main() {
-	if len(os.Args) < 2 {
+// Run executes the firmware subcommand inside the main Jabridge binary.
+func Run(args []string) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if failure, ok := recovered.(commandFailure); ok {
+				err = errors.New(failure.message)
+				return
+			}
+			panic(recovered)
+		}
+	}()
+
+	if len(args) == 0 {
 		cmdStatus()
-		return
+		return nil
 	}
 
-	switch os.Args[1] {
+	switch args[0] {
 	case "version", "--version", "-v":
-		fmt.Printf("jafw %s (%s)\n", buildinfo.Version, buildinfo.Name)
+		fmt.Printf("jabridge firmware %s (%s)\n", buildinfo.Version, buildinfo.Name)
 	case "status", "list", "info":
 		cmdStatus()
 	case "check":
-		cmdCheck(os.Args[2:])
+		cmdCheck(args[1:])
 	case "download":
-		cmdDownload(os.Args[2:])
+		cmdDownload(args[1:])
 	case "verify":
-		cmdVerify(os.Args[2:])
+		cmdVerify(args[1:])
+	case "install":
+		return errors.New("firmware installation is locked until real-hardware testing is complete")
 	case "detect":
-		cmdDetect(os.Args[2:])
+		cmdDetect(args[1:])
 	case "manifest":
-		cmdManifest(os.Args[2:])
+		cmdManifest(args[1:])
 	case "-h", "--help", "help":
 		usage()
-	case "completion":
-		if len(os.Args) != 3 || os.Args[2] != "bash" {
-			die("usage: jafw completion bash")
-		}
-		fmt.Print(shellcompletion.JAFWBash)
 	case "dev":
-		cmdDeveloper(os.Args[2:])
+		cmdDeveloper(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", os.Args[1])
 		usage()
-		os.Exit(2)
+		return fmt.Errorf("unknown firmware command %q", args[0])
 	}
+	return nil
 }
 
 func cmdDeveloper(args []string) {
@@ -783,7 +849,7 @@ func cmdDeveloper(args []string) {
 	case "device-version":
 		cmdDeviceVersion(args[1:])
 	default:
-		die("unknown developer command %q; run jafw dev --help", args[0])
+		die("unknown developer command %q; run jabridge firmware dev --help", args[0])
 	}
 }
 
@@ -796,7 +862,7 @@ func cmdBCCMDTest(args []string) {
 		die("bccmd-test: %v", err)
 	}
 	if len(args) < 1 {
-		die("usage: jafw dev bccmd-test <hidraw-path>  (e.g. /dev/hidraw8)")
+		die("usage: jabridge firmware dev bccmd-test <hidraw-path>  (e.g. /dev/hidraw8)")
 	}
 	hidrawPath := args[0]
 
@@ -847,7 +913,7 @@ func cmdBCCMDTest(args []string) {
 
 func cmdManifest(args []string) {
 	if len(args) < 1 {
-		die("usage: jafw manifest <gnv-archive.zip>")
+		die("usage: jabridge firmware manifest <gnv-archive.zip>")
 	}
 	bv, contents, err := parseGnVArchive(args[0])
 	if err != nil {
@@ -906,20 +972,19 @@ func crcAlgoName(r CRCResult) string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `jafw — Jabridge firmware utility (pure Go, no libjabra.so)
+	fmt.Fprintln(os.Stderr, `jabridge firmware — Jabridge firmware utility (pure Go, no libjabra.so)
 
 Independent community software; not an official Jabra program.
 
 Usage:
-  jafw                        show device and firmware status
-  jafw download               download the latest file for the attached device
-  jafw verify FILE            check that a file matches the attached device
-  jafw --help                 show help
+  jabridge firmware                  show device and firmware status
+  jabridge firmware download         download for the attached device
+  jabridge firmware verify FILE      check a file against the device
+  jabridge firmware install FILE     install firmware (locked in preview)
 
 More:
-  jafw download --pid HEX     choose a product that is not attached
-  jafw completion bash        print Bash completion
-  jafw dev --help             show locked developer commands
+  jabridge firmware download --pid HEX
+  jabridge firmware dev --help
 
 Normal commands never flash a device. Hardware writes are hidden, locked, and
 not ready for normal use.`)
@@ -928,12 +993,12 @@ not ready for normal use.`)
 func developerUsage() {
 	fmt.Fprintln(os.Stderr, `Developer commands are experimental and may damage hardware:
 
-  jafw dev flash FILE
-  jafw dev all
-  jafw dev bccmd-test HIDRAW_PATH
-  jafw dev flash-csr-ota [OPTIONS] FILE
-  jafw dev dongle-info HIDRAW_PATH
-  jafw dev device-version HIDRAW_PATH
+  jabridge firmware dev flash FILE
+  jabridge firmware dev all
+  jabridge firmware dev bccmd-test HIDRAW_PATH
+  jabridge firmware dev flash-csr-ota [OPTIONS] FILE
+  jabridge firmware dev dongle-info HIDRAW_PATH
+  jabridge firmware dev device-version HIDRAW_PATH
 
 They remain blocked unless the exact development safety gate is enabled.`)
 }
@@ -1023,7 +1088,7 @@ func cmdStatus() {
 		die("scan USB devices: %v", err)
 	}
 	devs = usableFirmwareDevices(devs)
-	fmt.Printf("jafw %s\n", buildinfo.Version)
+	fmt.Printf("jabridge firmware %s\n", buildinfo.Version)
 	if len(devs) == 0 {
 		fmt.Println("No supported Jabra USB device found.")
 		return
@@ -1048,7 +1113,7 @@ func cmdStatus() {
 
 func cmdCheck(args []string) {
 	if len(args) < 1 {
-		die("usage: jafw check <pid-hex>")
+		die("usage: jabridge firmware check <pid-hex>")
 	}
 	pid := parsePID(args[0])
 	fw, err := fetchFirmwareInfo(pid)
@@ -1144,7 +1209,7 @@ func cmdDownload(args []string) {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "[jafw] downloading %s %s (%s) from %s\n",
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] downloading %s %s (%s) from %s\n",
 		fw.DeviceName, rel.Version, rel.FileSize, DownloadBaseURL+rel.DownloadURL)
 	path, err := downloadFirmware(rel, outDir)
 	if err != nil {
@@ -1174,7 +1239,7 @@ func usableFirmwareDevices(devices []USBDevice) []USBDevice {
 
 func cmdDetect(args []string) {
 	if len(args) < 1 {
-		die("usage: jafw detect <file>")
+		die("usage: jabridge firmware detect <file>")
 	}
 	format, err := detectFormat(args[0])
 	if err != nil {
@@ -1185,7 +1250,10 @@ func cmdDetect(args []string) {
 
 func cmdFlash(args []string) {
 	if len(args) < 1 {
-		die("usage: jafw dev flash <file>")
+		die("usage: jabridge firmware install <file>")
+	}
+	if err := requireHardwareWrites(); err != nil {
+		die("firmware install: %v", err)
 	}
 	path := args[0]
 	format, err := detectFormat(path)
@@ -1199,7 +1267,7 @@ func cmdFlash(args []string) {
 
 func cmdVerify(args []string) {
 	if len(args) < 1 {
-		die("usage: jafw verify <firmware.zip>")
+		die("usage: jabridge firmware verify <firmware.zip>")
 	}
 	format, err := detectFormat(args[0])
 	if err != nil {
@@ -1233,7 +1301,7 @@ func cmdAll(args []string) {
 		die("no Jabra device attached")
 	}
 	target := devs[0]
-	fmt.Fprintf(os.Stderr, "[jafw] targeting 0b0e:%04x %q\n", target.ProductID, target.Product)
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] targeting 0b0e:%04x %q\n", target.ProductID, target.Product)
 
 	fw, err := fetchFirmwareInfo(target.ProductID)
 	if err != nil {
@@ -1243,7 +1311,7 @@ func cmdAll(args []string) {
 		die("no releases available for %s", fw.DeviceName)
 	}
 	latest := fw.Releases[0]
-	fmt.Fprintf(os.Stderr, "[jafw] latest firmware: %s %s (%s)\n", fw.DeviceName, latest.Version, latest.ReleaseDate)
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] latest firmware: %s %s (%s)\n", fw.DeviceName, latest.Version, latest.ReleaseDate)
 
 	path, err := downloadFirmware(latest, outDir)
 	if err != nil {
@@ -1251,7 +1319,7 @@ func cmdAll(args []string) {
 	}
 
 	format, _ := detectFormat(path)
-	fmt.Fprintf(os.Stderr, "[jafw] downloaded %s, format=%s\n", path, format.String())
+	fmt.Fprintf(os.Stderr, "[jabridge firmware] downloaded %s, format=%s\n", path, format.String())
 
 	if err := flashByFormat(path, format); err != nil {
 		die("flash: %v", err)
@@ -1273,7 +1341,7 @@ func displaySerial(serial string) string {
 	if serial == "" {
 		return ""
 	}
-	if os.Getenv("JAFW_SHOW_SERIAL") == "1" {
+	if os.Getenv("JABRIDGE_FIRMWARE_SHOW_SERIAL") == "1" {
 		return serial
 	}
 	return "<redacted>"
@@ -1287,14 +1355,17 @@ func versionsOf(rs []Release) []string {
 	return out
 }
 
+type commandFailure struct {
+	message string
+}
+
 func die(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
-	os.Exit(1)
+	panic(commandFailure{message: fmt.Sprintf(format, args...)})
 }
 
 // ── flash-csr-ota: pure-Go CSR OTA flash ──────────────────────────────────
 //
-// Syntax: jafw dev flash-csr-ota [--dry-run] [--force] [--hidraw /dev/hidrawN] <archive.zip>
+// Syntax: jabridge firmware dev flash-csr-ota [--dry-run] [--force] [--hidraw /dev/hidrawN] <archive.zip>
 //
 // By default, the command walks /sys/bus/usb/devices for a Jabra VID
 // device whose PID matches the archive's target USB PID, then locates
@@ -1335,7 +1406,7 @@ func cmdFlashCsrOta(args []string) {
 		}
 	}
 	if archive == "" {
-		die("usage: jafw dev flash-csr-ota [--dry-run] [--usb] [--hidraw <path>] <firmware.zip>")
+		die("usage: jabridge firmware dev flash-csr-ota [--dry-run] [--usb] [--hidraw <path>] <firmware.zip>")
 	}
 
 	if !dryRun {
@@ -1400,7 +1471,7 @@ func cmdFlashCsrOta(args []string) {
 		tr = ut
 		fmt.Fprintf(os.Stderr, "[flash-csr-ota] using usbfs transport — 30s write timeout\n")
 	} else if dryRun {
-		dryPath := "/tmp/jafw-dryrun.hex"
+		dryPath := "/tmp/jabridge-firmware-dryrun.hex"
 		f, err := os.Create(dryPath)
 		if err != nil {
 			die("dry-run create: %v", err)
@@ -1511,7 +1582,7 @@ func findHidrawForJabraPID(pidHex string) (string, error) {
 
 // ── dongle-info: query a Jabra dongle for its paired child device ─────────
 //
-// Syntax: jafw dev dongle-info <hidraw-path>
+// Syntax: jabridge firmware dev dongle-info <hidraw-path>
 //
 // Sends the dongle child-info queries (class 0x46) and prints the result:
 // paired headset PID, serial, and name. Useful for verifying a Link 380
@@ -1523,7 +1594,7 @@ func findHidrawForJabraPID(pidHex string) (string, error) {
 // Response format: 0xCC 0x02 0x03 <len> <version-ascii-string>
 func cmdDeviceVersion(args []string) {
 	if len(args) < 1 {
-		die("usage: jafw dev device-version <hidraw-path>  (e.g. /dev/hidraw8)")
+		die("usage: jabridge firmware dev device-version <hidraw-path>  (e.g. /dev/hidraw8)")
 	}
 	hr, err := OpenHidraw(args[0])
 	if err != nil {
@@ -1586,7 +1657,7 @@ func cmdDeviceVersion(args []string) {
 
 func cmdDongleInfo(args []string) {
 	if len(args) < 1 {
-		die("usage: jafw dev dongle-info <hidraw-path>  (e.g. /dev/hidraw7)")
+		die("usage: jabridge firmware dev dongle-info <hidraw-path>  (e.g. /dev/hidraw7)")
 	}
 	hr, err := OpenHidraw(args[0])
 	if err != nil {

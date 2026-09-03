@@ -42,7 +42,7 @@
 //     counter; jfwu's pattern suggests that's correct but not confirmed.
 //   - Response parsing: the read response format is not yet decoded.
 
-package main
+package firmware
 
 import (
 	"encoding/binary"
@@ -373,11 +373,10 @@ func (c *BCCMDClient) PSRead(pskeyID uint16, maxWords uint16) ([]byte, error) {
 
 // Demo function — not the main, so this file coexists with firmware.go.
 // To run: build as a separate binary or temporarily wire into main().
-func bccmdDemo(hidrawPath string) {
+func bccmdDemo(hidrawPath string) error {
 	client, err := OpenBCCMD(hidrawPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "open:", err)
-		os.Exit(1)
+		return fmt.Errorf("open: %w", err)
 	}
 	defer client.Close()
 
@@ -387,8 +386,8 @@ func bccmdDemo(hidrawPath string) {
 	// Safe to read; every CSR BlueCore chip responds to this.
 	resp, err := client.PSRead(0x0001, 8)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "PSRead:", err)
-		os.Exit(1)
+		return fmt.Errorf("PSRead: %w", err)
 	}
 	fmt.Printf("Response (%d bytes): % x\n", len(resp), resp)
+	return nil
 }

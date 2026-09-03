@@ -4,16 +4,30 @@ _jabridge_completion() {
     COMPREPLY=()
 
     if (( COMP_CWORD == 1 )); then
-        COMPREPLY=( $(compgen -W 'status update --version --help' -- "$current") )
+        mapfile -t COMPREPLY < <(compgen -W 'status firmware update --version --help' -- "$current")
         return
     fi
 
     case "${COMP_WORDS[1]}" in
         update)
-            COMPREPLY=( $(compgen -W '--check --prerelease --help' -- "$current") )
+            mapfile -t COMPREPLY < <(compgen -W '--check --prerelease --help' -- "$current")
             ;;
         completion)
-            COMPREPLY=( $(compgen -W 'bash' -- "$current") )
+            mapfile -t COMPREPLY < <(compgen -W 'bash' -- "$current")
+            ;;
+        firmware|fw)
+            if (( COMP_CWORD == 2 )); then
+                mapfile -t COMPREPLY < <(compgen -W 'status download verify install --help' -- "$current")
+                return
+            fi
+            case "${COMP_WORDS[2]}" in
+                download)
+                    mapfile -t COMPREPLY < <(compgen -W '--pid --version --out' -- "$current")
+                    ;;
+                verify|install)
+                    mapfile -t COMPREPLY < <(compgen -f -- "$current")
+                    ;;
+            esac
             ;;
     esac
 }

@@ -22,6 +22,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          args: --timeout=5m
+
       - name: Check formatting
         run: |
           unformatted=$(gofmt -l .)
@@ -44,13 +50,12 @@ jobs:
           CGO_ENABLED: 0
 
       - name: Check Bash completion
-        run: bash -n internal/completion/jabridge.bash internal/completion/jafw.bash
+        run: bash -n internal/completion/jabridge.bash
 
       - name: Build static binaries
         run: |
           mkdir -p dist/bin
           go build -trimpath -ldflags="-s -w" -o dist/bin/jabridge .
-          go build -trimpath -ldflags="-s -w" -o dist/bin/jafw ./cmd/jafw
         env:
           CGO_ENABLED: 0
 

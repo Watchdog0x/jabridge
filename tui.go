@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	firmwaretool "github.com/Watchdog0x/jabridge/internal/firmware"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
@@ -68,7 +70,17 @@ var (
 
 	nextSearchRefresh time.Time
 	uiRevision        atomic.Uint64
+	firmwareViewMu    sync.RWMutex
+	firmwareView      firmwareViewState
 )
+
+type firmwareViewState struct {
+	loading        bool
+	deviceName     string
+	currentVersion string
+	latestVersion  string
+	downloadedPath string
+}
 
 const (
 	batteryFullChar     = "◼"
@@ -81,6 +93,7 @@ const (
 	screenPairedDevices
 	screenDongleSettings
 	screenSwitchDevice
+	screenFirmware
 )
 
 func enableRawMode() (*unix.Termios, error) {
@@ -209,7 +222,7 @@ func handleBackKey(results chan<- actionResult) bool {
 		runUIAction(results, "Pairing stopped", func() error {
 			return setDongleInBTPairing(false)
 		})
-	case screenPairedDevices, screenDongleSettings, screenSwitchDevice:
+	case screenPairedDevices, screenDongleSettings, screenSwitchDevice, screenFirmware:
 		menuState = screenStartMenu
 		startMenuSelected = -1
 		currentSelection = 0
@@ -226,31 +239,9 @@ func handleEnterKey(results chan<- actionResult) bool {
 		}
 		return activateStartMenuItem(startMenu[currentSelection], results)
 	case screenDongleSettings:
-		if currentSelection < 0 || currentSelection >= len(dongleSettignsMenu) {
-			currentSelection = clampSelection(currentSelection, len(dongleSettignsMenu))
-			return false
-		}
-		item := dongleSettignsMenu[currentSelection]
-		switch item.id {
-		case 0:
-			setStatus("Updating auto pairing...", false)
-			runUIAction(results, "Auto pairing updated", func() error {
-				currentState, err := getAutoPairing()
-				if err != nil {
-					return err
-				}
-				return setAutoPairing(!currentState)
-			}, withDongleMenuRefresh())
-		case 1:
-			setStatus("Factory reset requested...", false)
-			runUIAction(results, "Factory reset command sent", func() error {
-				dongle, exists := deviceManager[selectedDongle]
-				if !exists {
-					return fmt.Errorf("no dongle found")
-				}
-				return factoryReset(dongle.deviceID)
-			})
-		}
+		setStatus("Untested setting changes are locked", false)
+	case screenFirmware:
+		setStatus("Press 1 to download. Firmware install is locked.", false)
 	}
 	return false
 }
@@ -270,6 +261,9 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 	case 2:
 		menuState = screenDongleSettings
 		updateDongleSettignsMenu()
+	case 4:
+		menuState = screenFirmware
+		refreshFirmwareView(results)
 	case 3:
 		menuState = screenSwitchDevice
 	case 5:
@@ -298,31 +292,28 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 			return connectNewDevice(uint16(selection))
 		}, withReturnToMainMenu())
 	case screenPairedDevices:
-		selection := currentSelection
-		switch event {
-		case keyAction1:
-			selectedItemsPairedDevices = 1
-			flashUntil = time.Now().Add(200 * time.Millisecond)
-			runUIAction(results, "Paired device connect command sent", func() error {
-				return connectDeviceFromPairedlist(uint16(selection))
-			})
-		case keyAction2:
-			selectedItemsPairedDevices = 2
-			flashUntil = time.Now().Add(200 * time.Millisecond)
-			runUIAction(results, "Paired device disconnect command sent", func() error {
-				return disconnectDeviceFromPairedlist(uint16(selection))
-			})
-		case keyAction3:
-			selectedItemsPairedDevices = 3
-			flashUntil = time.Now().Add(200 * time.Millisecond)
-			runUIAction(results, "Paired device removed", func() error {
-				return removeDeviceFromPairedlist(uint16(selection))
-			})
-		case keyAction4:
-			selectedItemsPairedDevices = 4
-			flashUntil = time.Now().Add(200 * time.Millisecond)
-			runUIAction(results, "Pairing list cleared", clearPairingList)
+		setStatus("Pairing changes are locked in this preview", true)
+	case screenFirmware:
+		if event != keyAction1 {
+			return
 		}
+		device, exists := selectedFirmwareDevice()
+		if !exists {
+			setStatus("No supported device connected", true)
+			return
+		}
+		setStatus("Downloading firmware file...", false)
+		runUIAction(results, "Firmware downloaded to ./firmware", func() error {
+			result, err := firmwaretool.DownloadLatest(device.productID, "./firmware")
+			if err != nil {
+				return err
+			}
+			firmwareViewMu.Lock()
+			firmwareView.downloadedPath = result.Path
+			firmwareViewMu.Unlock()
+			requestUIRedraw()
+			return nil
+		})
 	}
 }
 
@@ -353,6 +344,53 @@ func runUIAction(results chan<- actionResult, successMessage string, action func
 		default:
 		}
 	}()
+}
+
+func refreshFirmwareView(results chan<- actionResult) {
+	selected, exists := selectedFirmwareDevice()
+	if !exists {
+		firmwareViewMu.Lock()
+		firmwareView = firmwareViewState{}
+		firmwareViewMu.Unlock()
+		setStatus("No supported device connected", true)
+		return
+	}
+	device := *selected
+	firmwareViewMu.Lock()
+	firmwareView = firmwareViewState{loading: true, deviceName: device.deviceName}
+	firmwareViewMu.Unlock()
+	requestUIRedraw()
+
+	runUIAction(results, "Firmware information ready", func() error {
+		current, currentErr := readFirmwareVersion(&device)
+		latest, latestErr := firmwaretool.LatestForPID(device.productID)
+
+		firmwareViewMu.Lock()
+		firmwareView.loading = false
+		firmwareView.currentVersion = current
+		firmwareView.latestVersion = latest.Version
+		firmwareViewMu.Unlock()
+		requestUIRedraw()
+
+		if currentErr != nil && latestErr != nil {
+			return fmt.Errorf("device read: %v; online check: %v", currentErr, latestErr)
+		}
+		if currentErr != nil {
+			return fmt.Errorf("device firmware read: %w", currentErr)
+		}
+		if latestErr != nil {
+			return fmt.Errorf("latest firmware check: %w", latestErr)
+		}
+		return nil
+	})
+}
+
+func selectedFirmwareDevice() (*jabra_DeviceInfo, bool) {
+	if dongle, exists := deviceManager[selectedDongle]; exists {
+		return dongle, true
+	}
+	headset, exists := deviceManager[selectedHeadset]
+	return headset, exists
 }
 
 func applyActionResult(result actionResult) {
@@ -394,7 +432,9 @@ func currentMenuLength() int {
 			return len(dongle.pairingList.pairedDevices)
 		}
 	case screenDongleSettings:
-		return len(dongleSettignsMenu)
+		return 0
+	case screenFirmware:
+		return 0
 	}
 	return 0
 }
@@ -423,8 +463,7 @@ func moveCursor(row, col int) {
 }
 
 func clearScreen() {
-	fmt.Print("\033[2J")
-	fmt.Print("\033[H")
+	fmt.Print("\033[0;40;97m\033[2J\033[H")
 }
 
 func getScreenSize() {
@@ -442,9 +481,7 @@ func drawingBox() {
 	}
 
 	topRow := 4
-	bottomRow := height - 4
-	leftCol := 5
-	rightCol := width - 5
+	leftCol, rightCol, bottomRow := panelBounds()
 	innerWidth := rightCol - leftCol - 1
 	if innerWidth < 1 || bottomRow <= topRow {
 		return
@@ -452,32 +489,52 @@ func drawingBox() {
 
 	line := strings.Repeat("━", innerWidth)
 	moveCursor(topRow, leftCol)
-	fmt.Printf("%s%s%s", leftCornerTop, line, rightCornerTop)
+	fmt.Printf("\033[97m%s%s%s\033[0;40;97m", leftCornerTop, line, rightCornerTop)
 
 	for row := topRow + 1; row < bottomRow; row++ {
 		moveCursor(row, leftCol)
-		fmt.Print(verticalLine)
+		fmt.Printf("\033[97m%s\033[0;40;97m", verticalLine)
 		moveCursor(row, rightCol)
-		fmt.Print(verticalLine)
+		fmt.Printf("\033[97m%s\033[0;40;97m", verticalLine)
 	}
 
 	moveCursor(bottomRow, leftCol)
-	fmt.Printf("%s%s%s", leftCornerBottom, line, rightCornerBottom)
+	fmt.Printf("\033[97m%s%s%s\033[0;40;97m", leftCornerBottom, line, rightCornerBottom)
+}
+
+func panelBounds() (left, right, bottom int) {
+	panelWidth := width - 10
+	if panelWidth > 88 {
+		panelWidth = 88
+	}
+	if panelWidth < 20 {
+		panelWidth = 20
+	}
+	left = (width - panelWidth) / 2
+	right = left + panelWidth
+	bottom = height - 4
+	if bottom > 20 {
+		bottom = 20
+	}
+	return left, right, bottom
 }
 
 func header() {
-	moveCursor(1, 3)
-	fmt.Printf("\033[1;36mJabridge\033[0m \033[2m%s\033[0m", buildinfo.Version)
+	left, right, _ := panelBounds()
+	moveCursor(1, left)
+	fmt.Printf("\033[1;96mJabridge\033[0;40;97m  %s", buildinfo.Version)
 	mode := "READ-ONLY PREVIEW"
-	modeColor := "\033[33m"
 	if experimentalDeviceWritesEnabled() {
 		mode = "DEVELOPER WRITES ENABLED"
-		modeColor = "\033[31m"
 	}
-	moveCursor(1, max(1, width-displayWidth(mode)-2))
-	fmt.Printf("%s%s\033[0m", modeColor, mode)
+	moveCursor(1, max(left, right-displayWidth(mode)-2))
+	if experimentalDeviceWritesEnabled() {
+		fmt.Printf("\033[1;97;41m %s \033[0;40;97m", mode)
+	} else {
+		fmt.Printf("\033[1;30;103m %s \033[0;40;97m", mode)
+	}
 
-	moveCursor(2, 5)
+	moveCursor(2, left)
 	dongle, exists := deviceManager[selectedDongle]
 	if !exists {
 		if firstScanComplete.Load() {
@@ -500,8 +557,8 @@ func header() {
 		if firstScanComplete.Load() {
 			label = "Headset: Not connected"
 		}
-		moveCursor(2, max(1, width-displayWidth(label)-2))
-		fmt.Print(label)
+		moveCursor(2, max(left, right-displayWidth(label)))
+		fmt.Printf("\033[97m%s\033[0;40;97m", label)
 		return
 	}
 	if headset.batteryStatus == nil {
@@ -529,14 +586,14 @@ func header() {
 	batteryBar := color +
 		strings.Repeat(batteryFullChar, filledSegments) +
 		strings.Repeat(batteryEmptyChar, emptySegments) +
-		"\033[0m"
+		"\033[0;40;97m"
 
 	label := fmt.Sprintf("Headset: %s  [%s] %d%%", headset.deviceName, batteryBar, levelInPercent)
 	if headset.batteryStatus.charging {
 		label = fmt.Sprintf("Headset: %s  [%s] %d%% charging", headset.deviceName, batteryBar, levelInPercent)
 	}
-	moveCursor(2, max(1, width-displayWidth(label)-2))
-	fmt.Print(label)
+	moveCursor(2, max(left, right-displayWidth(label)))
+	fmt.Printf("\033[97m%s\033[0;40;97m", label)
 }
 
 func menu(_ int) {
@@ -555,7 +612,8 @@ func menu(_ int) {
 	}
 	for i, option := range startMenu {
 		row := startRow + i
-		if row >= height-4 {
+		_, _, panelBottom := panelBounds()
+		if row >= panelBottom {
 			break
 		}
 		drawCentered(row, option.label, i == currentSelection)
@@ -565,24 +623,24 @@ func menu(_ int) {
 
 func renderHomeSummary() {
 	if !firstScanComplete.Load() {
-		drawCentered(6, "Looking for supported devices...", false)
+		drawCenteredStyled(6, "Looking for supported devices...", "\033[1;96m")
 		return
 	}
 	dongle, hasDongle := deviceManager[selectedDongle]
 	headset, hasHeadset := deviceManager[selectedHeadset]
 	switch {
 	case hasDongle && hasHeadset:
-		drawCentered(6, "Headset connected", false)
+		drawCenteredStyled(6, "Headset connected", "\033[1;96m")
 		drawCentered(7, trimToWidth(headset.deviceName, max(12, width-16)), false)
 	case hasDongle:
-		drawCentered(6, "Dongle ready", false)
+		drawCenteredStyled(6, "Dongle ready", "\033[1;96m")
 		drawCentered(7, fmt.Sprintf("%s  •  USB 0b0e:%04x", dongle.deviceName, dongle.productID), false)
 		drawCentered(8, "No headset connected. Turn it on or connect it by USB.", false)
 	case hasHeadset:
-		drawCentered(6, "USB headset connected", false)
+		drawCenteredStyled(6, "USB headset connected", "\033[1;96m")
 		drawCentered(7, trimToWidth(headset.deviceName, max(12, width-16)), false)
 	default:
-		drawCentered(6, "No supported device found", false)
+		drawCenteredStyled(6, "No supported device found", "\033[1;93m")
 		drawCentered(8, "Connect a Jabra headset or USB dongle.", false)
 	}
 }
@@ -623,7 +681,8 @@ func menuSearchForNewDevices() {
 	} else {
 		for i, pairedDevice := range searchDeviceList.pairedDevices {
 			row := 5 + i
-			if row >= height-4 {
+			_, _, panelBottom := panelBounds()
+			if row >= panelBottom {
 				break
 			}
 			device := fmt.Sprintf("%d %s", i+1, pairedDevice.deviceName)
@@ -649,7 +708,8 @@ func menuPairedDevices() {
 		currentSelection = clampSelection(currentSelection, len(dongle.pairingList.pairedDevices))
 		for i, pairedDevice := range dongle.pairingList.pairedDevices {
 			row := 5 + i
-			if row >= height-4 {
+			_, _, panelBottom := panelBounds()
+			if row >= panelBottom {
 				break
 			}
 			device := fmt.Sprintf("%d %s", i+1, pairedDevice.deviceName)
@@ -660,30 +720,70 @@ func menuPairedDevices() {
 		}
 	}
 
-	if experimentalDeviceWritesEnabled() {
-		drawActionBar(menuItemsPairedDevices[:], selectedItemsPairedDevices)
-	} else {
-		drawActionBar([]string{"Q Back", "Read-only mode"}, -1)
-	}
+	drawActionBar([]string{"Q Back", "Read-only"}, -1)
 }
 
 func dongleSettigns() {
 	drawingBox()
+	drawCenteredStyled(6, "Dongle settings", "\033[1;96m")
 
 	if len(dongleSettignsMenu) == 0 {
-		drawCentered(5, "No dongle settings available", false)
+		drawCentered(8, "No dongle connected", false)
 	} else {
-		currentSelection = clampSelection(currentSelection, len(dongleSettignsMenu))
 		for i, item := range dongleSettignsMenu {
-			row := 5 + i
-			if row >= height-4 {
+			row := 8 + i
+			_, _, panelBottom := panelBounds()
+			if row >= panelBottom {
 				break
 			}
-			drawListItem(row, 10, item.label, i == currentSelection)
+			drawListItem(row, 10, item.label, false)
 		}
 	}
 
-	drawActionBar([]string{"Q Back"}, -1)
+	drawActionBar([]string{"Q Back", "Read-only"}, -1)
+}
+
+func renderFirmware() {
+	drawingBox()
+	drawCenteredStyled(6, "Firmware", "\033[1;96m")
+	firmwareViewMu.RLock()
+	view := firmwareView
+	firmwareViewMu.RUnlock()
+	if view.loading {
+		drawCentered(9, "Checking device and latest release...", false)
+		drawActionBar([]string{"Q Back"}, -1)
+		return
+	}
+	left, _, _ := panelBounds()
+	row := 8
+	lines := []string{
+		fmt.Sprintf("Device:             %s", valueOrUnknown(view.deviceName)),
+		fmt.Sprintf("Installed:          %s", valueOrUnknown(view.currentVersion)),
+		fmt.Sprintf("Latest available:   %s", valueOrUnknown(view.latestVersion)),
+	}
+	if view.currentVersion != "" && view.latestVersion != "" {
+		state := "Update available"
+		if view.currentVersion == view.latestVersion {
+			state = "Up to date"
+		}
+		lines = append(lines, fmt.Sprintf("Status:              %s", state))
+	}
+	if view.downloadedPath != "" {
+		lines = append(lines, fmt.Sprintf("Downloaded:          %s", view.downloadedPath))
+	}
+	lines = append(lines, "Firmware install:    Locked until hardware test")
+	for _, line := range lines {
+		drawListItem(row, left+4, line, false)
+		row++
+	}
+	drawActionBar([]string{"Q Back", "1 Download", "Install locked"}, -1)
+}
+
+func valueOrUnknown(value string) string {
+	if value == "" {
+		return "Unknown"
+	}
+	return value
 }
 
 func renderSwitchDevice() {
@@ -698,35 +798,49 @@ func drawCentered(row int, label string, selected bool) {
 	drawListItem(row, col, label, selected)
 }
 
+func drawCenteredStyled(row int, label, style string) {
+	col := (width - displayWidth(label)) / 2
+	moveCursor(row, col)
+	fmt.Printf("%s%s\033[0;40;97m", style, label)
+}
+
 func drawListItem(row, col int, label string, selected bool) {
 	if row < 1 || row >= height {
 		return
 	}
-	label = trimToWidth(label, max(1, width-col-6))
+	left, right, _ := panelBounds()
+	if col < left+3 {
+		col = left + 3
+	}
+	label = trimToWidth(label, max(1, right-col-2))
 	moveCursor(row, col)
 	if selected {
-		fmt.Printf("\033[42m %s \033[0m", label)
+		fmt.Printf("\033[1;30;106m  %s  \033[0;40;97m", label)
 		return
 	}
-	fmt.Print(label)
+	fmt.Printf("\033[97m%s\033[0;40;97m", label)
 }
 
 func drawActionBar(items []string, selected int) {
 	if height < 8 {
 		return
 	}
-	row := height - 3
-	col := 7
+	left, right, bottom := panelBounds()
+	row := bottom + 2
+	if row >= height {
+		row = height - 1
+	}
+	col := left + 2
 	for i, item := range items {
-		if col >= width-5 {
+		if col >= right-2 {
 			break
 		}
-		item = trimToWidth(item, max(1, width-col-5))
+		item = trimToWidth(item, max(1, right-col-2))
 		moveCursor(row, col)
 		if i == selected {
-			fmt.Printf("\033[44m %s \033[0m", item)
+			fmt.Printf("\033[1;30;106m %s \033[0;40;97m", item)
 		} else {
-			fmt.Printf("\033[42m %s \033[0m", item)
+			fmt.Printf("\033[1;30;107m %s \033[0;40;97m", item)
 		}
 		col += displayWidth(item) + 4
 	}
@@ -737,15 +851,19 @@ func renderStatus() {
 		return
 	}
 
-	row := height - 2
-	col := 7
-	message := trimToWidth(statusMessage, max(1, width-col-5))
+	left, right, bottom := panelBounds()
+	row := bottom + 3
+	if row > height {
+		row = height
+	}
+	col := left + 2
+	message := trimToWidth(statusMessage, max(1, right-col-2))
 	moveCursor(row, col)
 	if statusIsError {
-		fmt.Printf("\033[31m%s\033[0m", message)
+		fmt.Printf("\033[1;97;41m %s \033[0;40;97m", message)
 		return
 	}
-	fmt.Printf("\033[36m%s\033[0m", message)
+	fmt.Printf("\033[1;96m%s\033[0;40;97m", message)
 }
 
 func setStatus(message string, isError bool) {
@@ -875,6 +993,8 @@ func startUi() {
 			dongleSettigns()
 		case screenSwitchDevice:
 			renderSwitchDevice()
+		case screenFirmware:
+			renderFirmware()
 		default:
 			menuState = screenStartMenu
 			menu(width)

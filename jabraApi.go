@@ -764,33 +764,55 @@ func pollDevices(stop <-chan struct{}) {
 func updateDongleSettignsMenu() {
 	dongleSettignsMenu = []menuItem{}
 	if dongle, exists := deviceManager[selectedDongle]; exists {
+		dongleSettignsMenu = append(dongleSettignsMenu,
+			menuItem{id: -1, label: fmt.Sprintf("Device:             %s", dongle.deviceName)},
+			menuItem{id: -1, label: fmt.Sprintf("USB ID:             0b0e:%04x", dongle.productID)},
+		)
+		firmware := getFirmwareVersion(dongle.deviceID)
+		if firmware == "" {
+			firmware = "Unknown"
+		}
+		dongleSettignsMenu = append(dongleSettignsMenu,
+			menuItem{id: -1, label: fmt.Sprintf("Firmware:           %s", firmware)},
+		)
 		if autoPairing, err := getAutoPairing(); err == nil {
-			label := "AutoPairing OFF"
+			label := "Off"
 			if autoPairing {
-				label = "AutoPairing ON"
+				label = "On"
 			}
-			if !experimentalDeviceWritesEnabled() {
-				label += " (read-only)"
-			}
-			dongleSettignsMenu = append(dongleSettignsMenu, menuItem{id: 0, label: label})
+			dongleSettignsMenu = append(dongleSettignsMenu,
+				menuItem{id: -1, label: fmt.Sprintf("Auto pairing:        %s (change locked)", label)},
+			)
 		}
-		if dongle.featureFlags != nil && dongle.featureFlags.factoryReset {
-			dongleSettignsMenu = append(dongleSettignsMenu, menuItem{id: 1, label: "Factory Reset"})
+		remembered := 0
+		if dongle.pairingList != nil {
+			remembered = len(dongle.pairingList.pairedDevices)
 		}
+		dongleSettignsMenu = append(dongleSettignsMenu,
+			menuItem{id: -1, label: fmt.Sprintf("Remembered devices: %d", remembered)},
+			menuItem{id: -1, label: "Pair a headset:      Locked"},
+			menuItem{id: -1, label: "Factory reset:       Not ready"},
+		)
 	}
+	requestUIRedraw()
 }
 
 func updateStartMenu() {
 	startMenu = []menuItem{}
 	if dongle, dongleexists := deviceManager[selectedDongle]; dongleexists {
+		startMenu = append(startMenu,
+			menuItem{id: 2, label: "Dongle settings"},
+			menuItem{id: 4, label: "Firmware"},
+		)
 		if dongle.featureFlags != nil && dongle.featureFlags.pairingList {
 			if dongle.pairingList != nil && dongle.pairingList.count != 0 {
-				startMenu = append(startMenu, menuItem{id: 1, label: "See Remembered Paired Devices"})
+				startMenu = append(startMenu, menuItem{id: 1, label: fmt.Sprintf("Remembered devices (%d)", len(dongle.pairingList.pairedDevices))})
 			}
 		}
-		startMenu = append(startMenu, menuItem{id: 2, label: fmt.Sprintf("%s Settings", dongle.deviceName)})
+	} else if _, headsetExists := deviceManager[selectedHeadset]; headsetExists {
+		startMenu = append(startMenu, menuItem{id: 4, label: "Firmware"})
 	}
-	startMenu = append(startMenu, menuItem{id: 5, label: "Exit"})
+	startMenu = append(startMenu, menuItem{id: 5, label: "Quit"})
 	requestUIRedraw()
 }
 
@@ -839,7 +861,6 @@ func (d *devices) add(deviceInfo *jabra_DeviceInfo) {
 	}
 	(*d)[id] = deviceInfo
 	updateStartMenu()
-	updateDongleSettignsMenu()
 }
 
 func (d *devices) removed(deviceID uint16) {

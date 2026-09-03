@@ -77,7 +77,7 @@ func TestCheckChoosesNewestPublishedRelease(t *testing.T) {
 	}
 }
 
-func TestInstallVerifiesAndReplacesBothBinaries(t *testing.T) {
+func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("ELF fixture uses the current Linux amd64 test binary")
 	}
@@ -91,7 +91,6 @@ func TestInstallVerifiesAndReplacesBothBinaries(t *testing.T) {
 	}
 	archive := makeArchive(t, map[string][]byte{
 		"jabridge_1.0.0_linux_amd64/jabridge": newBinary,
-		"jabridge_1.0.0_linux_amd64/jafw":     newBinary,
 	})
 	digest := sha256.Sum256(archive)
 	archiveName := "jabridge_1.0.0_linux_amd64.tar.gz"
@@ -114,9 +113,6 @@ func TestInstallVerifiesAndReplacesBothBinaries(t *testing.T) {
 	if err := os.WriteFile(runningPath, []byte("old jabridge"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(targetDir, "jafw"), []byte("old jafw"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 
 	client := &Client{
 		HTTP:       server.Client(),
@@ -135,14 +131,12 @@ func TestInstallVerifiesAndReplacesBothBinaries(t *testing.T) {
 	if err := client.Install(context.Background(), plan, runningPath); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"jabridge", "jafw"} {
-		got, err := os.ReadFile(filepath.Join(targetDir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, newBinary) {
-			t.Fatalf("%s was not replaced", name)
-		}
+	got, err := os.ReadFile(runningPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, newBinary) {
+		t.Fatal("jabridge was not replaced")
 	}
 }
 

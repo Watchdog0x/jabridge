@@ -28,7 +28,7 @@
 //   - Framing functions are pure (no I/O) so tests can validate byte
 //     sequences without touching real hardware.
 
-package main
+package firmware
 
 import (
 	"encoding/binary"

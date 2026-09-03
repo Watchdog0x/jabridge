@@ -14,19 +14,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   attached-device PID verification.
 - Live-validated Link 380 firmware-version, auto-pairing, and pairing-list reads.
 - Experimental pure-Go CSR OTA state machine with fake-transport tests.
-- Portable static `jabridge` and `jafw` executables that run without an
-  installation step or vendor runtime libraries.
+- One portable static `jabridge` executable that runs without an installation
+  step or vendor runtime libraries.
 - Explicit `jabridge update` command with platform matching, SHA-256 checking,
   safe archive handling, atomic replacement, and rollback on failure.
-- Bash completion for `jabridge` and `jafw`.
+- Bash completion for the full `jabridge` command tree.
 - CI, community templates, and native package definitions.
 
 ### Changed
 
 - Renamed the project from jLink to Jabridge to avoid the SEGGER J-Link package
   collision.
-- Renamed the independent firmware utility from `jabrafwu` to `jafw` so it is
-  not mistaken for an official vendor program.
+- Moved firmware status, download, verification, and locked install tools into
+  `jabridge firmware` so users need only one program.
 - Removed CGo, Jabra headers, libjabra.so, and their runtime dependencies.
 - Unsupported hardware operations now return errors rather than false success.
 

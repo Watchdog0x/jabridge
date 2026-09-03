@@ -10,6 +10,7 @@ import (
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	shellcompletion "github.com/Watchdog0x/jabridge/internal/completion"
+	"github.com/Watchdog0x/jabridge/internal/firmware"
 	"github.com/Watchdog0x/jabridge/internal/selfupdate"
 )
 
@@ -53,7 +54,7 @@ func runUpdate(args []string) error {
 	if err := client.Install(context.Background(), plan, executable); err != nil {
 		return err
 	}
-	fmt.Printf("Updated jabridge and jafw to %s. Restart any running service.\n", plan.Version)
+	fmt.Printf("Updated Jabridge to %s. Restart any running service.\n", plan.Version)
 	return nil
 }
 
@@ -62,6 +63,13 @@ func runStatus() error {
 	if err != nil {
 		return fmt.Errorf("scan USB devices: %w", err)
 	}
+	filtered := devices[:0]
+	for _, device := range devices {
+		if !isAccessoryName(device.product) {
+			filtered = append(filtered, device)
+		}
+	}
+	devices = filtered
 	fmt.Printf("Jabridge %s\n", buildinfo.Version)
 	if len(devices) == 0 {
 		fmt.Println("No supported Jabra USB device found.")
@@ -69,9 +77,6 @@ func runStatus() error {
 	}
 	fmt.Printf("%d supported USB device(s):\n", len(devices))
 	for _, usb := range devices {
-		if isAccessoryName(usb.product) {
-			continue
-		}
 		name := usb.product
 		if name == "" {
 			name = "Unknown device"
@@ -109,8 +114,8 @@ func printUpdateUsage() {
   jabridge update --check         check without changing files
   jabridge update --prerelease    include hardware-test releases
 
-This updates only the jabridge and jafw application files. It never updates a
-headset or dongle.`)
+This updates only the Jabridge application. It never updates a headset or
+dongle.`)
 }
 
 func runCompletion(args []string) error {
@@ -119,4 +124,8 @@ func runCompletion(args []string) error {
 	}
 	fmt.Print(shellcompletion.JabridgeBash)
 	return nil
+}
+
+func runFirmware(args []string) error {
+	return firmware.Run(args)
 }

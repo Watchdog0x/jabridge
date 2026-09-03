@@ -18,7 +18,7 @@ fi
 
 build_dir="$(mktemp -d)"
 cleanup() {
-    rm -f -- "$build_dir/jabridge" "$build_dir/jafw"
+    rm -f -- "$build_dir/jabridge"
     rmdir -- "$build_dir" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -30,14 +30,11 @@ ldflags="-s -w -X ${module_path}/internal/buildinfo.Version=${version}"
     cd "$script_dir"
     CGO_ENABLED=0 go test ./...
     CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o "$build_dir/jabridge" .
-    CGO_ENABLED=0 go build -trimpath -ldflags="$ldflags" -o "$build_dir/jafw" ./cmd/jafw
 )
 
 install -Dm755 "$build_dir/jabridge" "$prefix/bin/jabridge"
-install -Dm755 "$build_dir/jafw" "$prefix/bin/jafw"
 install -Dm644 "$script_dir/internal/completion/jabridge.bash" "$prefix/share/bash-completion/completions/jabridge"
-install -Dm644 "$script_dir/internal/completion/jafw.bash" "$prefix/share/bash-completion/completions/jafw"
 
 printf 'Installed Jabridge %s to %s/bin\n' "$version" "$prefix"
 printf 'Installed Bash completion to %s/share/bash-completion/completions\n' "$prefix"
-printf '%s\n' "No proprietary Jabra library or firmware updater was installed."
+printf '%s\n' "No proprietary vendor library or updater was installed."

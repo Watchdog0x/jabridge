@@ -89,10 +89,10 @@ func TestDongleOnlyMenuDoesNotAdvertiseUnqualifiedPairing(t *testing.T) {
 	withDeviceState(t, devices{0: dongle}, -1, 0)
 
 	updateStartMenu()
-	if len(startMenu) != 2 {
-		t.Fatalf("dongle-only menu has %d items, want settings and exit", len(startMenu))
+	if len(startMenu) != 3 {
+		t.Fatalf("dongle-only menu has %d items, want settings, firmware, and quit", len(startMenu))
 	}
-	if startMenu[0].id != 2 || startMenu[1].id != 5 {
+	if startMenu[0].id != 2 || startMenu[1].id != 4 || startMenu[2].id != 5 {
 		t.Fatalf("unexpected dongle-only menu: %#v", startMenu)
 	}
 }
