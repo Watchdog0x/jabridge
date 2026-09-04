@@ -283,6 +283,27 @@ func TestMissingUSBDeviceIsRemoved(t *testing.T) {
 	}
 }
 
+func TestUSBDeviceIsRegisteredBeforeProtocolEnrichment(t *testing.T) {
+	withDeviceState(t, devices{}, -1, -1)
+	device, added := registerUSBDevice(usbDev{
+		sysPath: "/sys/device/speak510", vendorID: jabraVendorID,
+		productID: 0x0422, product: "Jabra SPEAK 510 USB",
+	})
+	if !added || device == nil {
+		t.Fatal("sysfs device was not registered immediately")
+	}
+	stored, exists := selectedHeadsetSnapshot()
+	if !exists || stored.deviceName != "Jabra SPEAK 510 USB" || stored.productID != 0x0422 {
+		t.Fatalf("registered device = %#v, exists=%v", stored, exists)
+	}
+	if _, duplicate := registerUSBDevice(usbDev{
+		sysPath: "/sys/device/speak510", vendorID: jabraVendorID,
+		productID: 0x0422, product: "Jabra SPEAK 510 USB",
+	}); duplicate {
+		t.Fatal("same USB path was registered twice")
+	}
+}
+
 func TestDongleChildLifecycle(t *testing.T) {
 	dongle := &jabra_DeviceInfo{deviceID: 0, productID: 0x24c8, isDongle: true}
 	withDeviceState(t, devices{0: dongle}, -1, 0)
@@ -304,6 +325,44 @@ func TestDongleChildLifecycle(t *testing.T) {
 	removeDongleChildAfterMiss()
 	if _, exists := selectedHeadsetSnapshot(); exists {
 		t.Fatal("two misses did not remove the dongle child")
+	}
+}
+
+func TestDongleChildCleanupKeepsDirectUSBHeadset(t *testing.T) {
+	dongle := &jabra_DeviceInfo{deviceID: 0, productID: 0x24c8, isDongle: true}
+	direct := &jabra_DeviceInfo{
+		deviceID: 1, productID: 0x0422, deviceName: "Jabra SPEAK 510 USB",
+		deviceConnection: deviceConnectionType_USB,
+	}
+	child := &jabra_DeviceInfo{
+		deviceID: 2, productID: 0x24b7, deviceName: "Wireless headset",
+		deviceConnection: deviceConnectionType_BT, parentDeviceID: 0,
+	}
+	withDeviceState(t, devices{0: dongle, 1: direct, 2: child}, 1, 0)
+	removeDongleChildAfterMiss()
+	removeDongleChildAfterMiss()
+	if _, exists := deviceAt(2); exists {
+		t.Fatal("stale dongle child was not removed")
+	}
+	stored, exists := deviceAt(1)
+	if !exists || stored.deviceName != "Jabra SPEAK 510 USB" {
+		t.Fatalf("direct USB device was removed: %#v, exists=%v", stored, exists)
+	}
+}
+
+func TestIPCDeviceListUsesCachedFirmwareOnly(t *testing.T) {
+	withDeviceState(t, devices{
+		0: {
+			deviceID: 0, productID: 0x0422, vendorID: jabraVendorID,
+			deviceName: "Jabra SPEAK 510 USB", hidrawPath: "/dev/does-not-exist",
+		},
+	}, 0, -1)
+	listed := (&jabraAPIBridge{}).ListDevices()
+	if len(listed) != 1 || listed[0].Name != "Jabra SPEAK 510 USB" {
+		t.Fatalf("IPC devices = %#v", listed)
+	}
+	if listed[0].Firmware != "" {
+		t.Fatalf("uncached firmware was fabricated: %q", listed[0].Firmware)
 	}
 }
 

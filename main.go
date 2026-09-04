@@ -152,7 +152,7 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			ID: dev.deviceID, Name: dev.deviceName, PID: dev.productID,
 			Variant: dev.variantType, Serial: "", IsDongle: dev.isDongle,
 			Connection: connection, ParentID: dev.parentDeviceID,
-			Firmware: getFirmwareVersion(dev.deviceID),
+			Firmware: dev.firmwareVersion,
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)
@@ -196,11 +196,11 @@ func ipcBatteryInfo(status *batteryStatus) *ipc.BatteryInfo {
 }
 
 func (j *jabraAPIBridge) GetFirmware() string {
-	if headset, exists := selectedHeadsetSnapshot(); exists && headset.hidrawPath != "" {
-		return getFirmwareVersion(headset.deviceID)
+	if headset, exists := selectedHeadsetSnapshot(); exists {
+		return headset.firmwareVersion
 	}
 	if dongle, exists := selectedDongleSnapshot(); exists {
-		return getFirmwareVersion(dongle.deviceID)
+		return dongle.firmwareVersion
 	}
 	return ""
 }

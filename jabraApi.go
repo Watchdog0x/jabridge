@@ -694,103 +694,119 @@ func scanAndAttachDevices() {
 	}
 	removeMissingUSBDevices(present)
 
-	for _, ud := range usbDevs {
-		if isAccessoryName(ud.product) {
+	for _, usbDevice := range usbDevs {
+		if isAccessoryName(usbDevice.product) {
 			continue
 		}
-		// Skip if already known
-		alreadyKnown := false
-		for _, existing := range deviceSnapshots() {
-			if existing.serialNumber == ud.serial && existing.productID == ud.productID {
-				alreadyKnown = true
+		device, added := registerUSBDevice(usbDevice)
+		if !added {
+			continue
+		}
+		enrichUSBDevice(device)
+		refreshNewDeviceData(device)
+	}
+}
+
+func registerUSBDevice(usbDevice usbDev) (*jabra_DeviceInfo, bool) {
+	device := &jabra_DeviceInfo{
+		productID:        usbDevice.productID,
+		vendorID:         usbDevice.vendorID,
+		deviceName:       usbDevice.product,
+		usbDevicePath:    usbDevice.sysPath,
+		serialNumber:     usbDevice.serial,
+		isDongle:         isKnownDonglePID(usbDevice.productID),
+		deviceConnection: deviceConnectionType_USB,
+		hidrawPath:       findHidrawForPID(usbDevice.vendorID, usbDevice.productID),
+		powerSupply:      findPowerSupplyPath(usbDevice.vendorID, usbDevice.productID, usbDevice.serial),
+		featureFlags:     &featureFlags{},
+	}
+	if device.isDongle {
+		device.pairingList = &pairingList{listType: searchComplete, pairedDevices: []pairedDevice{}}
+	}
+	if !isNewDevice(device) {
+		return nil, false
+	}
+
+	// Publish the sysfs identity before optional protocol enrichment. Devices
+	// such as Speak 510 do not answer headset GNP addresses; their absence must
+	// not hold the service registry behind several read timeouts.
+	addDevice(device)
+	requestUIRedraw()
+	return device, true
+}
+
+func enrichUSBDevice(device *jabra_DeviceInfo) {
+	if device == nil || device.hidrawPath == "" {
+		return
+	}
+	h := openDeviceHidraw(device)
+	if h == nil {
+		return
+	}
+	defer h.close()
+	const probeTimeout = 400 * time.Millisecond
+	src := gnpSrcHost
+	if device.isDongle {
+		src = gnpSrcDongle
+	}
+	if device.deviceName == "" {
+		payload, err := gnpQueryPayloadWithDataTimeout(h, src, nextSeq(), gnpClassDevInfo, gnpOpDeviceName, nil, probeTimeout)
+		if err == nil {
+			if name, ok := decodeLengthPrefixedString(payload); ok {
+				device.deviceName = name
+			}
+		}
+	}
+	if device.serialNumber == "" {
+		payload, err := gnpQueryPayloadWithDataTimeout(h, src, nextSeq(), gnpClassDevInfo, gnpOpSerialNumber, nil, probeTimeout)
+		if err == nil {
+			if serial, ok := decodeLengthPrefixedString(payload); ok {
+				device.serialNumber = serial
+			}
+		}
+	}
+	for _, destination := range firmwareReadDestinations(device) {
+		payload, err := gnpQueryPayloadWithDataTimeout(h, destination, nextSeq(), gnpClassDevInfo, gnpOpDeviceInfo, nil, probeTimeout)
+		if err == nil {
+			if variant, ok := decodeDeviceVariant(payload); ok {
+				device.variantType = variant
 				break
 			}
 		}
-		if alreadyKnown {
-			continue
-		}
-
-		dev := &jabra_DeviceInfo{
-			productID:        ud.productID,
-			vendorID:         ud.vendorID,
-			deviceName:       ud.product,
-			usbDevicePath:    ud.sysPath,
-			serialNumber:     ud.serial,
-			isDongle:         isKnownDonglePID(ud.productID),
-			deviceConnection: deviceConnectionType_USB,
-			hidrawPath:       findHidrawForPID(ud.vendorID, ud.productID),
-			powerSupply:      findPowerSupplyPath(ud.vendorID, ud.productID, ud.serial),
-		}
-
-		// Enrich device info via GNP queries
-		if dev.hidrawPath != "" {
-			if h := openDeviceHidraw(dev); h != nil {
-				src := gnpSrcHost
-				if dev.isDongle {
-					src = gnpSrcDongle
-				}
-				// Query device name if sysfs didn't provide one
-				if dev.deviceName == "" {
-					if payload, err := gnpQueryPayload(h, src, nextSeq(), gnpClassDevInfo, gnpOpDeviceName); err == nil {
-						if name, ok := decodeLengthPrefixedString(payload); ok {
-							dev.deviceName = name
-						}
-					}
-				}
-				// Query serial number if missing
-				if dev.serialNumber == "" {
-					if payload, err := gnpQueryPayload(h, src, nextSeq(), gnpClassDevInfo, gnpOpSerialNumber); err == nil {
-						if serial, ok := decodeLengthPrefixedString(payload); ok {
-							dev.serialNumber = serial
-						}
-					}
-				}
-				for _, destination := range firmwareReadDestinations(dev) {
-					payload, variantErr := gnpQueryPayload(h, destination, nextSeq(), gnpClassDevInfo, gnpOpDeviceInfo)
-					if variantErr == nil {
-						if variant, ok := decodeDeviceVariant(payload); ok {
-							dev.variantType = variant
-							break
-						}
-					}
-				}
-				for _, destination := range firmwareReadDestinations(dev) {
-					payload, firmwareErr := gnpQueryPayload(h, destination, nextSeq(), gnpClassDevInfo, gnpOpFirmwareVer)
-					if firmwareErr == nil {
-						if version, decodeErr := decodeFirmwareVersionPayload(payload); decodeErr == nil {
-							dev.firmwareVersion = version
-							break
-						}
-					}
-				}
-				h.close()
+	}
+	for _, destination := range firmwareReadDestinations(device) {
+		payload, err := gnpQueryPayloadWithDataTimeout(h, destination, nextSeq(), gnpClassDevInfo, gnpOpFirmwareVer, nil, probeTimeout)
+		if err == nil {
+			if version, decodeErr := decodeFirmwareVersionPayload(payload); decodeErr == nil {
+				device.firmwareVersion = version
+				break
 			}
 		}
+	}
+	updateDeviceByID(device.deviceID, func(stored *jabra_DeviceInfo) {
+		stored.deviceName = device.deviceName
+		stored.serialNumber = device.serialNumber
+		stored.variantType = device.variantType
+		stored.firmwareVersion = device.firmwareVersion
+	})
+}
 
-		// Start from known-safe state. Capability and pairing commands are not
-		// guessed when no validated response exists.
-		dev.featureFlags = &featureFlags{}
-		if dev.isDongle {
-			dev.pairingList = &pairingList{listType: searchComplete, pairedDevices: []pairedDevice{}}
+func refreshNewDeviceData(device *jabra_DeviceInfo) {
+	if device == nil {
+		return
+	}
+	if device.isDongle && supportsValidatedPairingReads(device.productID) {
+		if pairings, err := getPairingList(device.deviceID); err == nil {
+			updateDeviceByID(device.deviceID, func(stored *jabra_DeviceInfo) {
+				stored.pairingList = pairings
+				stored.featureFlags.pairingList = true
+			})
 		}
-
-		if newDevice := isNewDevice(dev); newDevice {
-			addDevice(dev)
-			if dev.isDongle && supportsValidatedPairingReads(dev.productID) {
-				if pairings, err := getPairingList(dev.deviceID); err == nil {
-					updateDeviceByID(dev.deviceID, func(stored *jabra_DeviceInfo) {
-						stored.pairingList = pairings
-						stored.featureFlags.pairingList = true
-					})
-				}
-			} else if !dev.isDongle {
-				if battery, err := getBatteryStatus(dev.deviceID); err == nil {
-					updateDeviceByID(dev.deviceID, func(stored *jabra_DeviceInfo) {
-						stored.batteryStatus = battery
-					})
-				}
-			}
-			requestUIRedraw()
+	} else if !device.isDongle {
+		if battery, err := getBatteryStatus(device.deviceID); err == nil {
+			updateDeviceByID(device.deviceID, func(stored *jabra_DeviceInfo) {
+				stored.batteryStatus = battery
+			})
 		}
 	}
 }
@@ -1546,7 +1562,9 @@ func readFirmwareVersion(dev *jabra_DeviceInfo) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("open hidraw: %w", err)
 		}
-		payload, readErr := gnpQueryPayload(h, destination, nextSeq(), gnpClassDevInfo, gnpOpFirmwareVer)
+		payload, readErr := gnpQueryPayloadWithDataTimeout(
+			h, destination, nextSeq(), gnpClassDevInfo, gnpOpFirmwareVer, nil, 900*time.Millisecond,
+		)
 		h.close()
 		if readErr != nil {
 			failures = append(failures, fmt.Sprintf("address %d: %v", destination, readErr))

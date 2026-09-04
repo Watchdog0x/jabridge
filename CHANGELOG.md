@@ -85,6 +85,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Added strict IPC parameter validation, idle timeouts, and connection limits.
 - Added controller firmware probing for supported headset/controller pairs.
 - Added value-aware Bash completion for every implemented setting.
+- Published direct-USB devices to IPC before optional protocol enrichment, so
+  models such as Speak 510 cannot disappear behind unsupported firmware-query
+  timeouts.
+- Made IPC device listing use cached metadata only and bounded initial device
+  probes, keeping the service/TUI responsive for non-headset Jabra products.
 - Hid unavailable battery text from the TUI for wired headsets without a
   battery; the explicit battery command reports only `Battery: unavailable`.
 - Restricted daemon socket and PID files to the current user and rejected
