@@ -370,16 +370,15 @@ const (
 // ── Hidraw discovery ──────────────────────────────────────────────────
 
 // findHidrawForDevice locates the /dev/hidrawN node that carries GNP
-// traffic for a Jabra USB device. The GNP interface is identified by
-// its HID usage page (vendor-defined, 0xFF00) in the report descriptor.
-// If we can't parse the descriptor, we fall back to the first hidraw
-// node whose parent USB device matches our sysfs path.
+// traffic for a Jabra USB device. It will not fall back to an arbitrary HID
+// interface: the descriptor must declare GNP output report ID 0x05.
 func findHidrawForDevice(dev *JabraDevice) (string, error) {
 	entries, err := os.ReadDir("/sys/class/hidraw")
 	if err != nil {
 		return "", err
 	}
 
+	var candidates []string
 	for _, entry := range entries {
 		hidrawSys := filepath.Join("/sys/class/hidraw", entry.Name())
 		// Follow the symlink to resolve the real device path
@@ -396,11 +395,22 @@ func findHidrawForDevice(dev *JabraDevice) (string, error) {
 			continue
 		}
 		if hidUeventMatches(uevent, dev.VendorID, dev.ProductID) {
-			devNode := filepath.Join("/dev", entry.Name())
-			return devNode, nil
+			candidates = append(candidates, filepath.Join("/dev", entry.Name()))
 		}
 	}
-	return "", fmt.Errorf("no hidraw node for VID:PID %04X:%04X", dev.VendorID, dev.ProductID)
+	if path, found := firstGnpHidraw(candidates, HasGnpOutputReport); found {
+		return path, nil
+	}
+	return "", fmt.Errorf("no GNP hidraw interface for VID:PID %04X:%04X", dev.VendorID, dev.ProductID)
+}
+
+func firstGnpHidraw(paths []string, supportsGNP func(string) bool) (string, bool) {
+	for _, path := range paths {
+		if supportsGNP(path) {
+			return path, true
+		}
+	}
+	return "", false
 }
 
 func hidUeventMatches(data []byte, vid, pid uint16) bool {
@@ -420,20 +430,16 @@ func hidUeventMatches(data []byte, vid, pid uint16) bool {
 	return false
 }
 
-// isDonglePID returns true if a product ID is a known Jabra dongle.
-// Dongle PIDs from jfwu capture + Jabra product catalog:
-//
-//	0x24c7 = Link 380 (USB-A)
-//	0x24c8 = Link 380 (USB-C)
-//	0x0a17 = Link 370 (USB-A)
-//	0x2483 = Link 390 (USB-C)
-//	0x2484 = Link 390 (USB-A)
-//
-// Heuristic: dongles typically have "Link" or "Dongle" in the product
-// name from sysfs, but checking the PID is more reliable.
+// isDonglePID returns true for wireless Link adapters in the current public
+// model catalog. Historical IDs are retained so older devices remain visible.
 func isDonglePID(pid uint16) bool {
 	switch pid {
-	case 0x24c7, 0x24c8, 0x0a17, 0x2483, 0x2484:
+	case 0xa345, 0xa346,
+		0x245d, 0x245e, 0x24ae,
+		0x24c7, 0x24c8, 0x24c9, 0x24ca, 0x24e9,
+		0x2e50, 0x2e51, 0x2e56, 0x2e57,
+		0x1131, 0x1132, 0x1133, 0x1134, 0x1135, 0x1136,
+		0x0a17, 0x2483, 0x2484:
 		return true
 	}
 	return false

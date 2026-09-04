@@ -6,6 +6,26 @@ import (
 	"time"
 )
 
+func TestParseGnpOutputReportSizeFound(t *testing.T) {
+	descriptor := []byte{
+		0x75, 0x08, // Report Size: 8 bits
+		0x85, 0x05, // Report ID: 5 (GNP)
+		0x95, 0x3e, // Report Count: 62
+		0x91, 0x02, // Output
+	}
+	size, found := parseGnpOutputReportSizeFound(descriptor)
+	if !found || size != 63 {
+		t.Fatalf("GNP output report = size %d found=%v", size, found)
+	}
+	descriptor[3] = 0x04
+	if _, found := parseGnpOutputReportSizeFound(descriptor); found {
+		t.Fatal("non-GNP report ID was accepted")
+	}
+	if _, found := parseGnpOutputReportSizeFound([]byte{0x76, 0x01}); found {
+		t.Fatal("truncated HID descriptor was accepted")
+	}
+}
+
 // TestBuildDongleQueryChildProductID matches capture line:
 //
 //	GnpEndpoint[hidraw7]: --> 04 00 05 46 02 11

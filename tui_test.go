@@ -447,7 +447,7 @@ func TestFirmwareInstallStatus(t *testing.T) {
 		{
 			name: "needs recovery test",
 			view: firmwareViewState{currentVersion: "1.15.0", latestVersion: "1.16.0", downloadedPath: "firmware.zip"},
-			want: "Experimental CLI",
+			want: "CLI confirmation required",
 		},
 	}
 	for _, test := range tests {

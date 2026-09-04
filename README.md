@@ -8,7 +8,8 @@ You do not need Go, C, .NET, Node.js, a Jabra SDK, or a vendor library.
 > [!WARNING]
 > Version 1.0.0 is still a hardware-test preview. A Link 380 is tested. Real
 > headsets and controllers still need more testing. Firmware installation is
-> available only with an explicit brick-risk option and is not qualified.
+> available with exact target checks and typed confirmation; interrupted-update
+> recovery is not qualified yet.
 
 ## Start in three steps
 
@@ -67,6 +68,7 @@ an unavailable-battery message in the menu.
 | `./jabridge diagnose` | Check USB and management-interface discovery |
 | `./jabridge settings` | Show supported settings and choices |
 | `./jabridge model` | Match the current device profile |
+| `./jabridge models` | Summarize Jabra's live model catalog |
 | `./jabridge sound` | Show Jabra PipeWire sound devices |
 | `./jabridge firmware` | Show installed and available firmware |
 | `./jabridge update --check --prerelease` | Check for a newer test build |
@@ -116,8 +118,9 @@ These commands are read-only:
 ./jabridge firmware verify ./firmware/FILE.zip
 ```
 
-Download saves a file; it does not install it. Verify checks that a file matches
-an attached device; it does not install it.
+Download saves a file and checks it against Jabra's published release checksum;
+it does not install it. Verify checks that the exact official bytes match an
+attached device; it does not install it.
 
 If both a headset and dongle are present, the TUI says `Target 1 of N`. Press
 Enter to choose the next target. The CLI asks for an exact product ID instead
@@ -127,15 +130,35 @@ of guessing, for example:
 ./jabridge firmware download --pid 24c7
 ```
 
-Firmware installation is experimental and can make a device unusable. It uses
-Jabridge's native updater and first checks that the file targets an attached
-device. A user who has replaceable hardware and accepts the risk can run:
+Firmware installation uses Jabridge's native updater. It first checks the
+official checksum, attached device, supported payload layout, model, and
+version, then asks the user to type `INSTALL`:
 
 ```bash
-./jabridge firmware install ./firmware/FILE.zip --i-accept-brick-risk
+./jabridge firmware install ./firmware/FILE.zip
 ```
 
-Do not use this command on hardware you cannot recover or replace.
+If an update attempt did not finish, run the same command with the exact same
+archive again:
+
+```bash
+./jabridge firmware install ./firmware/FILE.zip
+```
+
+Jabridge recognizes its private unfinished-transfer marker and asks for
+`RECOVER`, then replays the complete archive. A different archive is refused.
+`--i-accept-risk` skips the typed prompt only for deliberate automation. The
+risk comes from a wrong or interrupted transfer command, not from a correct
+model-matched firmware file. Changed-PID recovery is not guessed automatically.
+
+The detailed behavior and current evidence are in the
+[firmware guide](docs/FIRMWARE.md).
+
+The [device support guide](docs/DEVICE_SUPPORT.md) explains which Jabra
+families can be identified now, which operations are tested, and why firmware
+and pairing support must be added by protocol family.
+The [firmware catalog audit](docs/FIRMWARE_CATALOG_AUDIT.md) records a complete
+latest-file download and checksum check without committing vendor firmware.
 
 ## Background service and IPC
 
@@ -174,7 +197,7 @@ setting reads. Controlled tests changed and restored each of these settings:
 - softphone integration.
 
 Real-headset battery, settings, programmable buttons, remembered-device writes,
-factory reset, and firmware flashing are not release-qualified yet.
+factory reset, and interrupted-transfer recovery are not release-qualified yet.
 
 ## Help test
 

@@ -2,14 +2,18 @@
 //
 // Normal commands list supported devices, read public firmware metadata,
 // download files, and verify the target model. They do not write to hardware.
-// Firmware installation requires an explicit risk acknowledgement and is not
-// release-qualified.
+// Firmware installation requires exact target validation and explicit typed or
+// automation confirmation. Interrupted-transfer recovery is not qualified.
 // No vendor program, library, or firmware is bundled.
 
 package firmware
 
 import (
 	"archive/zip"
+	"bufio"
+	"context"
+	"crypto/md5" // Jabra publishes MD5 as a release identity checksum.
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -26,6 +30,8 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
+	"golang.org/x/term"
 )
 
 // ── Service and protocol constants ────────────────────────────────────────
@@ -44,15 +50,18 @@ const (
 	UserAgent = "Jabridge/1.0.0 (+https://github.com/Watchdog0x/jabridge)"
 
 	// Timeout budget per HTTP call. Metadata is ~1KB, download can be MBs.
-	MetadataTimeout = 15 * time.Second
-	DownloadTimeout = 5 * time.Minute
-	MaxFirmwareSize = int64(1 << 30)
+	MetadataTimeout         = 15 * time.Second
+	DownloadTimeout         = 30 * time.Minute
+	MaxFirmwareSize         = int64(4 << 30)
+	MaxExpandedArchiveSize  = int64(256 << 20)
+	MaxFirmwareManifestSize = int64(1 << 20)
 
 	// Hardware writes are intentionally opt-in while the native updater is
 	// awaiting validation on replaceable test hardware.
-	HardwareWriteEnv  = "JABRIDGE_FIRMWARE_ENABLE_HARDWARE_WRITES"
-	HardwareWriteAck  = "I_ACCEPT_THE_BRICK_RISK"
-	HardwareWriteFlag = "--i-accept-brick-risk"
+	HardwareWriteEnv        = "JABRIDGE_FIRMWARE_ENABLE_HARDWARE_WRITES"
+	HardwareWriteAck        = "I_ACCEPT_THE_BRICK_RISK"
+	HardwareWriteFlag       = "--i-accept-risk"
+	legacyHardwareWriteFlag = "--i-accept-brick-risk"
 )
 
 var commandLineRiskAccepted atomic.Bool
@@ -74,13 +83,16 @@ type Firmware struct {
 }
 
 type Release struct {
-	Version     string     `xml:"Version"`
-	ReleaseDate string     `xml:"ReleaseDate"`
-	DownloadURL string     `xml:"DownloadUrl"`
-	Stage       string     `xml:"Stage"`
-	FileName    string     `xml:"FileName"`
-	FileSize    string     `xml:"FileSize"`
-	Languages   []Language `xml:"languages>language"`
+	Version          string     `xml:"Version"`
+	ReleaseDate      string     `xml:"ReleaseDate"`
+	DownloadURL      string     `xml:"DownloadUrl"`
+	Stage            string     `xml:"Stage"`
+	FileName         string     `xml:"FileName"`
+	FileSize         string     `xml:"FileSize"`
+	Languages        []Language `xml:"languages>language"`
+	OfficialMD5      string     `xml:"-"`
+	CompatiblePIDs   []uint16   `xml:"-"`
+	FirmwareProtocol []int      `xml:"-"`
 }
 
 type Language struct {
@@ -104,6 +116,27 @@ type DownloadResult struct {
 	Path    string
 	Version string
 	Format  string
+}
+
+var firmwareModelCatalog = modelcatalog.NewClient()
+
+func addOfficialReleaseEvidence(pid uint16, release *Release) error {
+	if release == nil {
+		return errors.New("missing firmware release")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), MetadataTimeout)
+	defer cancel()
+	evidence, err := firmwareModelCatalog.FirmwareRelease(ctx, pid, release.Version)
+	if err != nil {
+		return fmt.Errorf("verify firmware in Jabra model catalog: %w", err)
+	}
+	if _, err := decodeOfficialMD5(evidence.MD5Checksum); err != nil {
+		return fmt.Errorf("invalid published firmware checksum: %w", err)
+	}
+	release.OfficialMD5 = evidence.MD5Checksum
+	release.CompatiblePIDs = append([]uint16(nil), evidence.CompatiblePIDs...)
+	release.FirmwareProtocol = append([]int(nil), evidence.FirmwareProtocols...)
+	return nil
 }
 
 // ── USB device enumeration via sysfs ───────────────────────────────────────
@@ -251,6 +284,9 @@ func DownloadLatest(pid uint16, outDir string) (DownloadResult, error) {
 		return DownloadResult{}, fmt.Errorf("no firmware releases for PID 0x%04x", pid)
 	}
 	latest := info.Releases[0]
+	if err := addOfficialReleaseEvidence(pid, &latest); err != nil {
+		return DownloadResult{}, err
+	}
 	filePath, err := downloadFirmware(latest, outDir)
 	if err != nil {
 		return DownloadResult{}, err
@@ -295,6 +331,9 @@ func trim(b []byte, n int) string {
 func downloadFirmware(rel Release, outDir string) (string, error) {
 	if rel.DownloadURL == "" {
 		return "", errors.New("release has empty DownloadUrl")
+	}
+	if _, err := decodeOfficialMD5(rel.OfficialMD5); err != nil {
+		return "", fmt.Errorf("release has no valid official checksum: %w", err)
 	}
 	url := DownloadBaseURL + rel.DownloadURL
 
@@ -352,7 +391,8 @@ func downloadFirmware(rel Release, outDir string) (string, error) {
 		}
 	}()
 
-	written, err := io.Copy(f, io.LimitReader(resp.Body, MaxFirmwareSize+1))
+	digest := md5.New() // #nosec G401 -- compared with Jabra's published release checksum.
+	written, err := io.Copy(io.MultiWriter(f, digest), io.LimitReader(resp.Body, MaxFirmwareSize+1))
 	if err != nil {
 		return "", fmt.Errorf("copy: %w", err)
 	}
@@ -362,8 +402,13 @@ func downloadFirmware(rel Release, outDir string) (string, error) {
 	if err := f.Close(); err != nil {
 		return "", fmt.Errorf("close: %w", err)
 	}
+	actualMD5 := base64.StdEncoding.EncodeToString(digest.Sum(nil))
+	if actualMD5 != rel.OfficialMD5 {
+		return "", fmt.Errorf("downloaded firmware checksum %s does not match Jabra's published checksum", actualMD5)
+	}
 	complete = true
 	fmt.Fprintf(os.Stderr, "[jabridge firmware] downloaded %d bytes → %s\n", written, outPath)
+	fmt.Fprintln(os.Stderr, "[jabridge firmware] official release checksum verified")
 	return outPath, nil
 }
 
@@ -381,6 +426,15 @@ func validateCachedFirmware(path string, release Release, expectedSize int64) er
 	if expectedSize > 0 && info.Size() != expectedSize {
 		return fmt.Errorf("size %d does not match server size %d", info.Size(), expectedSize)
 	}
+	if release.OfficialMD5 != "" {
+		actualMD5, err := firmwareFileMD5(path)
+		if err != nil {
+			return err
+		}
+		if actualMD5 != release.OfficialMD5 {
+			return errors.New("cached file does not match Jabra's published checksum")
+		}
+	}
 	format, err := detectFormat(path)
 	if err != nil {
 		return fmt.Errorf("detect format: %w", err)
@@ -389,7 +443,7 @@ func validateCachedFirmware(path string, release Release, expectedSize int64) er
 		return errors.New("unknown firmware format")
 	}
 	if format == FormatGnVArchive {
-		manifest, _, err := parseGnVArchive(path)
+		manifest, err := parseFirmwareManifest(path)
 		if err != nil {
 			return err
 		}
@@ -398,6 +452,41 @@ func validateCachedFirmware(path string, release Release, expectedSize int64) er
 		}
 	}
 	return nil
+}
+
+func decodeOfficialMD5(value string) ([]byte, error) {
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) != md5.Size {
+		return nil, fmt.Errorf("decoded length is %d, want %d", len(decoded), md5.Size)
+	}
+	return decoded, nil
+}
+
+func firmwareFileMD5(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > MaxFirmwareSize {
+		return "", fmt.Errorf("firmware is not a valid regular file: %s", path)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	digest := md5.New() // #nosec G401 -- compared with Jabra's published release checksum.
+	written, err := io.Copy(digest, io.LimitReader(file, MaxFirmwareSize+1))
+	if err != nil {
+		return "", err
+	}
+	if written != info.Size() {
+		return "", errors.New("firmware changed while hashing")
+	}
+	return base64.StdEncoding.EncodeToString(digest.Sum(nil)), nil
 }
 
 // ── Firmware format detection by magic bytes ──────────────────────────────
@@ -525,6 +614,43 @@ type GnVFile struct {
 	} `xml:"language"`
 }
 
+func parseFirmwareManifest(path string) (*BuildVector, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, fmt.Errorf("open zip: %w", err)
+	}
+	defer func() { _ = r.Close() }()
+	for _, file := range r.File {
+		if filepath.Base(file.Name) != "info.xml" {
+			continue
+		}
+		if file.UncompressedSize64 > uint64(MaxFirmwareManifestSize) {
+			return nil, fmt.Errorf("info.xml is too large: %d bytes", file.UncompressedSize64)
+		}
+		reader, err := file.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open info.xml: %w", err)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(reader, MaxFirmwareManifestSize+1))
+		closeErr := reader.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read info.xml: %w", readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close info.xml: %w", closeErr)
+		}
+		if int64(len(data)) > MaxFirmwareManifestSize {
+			return nil, fmt.Errorf("info.xml exceeds %d bytes", MaxFirmwareManifestSize)
+		}
+		var manifest BuildVector
+		if err := xml.Unmarshal(data, &manifest); err != nil {
+			return nil, fmt.Errorf("parse info.xml: %w", err)
+		}
+		return &manifest, nil
+	}
+	return nil, errors.New("info.xml not found in archive")
+}
+
 // parseGnVArchive opens a GnV archive ZIP, extracts info.xml, parses it, and
 // returns the manifest plus a map of file-name → decompressed bytes.
 func parseGnVArchive(path string) (*BuildVector, map[string][]byte, error) {
@@ -536,15 +662,21 @@ func parseGnVArchive(path string) (*BuildVector, map[string][]byte, error) {
 
 	contents := make(map[string][]byte, len(r.File))
 	var infoXML []byte
+	var expandedSize int64
 	for _, f := range r.File {
 		if f.FileInfo().IsDir() {
 			continue
 		}
+		if f.UncompressedSize64 > uint64(MaxExpandedArchiveSize) ||
+			expandedSize > MaxExpandedArchiveSize-int64(f.UncompressedSize64) {
+			return nil, nil, fmt.Errorf("expanded firmware archive exceeds %d bytes", MaxExpandedArchiveSize)
+		}
+		expandedSize += int64(f.UncompressedSize64)
 		rc, err := f.Open()
 		if err != nil {
 			return nil, nil, fmt.Errorf("open %s: %w", f.Name, err)
 		}
-		data, err := io.ReadAll(rc)
+		data, err := io.ReadAll(io.LimitReader(rc, int64(f.UncompressedSize64)+1))
 		closeErr := rc.Close()
 		if err != nil {
 			return nil, nil, fmt.Errorf("read %s: %w", f.Name, err)
@@ -595,7 +727,7 @@ func parseTargetPIDs(values []string) ([]uint16, error) {
 }
 
 func validateAttachedFirmwareTarget(path string) error {
-	manifest, _, err := parseGnVArchive(path)
+	manifest, err := parseFirmwareManifest(path)
 	if err != nil {
 		return fmt.Errorf("read firmware manifest: %w", err)
 	}
@@ -603,12 +735,31 @@ func validateAttachedFirmwareTarget(path string) error {
 	if err != nil {
 		return err
 	}
-	devices, err := enumerateUSB()
+	devices, err := enumerateFirmwareTargets()
 	if err != nil {
 		return fmt.Errorf("enumerate Jabra devices: %w", err)
 	}
-	if firmwareTargetsAttachedDevice(targets, devices) {
-		return nil
+	checksum, err := firmwareFileMD5(path)
+	if err != nil {
+		return fmt.Errorf("hash firmware: %w", err)
+	}
+
+	var catalogErrors []string
+	for _, device := range devices {
+		if device.VendorID != JabraVendorID {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), MetadataTimeout)
+		evidence, lookupErr := firmwareModelCatalog.FirmwareRelease(ctx, device.ProductID, manifest.Version)
+		cancel()
+		if lookupErr != nil {
+			catalogErrors = append(catalogErrors, fmt.Sprintf("0x%04X: %v", device.ProductID, lookupErr))
+			continue
+		}
+		if firmwareReleaseMatchesDevice(checksum, device.ProductID, evidence) {
+			fmt.Fprintf(os.Stderr, "[jabridge firmware] official checksum matches attached PID 0x%04X\n", device.ProductID)
+			return nil
+		}
 	}
 
 	targetStrings := make([]string, 0, len(targets))
@@ -622,7 +773,27 @@ func validateAttachedFirmwareTarget(path string) error {
 	if len(attachedStrings) == 0 {
 		attachedStrings = append(attachedStrings, "none")
 	}
-	return fmt.Errorf("firmware target %s does not match attached Jabra PID %s", strings.Join(targetStrings, ","), strings.Join(attachedStrings, ","))
+	detail := ""
+	if len(catalogErrors) > 0 {
+		detail = "; catalog check: " + strings.Join(catalogErrors, "; ")
+	}
+	return fmt.Errorf(
+		"firmware %s target %s does not have the published checksum for attached Jabra PID %s%s",
+		manifest.Version, strings.Join(targetStrings, ","), strings.Join(attachedStrings, ","), detail,
+	)
+}
+
+func firmwareReleaseMatchesDevice(checksum string, pid uint16, evidence *modelcatalog.ReleaseEvidence) bool {
+	return evidence != nil && checksum != "" && checksum == evidence.MD5Checksum && containsPID(evidence.CompatiblePIDs, pid)
+}
+
+func containsPID(values []uint16, wanted uint16) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func firmwareTargetsAttachedDevice(targets []uint16, devices []USBDevice) bool {
@@ -711,7 +882,7 @@ func flashViaJfwu(archivePath string, extraArgs []string) error {
 
 	args := append([]string(nil), extraArgs...)
 	if format, detectErr := detectFormat(abs); detectErr == nil && format == FormatGnVArchive {
-		manifest, _, parseErr := parseGnVArchive(abs)
+		manifest, parseErr := parseFirmwareManifest(abs)
 		if parseErr != nil {
 			return parseErr
 		}
@@ -1028,16 +1199,16 @@ Usage:
   jabridge firmware                  show device and firmware status
   jabridge firmware download         download for the attached device
   jabridge firmware verify FILE      check a file against the device
-  jabridge firmware install FILE --i-accept-brick-risk
-                                     run the experimental native installer
+  jabridge firmware install FILE     run the experimental native installer
 
 More:
   jabridge firmware download --pid HEX
   jabridge firmware dev --help
 
-Install is experimental and may leave a device unusable. It verifies the file's
-target before writing, but it is not release-qualified. Use it only on hardware
-you can recover or replace.`)
+Install verifies the file's target and asks the user to type INSTALL. If an
+earlier transfer did not finish, running the same command with the exact same
+archive enters recovery retry and asks for RECOVER. Changed recovery PIDs are
+never guessed.`)
 }
 
 func developerUsage() {
@@ -1063,7 +1234,7 @@ func cmdStatus() {
 		fmt.Println("No supported Jabra USB device found.")
 		return
 	}
-	fmt.Printf("%d supported USB device(s):\n", len(devs))
+	fmt.Printf("%d detected Jabra firmware target(s):\n", len(devs))
 	for _, d := range devs {
 		name := d.Product
 		if name == "" {
@@ -1214,7 +1385,7 @@ func cmdDownload(args []string) {
 		}
 		switch len(devs) {
 		case 0:
-			die("no supported device found; use --pid HEX for a device that is not attached")
+			die("no Jabra firmware target found; use --pid HEX for a device that is not attached")
 		case 1:
 			pid = devs[0].ProductID
 		default:
@@ -1247,6 +1418,9 @@ func cmdDownload(args []string) {
 		if !found {
 			die("version %q not found for PID 0x%04x — available: %v", wantVersion, pid, versionsOf(fw.Releases))
 		}
+	}
+	if err := addOfficialReleaseEvidence(pid, &rel); err != nil {
+		die("download: %v", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "[jabridge firmware] downloading %s %s (%s) from %s\n",
@@ -1319,8 +1493,8 @@ func cmdInstall(args []string) {
 	if err != nil {
 		die("firmware install: %v", err)
 	}
-	if !accepted {
-		die("firmware install is experimental and can make the device unusable; rerun with %s only if you accept that risk", HardwareWriteFlag)
+	if !accepted && !term.IsTerminal(int(os.Stdin.Fd())) {
+		die("firmware install needs interactive confirmation; run it in a terminal or use %s for deliberate automation", HardwareWriteFlag)
 	}
 	format, err := detectFormat(path)
 	if err != nil {
@@ -1332,17 +1506,98 @@ func cmdInstall(args []string) {
 	if err := validateAttachedFirmwareTarget(path); err != nil {
 		die("firmware target check: %v", err)
 	}
+	manifest, err := parseFirmwareManifest(path)
+	if err != nil {
+		die("firmware manifest: %v", err)
+	}
+	if err := validateNativeCSRArchive(path); err != nil {
+		die("firmware protocol is not supported by the native installer: %v", err)
+	}
+	transfer, err := prepareFirmwareTransfer(path, manifest)
+	if err != nil {
+		die("firmware recovery state: %v", err)
+	}
+	confirmation := "INSTALL"
+	if transfer.Recovery {
+		confirmation = "RECOVER"
+	}
+	if !accepted {
+		fmt.Fprintf(os.Stderr, "Firmware: %s %s\n", manifest.ProductName, manifest.Version)
+		fmt.Fprintf(os.Stderr, "Target PID: %s\n", strings.Join(manifest.TargetUSBPIDs, ", "))
+		if transfer.Recovery {
+			fmt.Fprintln(os.Stderr, "Unfinished transfer found. Recovery will replay the same archive.")
+		}
+		if !confirmFirmwareAction(os.Stdin, os.Stderr, confirmation) {
+			die("firmware install cancelled")
+		}
+	}
+	if err := saveFirmwareRecoveryState(transfer.State); err != nil {
+		die("save firmware recovery state: %v", err)
+	}
 
-	fmt.Fprintln(os.Stderr, "WARNING: experimental firmware write accepted by the user.")
+	fmt.Fprintln(os.Stderr, "WARNING: experimental firmware transfer accepted by the user.")
 	commandLineRiskAccepted.Store(true)
 	defer commandLineRiskAccepted.Store(false)
 	cmdFlashCsrOta([]string{"--force", path})
+	if err := clearFirmwareRecoveryState(); err != nil {
+		die("firmware transfer completed but recovery state cleanup failed: %v", err)
+	}
+}
+
+// validateNativeCSRArchive rejects other Jabra updater formats before saving
+// recovery state or opening a device. Protocol-7 CSR/GNP archives contain
+// partitioned .gnv files, per-partition CRCs, and a final partition 254.
+// Other firmware protocol families use different payloads and commands.
+func validateNativeCSRArchive(path string) error {
+	unpacked, err := UnpackGnVArchive(path)
+	if err != nil {
+		return err
+	}
+	if _, err := parseVersionTriplet(unpacked.Manifest.Version); err != nil {
+		return err
+	}
+	if len(unpacked.Manifest.Files) == 0 {
+		return errors.New("archive has no firmware partitions")
+	}
+	hasFooter := false
+	for _, file := range unpacked.Manifest.Files {
+		if !strings.EqualFold(filepath.Ext(file.Name), ".gnv") {
+			return fmt.Errorf("payload %q is not a CSR/GNP .gnv partition", file.Name)
+		}
+		if strings.TrimSpace(file.CRC) == "" {
+			return fmt.Errorf("payload %q has no partition CRC", file.Name)
+		}
+		if file.Partition == 254 {
+			hasFooter = true
+		}
+	}
+	if !hasFooter {
+		return errors.New("archive has no final partition 254")
+	}
+	partitions, err := BuildOtaPartitions(unpacked, "0x0409")
+	if err != nil {
+		return err
+	}
+	if len(partitions) == 0 {
+		return errors.New("archive has no usable CSR/GNP partitions")
+	}
+	return nil
+}
+
+func confirmFirmwareAction(reader io.Reader, writer io.Writer, confirmation string) bool {
+	if _, err := fmt.Fprintf(writer, "Type %s to start the firmware transfer: ", confirmation); err != nil {
+		return false
+	}
+	scanner := bufio.NewScanner(io.LimitReader(reader, 128))
+	return scanner.Scan() && strings.TrimSpace(scanner.Text()) == confirmation
 }
 
 func parseInstallArgs(args []string) (path string, accepted bool, err error) {
 	for _, argument := range args {
 		switch argument {
 		case HardwareWriteFlag:
+			accepted = true
+		case legacyHardwareWriteFlag:
 			accepted = true
 		default:
 			if path != "" {
@@ -1352,7 +1607,7 @@ func parseInstallArgs(args []string) (path string, accepted bool, err error) {
 		}
 	}
 	if path == "" {
-		return "", false, fmt.Errorf("usage: jabridge firmware install FILE %s", HardwareWriteFlag)
+		return "", false, fmt.Errorf("usage: jabridge firmware install FILE [%s]", HardwareWriteFlag)
 	}
 	return path, accepted, nil
 }
@@ -1371,7 +1626,7 @@ func cmdVerify(args []string) {
 	if err := validateAttachedFirmwareTarget(args[0]); err != nil {
 		die("verify: %v", err)
 	}
-	fmt.Println("Firmware target matches an attached Jabra device; no device write was performed.")
+	fmt.Println("Official firmware bytes match an attached Jabra device; no device write was performed.")
 }
 
 // cmdAll is the end-to-end pipeline: enumerate, pick first Jabra device,
@@ -1403,6 +1658,9 @@ func cmdAll(args []string) {
 		die("no releases available for %s", fw.DeviceName)
 	}
 	latest := fw.Releases[0]
+	if err := addOfficialReleaseEvidence(target.ProductID, &latest); err != nil {
+		die("download: %v", err)
+	}
 	fmt.Fprintf(os.Stderr, "[jabridge firmware] latest firmware: %s %s (%s)\n", fw.DeviceName, latest.Version, latest.ReleaseDate)
 
 	path, err := downloadFirmware(latest, outDir)

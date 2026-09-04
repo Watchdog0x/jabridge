@@ -37,7 +37,12 @@ func withDeviceState(t *testing.T, manager devices, headset, dongle int) {
 }
 
 func TestKnownDonglePIDs(t *testing.T) {
-	for _, pid := range []uint16{0x24c7, 0x24c8, 0x0a17, 0x2483, 0x2484} {
+	for _, pid := range []uint16{
+		0x24c7, 0x24c8, 0x24c9, 0x24ca, 0x24e9,
+		0x2e50, 0x2e51, 0x2e56, 0x2e57,
+		0x1131, 0x1136, 0x245d, 0xa345,
+		0x0a17, 0x2483, 0x2484,
+	} {
 		if !isKnownDonglePID(pid) {
 			t.Errorf("PID 0x%04x should be recognized as a dongle", pid)
 		}
@@ -122,6 +127,16 @@ func TestFirstResponsiveGNPEndpointSkipsWrongInterface(t *testing.T) {
 	wantLast := "/dev/hidraw-control:1"
 	if len(attempts) != 6 || attempts[len(attempts)-1] != wantLast {
 		t.Fatalf("probe attempts = %v, want six ending in %q", attempts, wantLast)
+	}
+}
+
+func TestGNPPathFilterRejectsNonManagementInterfaces(t *testing.T) {
+	paths := filterGNPManagementPaths(
+		[]string{"/dev/hidraw-audio", "/dev/hidraw-buttons", "/dev/hidraw-management"},
+		func(path string) bool { return path == "/dev/hidraw-management" },
+	)
+	if len(paths) != 1 || paths[0] != "/dev/hidraw-management" {
+		t.Fatalf("management paths = %v", paths)
 	}
 }
 

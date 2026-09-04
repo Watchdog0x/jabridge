@@ -155,9 +155,15 @@ func TestIsDonglePID(t *testing.T) {
 		pid  uint16
 		want bool
 	}{
-		{0x24c7, true},  // Link 380 USB-A
-		{0x24c8, true},  // Link 380 USB-C
-		{0x0a17, true},  // Link 370
+		{0x24c7, true},  // Link 380 USB-A UC
+		{0x24c8, true},  // Link 380 USB-A MS
+		{0x24c9, true},  // Link 380 USB-C UC
+		{0x24ca, true},  // Link 380 USB-C MS
+		{0x2e50, true},  // Link 390
+		{0x2e57, true},  // Link 390
+		{0x1131, true},  // Link 400
+		{0x1136, true},  // Link 400
+		{0x0a17, true},  // historical Link ID
 		{0x24b9, false}, // Evolve2 85 (headset)
 		{0x2450, false}, // BIZ 2400 II (headset)
 	}
@@ -175,6 +181,19 @@ func TestHIDUeventMatchHandlesKernelPadding(t *testing.T) {
 	}
 	if hidUeventMatches(data, JabraVendorID, 0x24b9) {
 		t.Fatal("wrong PID matched")
+	}
+}
+
+func TestFirstGnpHidrawNeverFallsBackToUnrelatedInterface(t *testing.T) {
+	paths := []string{"/dev/hidraw0", "/dev/hidraw1", "/dev/hidraw2"}
+	path, found := firstGnpHidraw(paths, func(candidate string) bool {
+		return candidate == "/dev/hidraw2"
+	})
+	if !found || path != "/dev/hidraw2" {
+		t.Fatalf("selected %q, found=%v", path, found)
+	}
+	if path, found := firstGnpHidraw(paths, func(string) bool { return false }); found || path != "" {
+		t.Fatalf("unexpected fallback to %q", path)
 	}
 }
 

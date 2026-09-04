@@ -31,11 +31,17 @@ type Client struct {
 }
 
 type Capabilities struct {
-	ProductName string
-	PID         uint16
-	Variant     string
-	Firmware    string
-	Properties  map[string]Property
+	ProductName              string
+	ProductGroupName         string
+	DeviceType               string
+	PID                      uint16
+	Variant                  string
+	Firmware                 string
+	FirmwareProtocol         int
+	FirmwareProtocolKnown    bool
+	FirmwareDowngradeAllowed bool
+	SupportedProtocols       []string
+	Properties               map[string]Property
 }
 
 type Property struct {
@@ -53,16 +59,69 @@ type catalogDocument struct {
 }
 
 type catalogProduct struct {
-	ProductName string `json:"productName"`
-	Variants    []struct {
-		VendorID    int    `json:"vendorId"`
-		ProductID   int    `json:"productId"`
-		VariantType string `json:"variantType"`
-	} `json:"variants"`
-	FirmwareReleases []struct {
-		Version string `json:"version"`
-		Revoked bool   `json:"revoked"`
-	} `json:"firmwareReleases"`
+	ProductName              string            `json:"productName"`
+	ProductGroupName         string            `json:"productGroupName"`
+	DeviceType               string            `json:"deviceType"`
+	FirmwareDowngradeAllowed bool              `json:"firmwareDowngradeAllowed"`
+	SupportedProtocols       []string          `json:"supportedProtocols"`
+	Variants                 []catalogVariant  `json:"variants"`
+	FirmwareReleases         []firmwareRelease `json:"firmwareReleases"`
+}
+
+type catalogVariant struct {
+	VendorID         int    `json:"vendorId"`
+	ProductID        int    `json:"productId"`
+	VariantType      string `json:"variantType"`
+	Name             string `json:"name"`
+	FirmwareProtocol *int   `json:"fwuProtocolId"`
+}
+
+type firmwareRelease struct {
+	Version     string `json:"version"`
+	MD5Checksum string `json:"md5Checksum"`
+	Revoked     bool   `json:"revoked"`
+}
+
+// Inventory is the current public model catalog. A catalog entry means that
+// Jabra publishes metadata for the device; it is not a Jabridge hardware-test
+// result.
+type Inventory struct {
+	Products                       []Product
+	AllProductProfiles             int
+	JabraProductProfiles           int
+	PartnerProductProfiles         int
+	ProductGroups                  int
+	Variants                       int
+	USBProductIDs                  int
+	FirmwareProtocols              []int
+	HasUnspecifiedFirmwareProtocol bool
+}
+
+type Product struct {
+	ProductName              string
+	ProductGroupName         string
+	DeviceType               string
+	FirmwareDowngradeAllowed bool
+	SupportedProtocols       []string
+	Variants                 []Variant
+}
+
+type Variant struct {
+	Name                  string
+	PID                   uint16
+	VariantType           string
+	FirmwareProtocol      int
+	FirmwareProtocolKnown bool
+}
+
+// ReleaseEvidence describes one firmware version using the checksum and PID
+// relationships published in Jabra's model catalog.
+type ReleaseEvidence struct {
+	Version                        string
+	MD5Checksum                    string
+	CompatiblePIDs                 []uint16
+	FirmwareProtocols              []int
+	HasUnspecifiedFirmwareProtocol bool
 }
 
 func NewClient() *Client {
@@ -75,22 +134,177 @@ func NewClient() *Client {
 	}
 }
 
-func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware string) (*Capabilities, error) {
+func (client *Client) loadProducts(ctx context.Context) ([]catalogProduct, int, error) {
 	if client == nil {
-		return nil, errors.New("nil model catalog client")
+		return nil, 0, errors.New("nil model catalog client")
 	}
 	var catalog catalogDocument
 	if err := client.getJSON(ctx, client.BundlesURL, &catalog); err != nil {
-		return nil, fmt.Errorf("load model catalog: %w", err)
+		return nil, 0, fmt.Errorf("load model catalog: %w", err)
 	}
 	products := make([]catalogProduct, 0, len(catalog.UnbundledProducts)+32)
 	for _, bundle := range catalog.Bundles {
 		products = append(products, bundle.Products...)
 	}
 	products = append(products, catalog.UnbundledProducts...)
+	return products, len(products), nil
+}
+
+// List returns every Jabra USB model in the current public catalog. Partner
+// products using another USB vendor ID are counted but excluded from Products.
+func (client *Client) List(ctx context.Context) (*Inventory, error) {
+	products, allProfiles, err := client.loadProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	inventory := &Inventory{AllProductProfiles: allProfiles}
+	groups := make(map[string]struct{})
+	pids := make(map[uint16]struct{})
+	protocols := make(map[int]struct{})
+	for _, source := range products {
+		product := Product{
+			ProductName:              source.ProductName,
+			ProductGroupName:         source.ProductGroupName,
+			DeviceType:               source.DeviceType,
+			FirmwareDowngradeAllowed: source.FirmwareDowngradeAllowed,
+			SupportedProtocols:       append([]string(nil), source.SupportedProtocols...),
+		}
+		for _, sourceVariant := range source.Variants {
+			if sourceVariant.VendorID != 0x0b0e || sourceVariant.ProductID < 0 || sourceVariant.ProductID > 0xffff {
+				continue
+			}
+			variant := Variant{
+				Name:        sourceVariant.Name,
+				PID:         uint16(sourceVariant.ProductID),
+				VariantType: sourceVariant.VariantType,
+			}
+			if sourceVariant.FirmwareProtocol != nil {
+				variant.FirmwareProtocol = *sourceVariant.FirmwareProtocol
+				variant.FirmwareProtocolKnown = true
+				protocols[variant.FirmwareProtocol] = struct{}{}
+			} else {
+				inventory.HasUnspecifiedFirmwareProtocol = true
+			}
+			product.Variants = append(product.Variants, variant)
+			pids[variant.PID] = struct{}{}
+			inventory.Variants++
+		}
+		if len(product.Variants) == 0 {
+			inventory.PartnerProductProfiles++
+			continue
+		}
+		inventory.JabraProductProfiles++
+		group := product.ProductGroupName
+		if group == "" {
+			group = product.ProductName
+		}
+		groups[group] = struct{}{}
+		inventory.Products = append(inventory.Products, product)
+	}
+	inventory.ProductGroups = len(groups)
+	inventory.USBProductIDs = len(pids)
+	for protocol := range protocols {
+		inventory.FirmwareProtocols = append(inventory.FirmwareProtocols, protocol)
+	}
+	sort.Ints(inventory.FirmwareProtocols)
+	sort.SliceStable(inventory.Products, func(i, j int) bool {
+		return inventory.Products[i].ProductName < inventory.Products[j].ProductName
+	})
+	return inventory, nil
+}
+
+// FirmwareRelease returns the published checksum and every Jabra USB PID that
+// is tied to the exact same release bytes. This handles UC/MS sibling IDs whose
+// archive manifest contains only one canonical target PID.
+func (client *Client) FirmwareRelease(ctx context.Context, pid uint16, version string) (*ReleaseEvidence, error) {
+	products, _, err := client.loadProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	checksums := make(map[string]struct{})
+	protocols := make(map[int]struct{})
+	unspecifiedProtocol := false
+	for _, product := range products {
+		matchesPID := false
+		for _, variant := range product.Variants {
+			if variant.VendorID != 0x0b0e || variant.ProductID != int(pid) {
+				continue
+			}
+			matchesPID = true
+			if variant.FirmwareProtocol == nil {
+				unspecifiedProtocol = true
+			} else {
+				protocols[*variant.FirmwareProtocol] = struct{}{}
+			}
+		}
+		if !matchesPID {
+			continue
+		}
+		for _, release := range product.FirmwareReleases {
+			if release.Version == version && !release.Revoked && release.MD5Checksum != "" {
+				checksums[release.MD5Checksum] = struct{}{}
+			}
+		}
+	}
+	if len(checksums) == 0 {
+		return nil, fmt.Errorf("PID 0x%04x firmware %s has no current public checksum", pid, version)
+	}
+	if len(checksums) != 1 {
+		return nil, fmt.Errorf("PID 0x%04x firmware %s has conflicting public checksums", pid, version)
+	}
+	checksum := ""
+	for value := range checksums {
+		checksum = value
+	}
+
+	compatible := make(map[uint16]struct{})
+	for _, product := range products {
+		matchesRelease := false
+		for _, release := range product.FirmwareReleases {
+			if release.Version == version && !release.Revoked && release.MD5Checksum == checksum {
+				matchesRelease = true
+				break
+			}
+		}
+		if !matchesRelease {
+			continue
+		}
+		for _, variant := range product.Variants {
+			if variant.VendorID == 0x0b0e && variant.ProductID >= 0 && variant.ProductID <= 0xffff {
+				compatible[uint16(variant.ProductID)] = struct{}{}
+			}
+		}
+	}
+
+	evidence := &ReleaseEvidence{
+		Version:                        version,
+		MD5Checksum:                    checksum,
+		HasUnspecifiedFirmwareProtocol: unspecifiedProtocol,
+	}
+	for compatiblePID := range compatible {
+		evidence.CompatiblePIDs = append(evidence.CompatiblePIDs, compatiblePID)
+	}
+	for protocol := range protocols {
+		evidence.FirmwareProtocols = append(evidence.FirmwareProtocols, protocol)
+	}
+	sort.SliceStable(evidence.CompatiblePIDs, func(i, j int) bool {
+		return evidence.CompatiblePIDs[i] < evidence.CompatiblePIDs[j]
+	})
+	sort.Ints(evidence.FirmwareProtocols)
+	return evidence, nil
+}
+
+func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware string) (*Capabilities, error) {
+	products, _, err := client.loadProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	var matchedProduct *catalogProduct
 	matchedVariant := ""
+	matchedFirmwareProtocol := 0
+	matchedFirmwareProtocolKnown := false
 	for index := range products {
 		for _, candidate := range products[index].Variants {
 			if candidate.VendorID != 0x0b0e || candidate.ProductID != int(pid) {
@@ -101,6 +315,10 @@ func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware 
 			}
 			matchedProduct = &products[index]
 			matchedVariant = candidate.VariantType
+			if candidate.FirmwareProtocol != nil {
+				matchedFirmwareProtocol = *candidate.FirmwareProtocol
+				matchedFirmwareProtocolKnown = true
+			}
 			break
 		}
 		if matchedProduct != nil {
@@ -134,11 +352,17 @@ func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware 
 	properties := make(map[string]Property)
 	collectProperties(schema, properties)
 	return &Capabilities{
-		ProductName: matchedProduct.ProductName,
-		PID:         pid,
-		Variant:     matchedVariant,
-		Firmware:    selectedFirmware,
-		Properties:  properties,
+		ProductName:              matchedProduct.ProductName,
+		ProductGroupName:         matchedProduct.ProductGroupName,
+		DeviceType:               matchedProduct.DeviceType,
+		PID:                      pid,
+		Variant:                  matchedVariant,
+		Firmware:                 selectedFirmware,
+		FirmwareProtocol:         matchedFirmwareProtocol,
+		FirmwareProtocolKnown:    matchedFirmwareProtocolKnown,
+		FirmwareDowngradeAllowed: matchedProduct.FirmwareDowngradeAllowed,
+		SupportedProtocols:       append([]string(nil), matchedProduct.SupportedProtocols...),
+		Properties:               properties,
 	}, nil
 }
 
@@ -166,10 +390,7 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, target any) 
 	return nil
 }
 
-func newestFirmware(releases []struct {
-	Version string `json:"version"`
-	Revoked bool   `json:"revoked"`
-}) string {
+func newestFirmware(releases []firmwareRelease) string {
 	versions := make([]string, 0, len(releases))
 	for _, release := range releases {
 		if release.Version != "" && !release.Revoked {

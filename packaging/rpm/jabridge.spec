@@ -32,7 +32,9 @@ install -Dm644 dist/70-jabridge.rules %{buildroot}%{_prefix}/lib/udev/rules.d/70
 
 %files
 %license LICENSE
-%doc README.md CHANGELOG.md HARDWARE_TESTING.md
+%doc README.md CHANGELOG.md HARDWARE_TESTING.md docs/IPC.md docs/FIRMWARE.md
+%doc docs/DEVICE_SUPPORT.md docs/FIRMWARE_CATALOG_AUDIT.md
+%doc docs/firmware-catalog-audit-2026-09-04.tsv
 %{_bindir}/jabridge
 %{_datadir}/bash-completion/completions/jabridge
 %{_prefix}/lib/systemd/user/jabridge.service

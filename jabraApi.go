@@ -639,7 +639,13 @@ func findPowerSupplyPaths(vid, pid uint16, serial string) []string {
 
 func isKnownDonglePID(pid uint16) bool {
 	switch pid {
-	case 0x24c7, 0x24c8, 0x0a17, 0x2483, 0x2484:
+	// Current public model-catalog IDs.
+	case 0xa345, 0xa346, // Link 360
+		0x245d, 0x245e, 0x24ae, // Link 370
+		0x24c7, 0x24c8, 0x24c9, 0x24ca, 0x24e9, // Link 380
+		0x2e50, 0x2e51, 0x2e56, 0x2e57, // Link 390
+		0x1131, 0x1132, 0x1133, 0x1134, 0x1135, 0x1136, // Link 400
+		0x0a17, 0x2483, 0x2484: // historical IDs retained for discovery
 		return true
 	}
 	return false
@@ -812,9 +818,20 @@ func discoverGNPControlEndpoint(device *jabra_DeviceInfo) (string, byte, bool) {
 	if device == nil {
 		return "", 0, false
 	}
-	paths := findHidrawPathsForPID(device.vendorID, device.productID)
+	allPaths := findHidrawPathsForPID(device.vendorID, device.productID)
+	paths := filterGNPManagementPaths(allPaths, firmwaretool.HasGnpOutputReport)
 	destinations := firmwareReadDestinations(device)
 	return firstResponsiveGNPEndpoint(paths, destinations, probeGNPEndpoint)
+}
+
+func filterGNPManagementPaths(paths []string, supportsGNP func(string) bool) []string {
+	filtered := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if supportsGNP(path) {
+			filtered = append(filtered, path)
+		}
+	}
+	return filtered
 }
 
 func firstResponsiveGNPEndpoint(

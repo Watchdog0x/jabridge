@@ -1466,7 +1466,7 @@ func renderFirmware() {
 	if view.currentVersion != "" && view.currentVersion == view.latestVersion {
 		actions = append(actions, "Already up to date")
 	} else {
-		actions = append(actions, "Install: experimental CLI")
+		actions = append(actions, "Install/retry: CLI")
 	}
 	drawSplitActionBar([]string{"Q Back"}, actions)
 }
@@ -1478,7 +1478,7 @@ func firmwareInstallStatus(view firmwareViewState) string {
 	case view.downloadedPath == "":
 		return "Install:            Download the update first"
 	default:
-		return "Install:            Experimental CLI; device damage is possible"
+		return "Install/retry:      CLI confirmation required"
 	}
 }
 
@@ -1489,7 +1489,7 @@ func firmwareActionHint() string {
 	if view.currentVersion != "" && view.currentVersion == view.latestVersion {
 		return "Firmware is already up to date; press 1 only to download a copy"
 	}
-	return "Press 1 to download; experimental installation is available in the CLI"
+	return "Press 1 to download; install and recovery retry are in the CLI"
 }
 
 func valueOrUnknown(value string) string {

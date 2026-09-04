@@ -26,6 +26,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - `jabridge settings`, with capability-probed dongle and headset settings,
   explicit values, and read-back after every change.
 - `jabridge model`, backed by Jabra's current public device-model catalog.
+- `jabridge models`, which summarizes and searches the full live Jabra model
+  catalog without claiming catalog entries are hardware-qualified.
+- A dated firmware-catalog audit covering every current Jabra USB PID and all
+  98 unique latest firmware files without redistributing those files.
 - `jabridge sound`, with guarded PipeWire output, volume, and mute controls.
 - Device switching for multiple connected dongles and headsets.
 - Editable remembered-device actions for connect, disconnect, and two-step
@@ -66,8 +70,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   cached download.
 - The TUI now uses the service for all device state and actions, subscribes to
   events, keeps the connection alive, and reconnects after a service restart.
-- Experimental native firmware installation is available only with the exact
-  `--i-accept-brick-risk` acknowledgement.
+- Native firmware installation now uses a typed `INSTALL` confirmation. The
+  `--i-accept-risk` option is reserved for automation, and the older flag
+  remains a hidden compatibility alias.
+- Added private interrupted-transfer state. Re-running `firmware install` with
+  the exact same archive asks for `RECOVER` and replays it; a different archive
+  or guessed changed PID is refused.
+- Native firmware install now rejects non-CSR/GNP archive layouts before it
+  saves recovery state or opens a device.
+- Firmware downloads and cached files now have to match Jabra's published
+  release checksum.
 
 ### Fixed
 
@@ -97,11 +109,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Restricted daemon socket and PID files to the current user and rejected
   unsafe filesystem paths.
 - Accepted both standard ELF executables and PIE binaries during app updates.
+- Recognized the current public Link 360, 370, 380, 390, and 400 USB IDs while
+  keeping pairing and settings writes on their narrow test allowlists.
+- Stopped labelling every non-dongle Jabra USB product as a headset in CLI
+  inventory output; speakerphones, cameras, and room devices are identified.
+- Required a descriptor-declared GNP output report when firmware code selects a
+  HID interface; it no longer falls back to the first interface for a product.
+- Accepted official UC/MS sibling firmware IDs only when their version and
+  exact published release checksum match, fixing manifest-only false rejects.
 
 ### Safety
 
-- Firmware writes require an explicit brick-risk option. Destructive reset and
-  forget actions require a second confirmation key press.
+- Firmware writes require typed confirmation (or the explicit automation
+  option). Destructive reset and forget actions require a second key press.
 - Controlled change-and-restore tests passed for all five Link 380 settings.
   Every write was read back, and the original value was restored after each
   test. Factory reset was not executed.

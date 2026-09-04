@@ -53,8 +53,10 @@ func main() {
 		err = runFirmware(os.Args[2:])
 	case "settings":
 		err = runSettings(os.Args[2:])
-	case "model", "models":
+	case "model":
 		err = runModel()
+	case "models":
+		err = runModels(os.Args[2:])
 	case "sound", "audio":
 		err = runSound(os.Args[2:])
 	case "setup":
@@ -89,6 +91,7 @@ Usage:
   jabridge firmware    check or download device firmware
   jabridge settings    list or change supported device settings
   jabridge model       match devices with the online capability catalog
+  jabridge models      browse the online Jabra model catalog
   jabridge sound       show or change Jabra PipeWire sound controls
   jabridge setup       set up one-time Linux device access
   jabridge ipc         use the background-service API

@@ -2,10 +2,13 @@ package firmware
 
 import (
 	"archive/zip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
 func TestRunFirmwareInstallFailsClosed(t *testing.T) {
@@ -23,6 +26,80 @@ func TestParseInstallArgsRequiresFileAndExplicitRisk(t *testing.T) {
 	if _, _, err := parseInstallArgs([]string{HardwareWriteFlag}); err == nil {
 		t.Fatal("install arguments without a file were accepted")
 	}
+	if _, accepted, err := parseInstallArgs([]string{"firmware.zip", legacyHardwareWriteFlag}); err != nil || !accepted {
+		t.Fatalf("legacy risk flag compatibility = %v, %v", accepted, err)
+	}
+}
+
+func TestFirmwareActionConfirmationIsExact(t *testing.T) {
+	for _, accepted := range []string{"INSTALL\n", "  INSTALL  \n"} {
+		if !confirmFirmwareAction(strings.NewReader(accepted), io.Discard, "INSTALL") {
+			t.Errorf("confirmation %q was rejected", accepted)
+		}
+	}
+	for _, rejected := range []string{"install\n", "yes\n", "RECOVER\n", ""} {
+		if confirmFirmwareAction(strings.NewReader(rejected), io.Discard, "INSTALL") {
+			t.Errorf("confirmation %q was accepted", rejected)
+		}
+	}
+	if !confirmFirmwareAction(strings.NewReader("RECOVER\n"), io.Discard, "RECOVER") {
+		t.Fatal("exact recovery confirmation was rejected")
+	}
+}
+
+func TestValidateNativeCSRArchiveAcceptsPartitionedGnV(t *testing.T) {
+	path := writeFirmwareArchiveFixture(t, `<buildVector version="1.2.3" productName="Test">
+		<targetUsbPids><usbPid>0x1234</usbPid></targetUsbPids>
+		<files>
+			<file name="app.gnv"><partition>5</partition><crc>0x12345678</crc><language id="0x0409">English</language></file>
+			<file name="footer.gnv"><partition>254</partition><crc>0xffffffff</crc><language id="0x0409">English</language></file>
+		</files>
+	</buildVector>`, map[string][]byte{"app.gnv": {1, 2, 3}, "footer.gnv": {4}})
+	if err := validateNativeCSRArchive(path); err != nil {
+		t.Fatalf("valid CSR/GNP archive rejected: %v", err)
+	}
+}
+
+func TestValidateNativeCSRArchiveRejectsDifferentJabraProtocol(t *testing.T) {
+	path := writeFirmwareArchiveFixture(t, `<buildVector version="4.1.3" productName="Test">
+		<targetUsbPids><usbPid>0x4050</usbPid></targetUsbPids>
+		<files><file name="controller.hex"><target>headset</target></file></files>
+	</buildVector>`, map[string][]byte{"controller.hex": {1, 2, 3}})
+	err := validateNativeCSRArchive(path)
+	if err == nil || !strings.Contains(err.Error(), "not a CSR/GNP .gnv partition") {
+		t.Fatalf("different firmware protocol error = %v", err)
+	}
+}
+
+func writeFirmwareArchiveFixture(t *testing.T, manifest string, files map[string][]byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "firmware.zip")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	entries := make(map[string][]byte, len(files)+1)
+	entries["info.xml"] = []byte(manifest)
+	for name, data := range files {
+		entries[name] = data
+	}
+	for name, data := range entries {
+		entry, createErr := archive.Create(name)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if _, writeErr := entry.Write(data); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestRunUnknownCommandReturnsError(t *testing.T) {
@@ -78,6 +155,47 @@ func TestValidateCachedFirmwareRejectsSymlink(t *testing.T) {
 	}
 	if err := validateCachedFirmware(link, Release{}, 0); err == nil {
 		t.Fatal("firmware symlink was accepted")
+	}
+}
+
+func TestFirmwareFileMD5UsesPublishedBase64Form(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "firmware.bin")
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := firmwareFileMD5(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != "XUFAKrxLKna5cZ2REBfFkg==" {
+		t.Fatalf("MD5 = %q", digest)
+	}
+	if _, err := decodeOfficialMD5(digest); err != nil {
+		t.Fatalf("published checksum rejected: %v", err)
+	}
+	if _, err := decodeOfficialMD5("AQIDBA=="); err == nil {
+		t.Fatal("short published checksum was accepted")
+	}
+}
+
+func TestValidateCachedFirmwareChecksOfficialDigest(t *testing.T) {
+	path := writeFirmwareArchiveFixture(t,
+		`<buildVector version="1.2.3" productName="Test"><targetUsbPids><usbPid>1234</usbPid></targetUsbPids></buildVector>`, nil)
+	digest, err := firmwareFileMD5(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := Release{Version: "1.2.3", OfficialMD5: digest}
+	if err := validateCachedFirmware(path, release, info.Size()); err != nil {
+		t.Fatalf("valid checksum rejected: %v", err)
+	}
+	release.OfficialMD5 = "6ZoYxCjLONXyYIU2eJIuAw=="
+	if err := validateCachedFirmware(path, release, info.Size()); err == nil {
+		t.Fatal("wrong official checksum was accepted")
 	}
 }
 
@@ -192,6 +310,22 @@ func TestFirmwareTargetsAttachedDevice(t *testing.T) {
 	}
 	if firmwareTargetsAttachedDevice(targets, []USBDevice{{VendorID: 0x1234, ProductID: 0x24c7}}) {
 		t.Fatal("non-Jabra device was accepted by PID alone")
+	}
+}
+
+func TestFirmwareReleaseMatchesOfficialSiblingPID(t *testing.T) {
+	evidence := &modelcatalog.ReleaseEvidence{
+		MD5Checksum:    "published",
+		CompatiblePIDs: []uint16{0x24c7, 0x24c8},
+	}
+	if !firmwareReleaseMatchesDevice("published", 0x24c8, evidence) {
+		t.Fatal("official sibling PID was rejected")
+	}
+	if firmwareReleaseMatchesDevice("different", 0x24c8, evidence) {
+		t.Fatal("wrong firmware bytes were accepted")
+	}
+	if firmwareReleaseMatchesDevice("published", 0x24b9, evidence) {
+		t.Fatal("unrelated PID was accepted")
 	}
 }
 

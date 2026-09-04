@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v1.0.0-rc.9
+        description: Release tag, for example v1.0.0-rc.10
         required: true
         type: string
       prerelease:
@@ -107,11 +107,17 @@ jobs:
               --jq ".assets[] | select(.name == \"$package.tar.gz\") | .digest")
             guide_digest=$(gh release view "$RELEASE_TAG" --json assets \
               --jq '.assets[] | select(.name == "IPC.md") | .digest')
+            firmware_guide_digest=$(gh release view "$RELEASE_TAG" --json assets \
+              --jq '.assets[] | select(.name == "FIRMWARE.md") | .digest')
+            device_guide_digest=$(gh release view "$RELEASE_TAG" --json assets \
+              --jq '.assets[] | select(.name == "DEVICE_SUPPORT.md") | .digest')
             asset_count=$(gh release view "$RELEASE_TAG" --json assets \
-              --jq "[.assets[] | select(.name == \"$package.tar.gz\" or .name == \"$package.tar.gz.sha256\" or .name == \"$package.tar.gz.sig\" or .name == \"IPC.md\")] | length")
+              --jq "[.assets[] | select(.name == \"$package.tar.gz\" or .name == \"$package.tar.gz.sha256\" or .name == \"$package.tar.gz.sig\" or .name == \"IPC.md\" or .name == \"FIRMWARE.md\" or .name == \"DEVICE_SUPPORT.md\")] | length")
             expected_digest="sha256:$(sha256sum "release/$package.tar.gz" | cut -d' ' -f1)"
             expected_guide_digest="sha256:$(sha256sum docs/IPC.md | cut -d' ' -f1)"
-            if [[ "$existing_target" == "$GITHUB_SHA" && "$archive_digest" == "$expected_digest" && "$guide_digest" == "$expected_guide_digest" && "$asset_count" == "4" ]]; then
+            expected_firmware_guide_digest="sha256:$(sha256sum docs/FIRMWARE.md | cut -d' ' -f1)"
+            expected_device_guide_digest="sha256:$(sha256sum docs/DEVICE_SUPPORT.md | cut -d' ' -f1)"
+            if [[ "$existing_target" == "$GITHUB_SHA" && "$archive_digest" == "$expected_digest" && "$guide_digest" == "$expected_guide_digest" && "$firmware_guide_digest" == "$expected_firmware_guide_digest" && "$device_guide_digest" == "$expected_device_guide_digest" && "$asset_count" == "6" ]]; then
               echo "Release already exists with the expected commit and signed assets: $RELEASE_TAG"
               exit 0
             fi
@@ -123,6 +129,8 @@ jobs:
             "release/$package.tar.gz.sha256"
             "release/$package.tar.gz.sig"
             "docs/IPC.md"
+            "docs/FIRMWARE.md"
+            "docs/DEVICE_SUPPORT.md"
             --target "$GITHUB_SHA"
             --title "Jabridge ${RELEASE_TAG#v}"
             --notes "Signed Jabridge application release. Hardware writes remain subject to the validation status documented in the repository.")

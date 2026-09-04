@@ -78,7 +78,7 @@ func runStatus() error {
 		fmt.Println("No supported Jabra device found.")
 		return nil
 	}
-	fmt.Printf("%d supported device(s):\n", len(devices))
+	fmt.Printf("%d detected Jabra device(s):\n", len(devices))
 	ids := make([]int, 0, len(devices))
 	for id := range devices {
 		ids = append(ids, id)
@@ -90,10 +90,7 @@ func runStatus() error {
 		if name == "" {
 			name = "Unknown device"
 		}
-		kind := "Headset"
-		if device.isDongle {
-			kind = "Dongle"
-		}
+		kind := deviceKindLabel(device)
 		fmt.Printf("\n%s: %s\n", kind, name)
 		fmt.Printf("  ID:         %04x:%04x\n", device.vendorID, device.productID)
 		connection := "USB"

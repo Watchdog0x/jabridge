@@ -312,9 +312,38 @@ func QueryChildSerial(tr OtaTransport, seq byte, timeout time.Duration) (string,
 // HIDIOCGRDESCSIZE + HIDIOCGRDESC to fetch the raw descriptor, then
 // walk the HID items looking for Report ID 0x05's output report size.
 func DetectGnpReportSize(hidrawPath string) int {
-	f, err := os.OpenFile(hidrawPath, os.O_RDONLY, 0)
+	descriptor, err := readHidrawReportDescriptor(hidrawPath)
 	if err != nil {
 		return 63
+	}
+	size, found := parseGnpOutputReportSizeFound(descriptor)
+	if !found {
+		return 63
+	}
+	return size
+}
+
+// HasGnpOutputReport checks the HID descriptor without sending any packet.
+// Discovery uses it to avoid writing even read-only GNP queries to unrelated
+// audio, button, consumer-control, or dock interfaces.
+func HasGnpOutputReport(hidrawPath string) bool {
+	descriptor, err := readHidrawReportDescriptor(hidrawPath)
+	if err != nil {
+		return false
+	}
+	_, found := parseGnpOutputReportSizeFound(descriptor)
+	return found
+}
+
+type hidrawReportDescriptor struct {
+	Size  uint32
+	Value [HID_MAX_DESCRIPTOR_SIZE]byte
+}
+
+func readHidrawReportDescriptor(hidrawPath string) ([]byte, error) {
+	f, err := os.OpenFile(hidrawPath, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
@@ -326,14 +355,10 @@ func DetectGnpReportSize(hidrawPath string) int {
 		uintptr(HIDIOCGRDESCSIZE),
 		uintptr(unsafe.Pointer(&size)),
 	); errno != 0 || size <= 0 || size > HID_MAX_DESCRIPTOR_SIZE {
-		return 63
+		return nil, fmt.Errorf("read HID descriptor size: %v", errno)
 	}
 
 	// Step 2: fetch the descriptor
-	type hidrawReportDescriptor struct {
-		Size  uint32
-		Value [HID_MAX_DESCRIPTOR_SIZE]byte
-	}
 	var desc hidrawReportDescriptor
 	desc.Size = uint32(size)
 	if _, _, errno := syscall.Syscall(
@@ -342,17 +367,14 @@ func DetectGnpReportSize(hidrawPath string) int {
 		uintptr(HIDIOCGRDESC),
 		uintptr(unsafe.Pointer(&desc)),
 	); errno != 0 {
-		return 63
+		return nil, fmt.Errorf("read HID descriptor: %v", errno)
 	}
-
-	// Step 3: parse the descriptor for Report ID 5's output report size.
-	return parseGnpOutputReportSize(desc.Value[:size])
+	return append([]byte(nil), desc.Value[:size]...), nil
 }
 
-// parseGnpOutputReportSize walks an HID report descriptor and returns
-// the output report size (Report Count * Report Size / 8) for Report
-// ID 0x05. Returns 63 if not found or on parse error.
-func parseGnpOutputReportSize(desc []byte) int {
+// parseGnpOutputReportSizeFound walks an HID report descriptor and returns the
+// exact output report size for GNP Report ID 0x05 only when it is declared.
+func parseGnpOutputReportSizeFound(desc []byte) (int, bool) {
 	var (
 		currentReportID   byte
 		currentReportSize int // in bits
@@ -369,7 +391,7 @@ func parseGnpOutputReportSize(desc []byte) int {
 		bTag := (b >> 4) & 0x0f
 		i++
 		if i+bSize > len(desc) {
-			return 63
+			return 0, false
 		}
 		var data uint32
 		for j := 0; j < bSize; j++ {
@@ -395,11 +417,11 @@ func parseGnpOutputReportSize(desc []byte) int {
 					// 1 byte for the Report ID prefix.
 					totalBytes := (currentReportCnt * currentReportSize / 8) + 1
 					if totalBytes == 63 || totalBytes == 64 {
-						return totalBytes
+						return totalBytes, true
 					}
 				}
 			}
 		}
 	}
-	return 63
+	return 0, false
 }
