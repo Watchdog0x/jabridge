@@ -25,6 +25,14 @@ func TestFormatBatteryLine(t *testing.T) {
 			}},
 			"Headset: Left 61%, Right 48% charging",
 		},
+		{
+			"components-global-charging",
+			&batteryStatus{charging: true, components: []batteryComponentStatus{
+				{label: "Left", levelInPercent: 61},
+				{label: "Right", levelInPercent: 48},
+			}},
+			"Headset: Left 61%, Right 48% (charging)",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -49,6 +57,12 @@ func TestBashCompletionCoversEverySetting(t *testing.T) {
 		}
 	}
 	for _, definition := range headsetChoiceSettingDefinitions {
+		selector := "headset." + definition.Key
+		if !strings.Contains(shellcompletion.JabridgeBash, selector) {
+			t.Errorf("Bash completion is missing %s", selector)
+		}
+	}
+	for _, definition := range headsetTextSettingDefinitions {
 		selector := "headset." + definition.Key
 		if !strings.Contains(shellcompletion.JabridgeBash, selector) {
 			t.Errorf("Bash completion is missing %s", selector)

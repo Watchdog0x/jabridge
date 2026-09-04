@@ -86,6 +86,16 @@ the live model profile to hide choices that do not belong to the attached
 model. A profile alone does not reveal every low-level USB command, so a new
 setting is enabled only after its command and read-back behavior are known.
 
+If Jabra keeps an installed firmware entry but its settings profile is empty,
+Jabridge falls back to the newest populated profile for the exact same PID and
+variant. The model command reports that fallback instead of pretending it is
+the installed firmware profile.
+
+For supported wireless models, Link address 4 carries headset firmware,
+battery, and settings. Direct USB uses the headset's own management endpoint.
+`jabridge use usb|dongle` switches the selected control path and matching
+PipeWire output/microphone together.
+
 Jabra officially lists button and LED customization for Engage 40, Engage 50,
 and Engage 50 II. It includes press, tap, double-tap, button-down, button-up,
 and LED control. These are model-specific features, not a promise for every

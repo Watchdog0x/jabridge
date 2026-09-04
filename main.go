@@ -59,6 +59,8 @@ func main() {
 		err = runModels(os.Args[2:])
 	case "sound", "audio":
 		err = runSound(os.Args[2:])
+	case "use":
+		err = runUse(os.Args[2:])
 	case "setup":
 		err = runSetup(os.Args[2:])
 	case "ipc":
@@ -93,6 +95,7 @@ Usage:
   jabridge model       match devices with the online capability catalog
   jabridge models      browse the online Jabra model catalog
   jabridge sound       show or change Jabra PipeWire sound controls
+  jabridge use         choose direct USB or wireless-dongle headset use
   jabridge setup       set up one-time Linux device access
   jabridge ipc         use the background-service API
   jabridge service     start, stop, restart, or check the service
@@ -149,6 +152,9 @@ type jabraAPIBridge struct{}
 
 func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 	var out []ipc.DeviceInfo
+	deviceStateMu.RLock()
+	activeDongle, activeHeadset := selectedDongle, selectedHeadset
+	deviceStateMu.RUnlock()
 	for _, dev := range deviceSnapshots() {
 		connection := "usb"
 		if dev.deviceConnection == deviceConnectionType_BT {
@@ -159,6 +165,7 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			Variant: dev.variantType, Serial: "", IsDongle: dev.isDongle,
 			Connection: connection, ParentID: dev.parentDeviceID,
 			Firmware: dev.firmwareVersion,
+			Selected: int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)
@@ -331,7 +338,10 @@ func (j *jabraAPIBridge) SetSetting(deviceName, key, value string) (ipc.SettingI
 
 func (j *jabraAPIBridge) SelectDevice(id uint16) error {
 	_, err := selectRegistryDevice(int(id))
-	return err
+	if err != nil {
+		return err
+	}
+	return saveSelectedConnectionPreference()
 }
 
 func (j *jabraAPIBridge) Shutdown() error {
@@ -364,6 +374,8 @@ func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingIn
 		for _, choice := range setting.Choice.Definition.Choices {
 			info.Choices = append(info.Choices, choice.Name)
 		}
+	} else if setting.Text != nil {
+		info.Choices = nil
 	}
 	return info
 }

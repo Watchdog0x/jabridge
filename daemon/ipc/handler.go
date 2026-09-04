@@ -32,6 +32,7 @@ type DeviceInfo struct {
 	ParentID   uint16       `json:"parentId,omitempty"`
 	Battery    *BatteryInfo `json:"battery,omitempty"`
 	Firmware   string       `json:"firmware,omitempty"`
+	Selected   bool         `json:"selected"`
 }
 
 type BatteryInfo struct {

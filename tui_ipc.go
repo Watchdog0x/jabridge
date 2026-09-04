@@ -215,6 +215,7 @@ func syncTUIState(client *ipc.Client) error {
 
 func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceInfo, features ipc.FeatureInfo) {
 	manager := make(devices, len(infos))
+	serviceDongle, serviceHeadset := -1, -1
 	for _, info := range infos {
 		connection := deviceConnectionType_USB
 		if info.Connection == "dongle" {
@@ -233,6 +234,13 @@ func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceIn
 		}
 		device.batteryStatus = batteryStatusFromIPC(info.Battery)
 		manager[int(info.ID)] = device
+		if info.Selected {
+			if info.IsDongle {
+				serviceDongle = int(info.ID)
+			} else {
+				serviceHeadset = int(info.ID)
+			}
+		}
 	}
 	for id, device := range manager {
 		if !device.isDongle {
@@ -256,10 +264,14 @@ func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceIn
 	oldDongle, oldHeadset := selectedDongle, selectedHeadset
 	newDongle := selectedDongle
 	newHeadset := selectedHeadset
-	if current := manager[newDongle]; current == nil || !current.isDongle {
+	if serviceDongle >= 0 {
+		newDongle = serviceDongle
+	} else if current := manager[newDongle]; current == nil || !current.isDongle {
 		newDongle = firstDeviceIndexIn(manager, true)
 	}
-	if current := manager[newHeadset]; current == nil || current.isDongle {
+	if serviceHeadset >= 0 {
+		newHeadset = serviceHeadset
+	} else if current := manager[newHeadset]; current == nil || current.isDongle {
 		newHeadset = firstDeviceIndexIn(manager, false)
 	}
 	changed := !reflect.DeepEqual(deviceManager, manager) || oldDongle != newDongle || oldHeadset != newHeadset
@@ -329,9 +341,15 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 	}
 	values := make([]deviceSettingValue, 0, len(response))
 	for _, setting := range response {
+		editable := setting.Editable
+		label := setting.Label
+		if editable && len(setting.Choices) == 0 {
+			editable = false
+			label += " (edit with CLI)"
+		}
 		remote := &remoteSettingValue{
-			Device: setting.Device, Key: setting.Key, Label: setting.Label,
-			Value: setting.Value, Editable: setting.Editable,
+			Device: setting.Device, Key: setting.Key, Label: label,
+			Value: setting.Value, Editable: editable,
 			Choices: append([]string(nil), setting.Choices...),
 		}
 		values = append(values, deviceSettingValue{Remote: remote})

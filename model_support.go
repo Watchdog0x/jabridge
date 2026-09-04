@@ -25,11 +25,8 @@ func lookupDeviceModel(device *jabra_DeviceInfo) (*modelcatalog.Capabilities, er
 	if device == nil {
 		return nil, fmt.Errorf("no device")
 	}
-	if device.variantType == "" {
-		return nil, fmt.Errorf("device variant is unavailable")
-	}
-	firmware := ""
-	if device.hidrawPath != "" {
+	firmware := device.firmwareVersion
+	if firmware == "" {
 		if version, err := readFirmwareVersion(device); err == nil {
 			firmware = version
 		}
@@ -76,7 +73,11 @@ func runModel() error {
 		if capabilities.DeviceType != "" {
 			fmt.Printf("  Type:     %s\n", readableDeviceType(capabilities.DeviceType))
 		}
-		fmt.Printf("  Profile:  firmware %s, %d SDK properties\n", capabilities.Firmware, len(capabilities.Properties))
+		profileLabel := capabilities.Firmware
+		if capabilities.DeviceFirmware != "" && !capabilities.ExactFirmwareProfile {
+			profileLabel += fmt.Sprintf(" (newest populated profile; device %s)", capabilities.DeviceFirmware)
+		}
+		fmt.Printf("  Profile:  firmware %s, %d SDK properties\n", profileLabel, len(capabilities.Properties))
 		if capabilities.FirmwareProtocolKnown {
 			fmt.Printf("  FWU:      protocol %d\n", capabilities.FirmwareProtocol)
 		} else {

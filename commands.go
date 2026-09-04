@@ -174,14 +174,20 @@ func formatBatteryLine(deviceName string, battery *batteryStatus) string {
 	}
 	if len(battery.components) > 1 {
 		parts := make([]string, 0, len(battery.components))
+		componentCharging := false
 		for _, component := range battery.components {
 			part := fmt.Sprintf("%s %d%%", component.label, component.levelInPercent)
 			if component.charging {
 				part += " charging"
+				componentCharging = true
 			}
 			parts = append(parts, part)
 		}
-		return fmt.Sprintf("%s: %s", deviceName, strings.Join(parts, ", "))
+		line := fmt.Sprintf("%s: %s", deviceName, strings.Join(parts, ", "))
+		if battery.charging && !componentCharging {
+			line += " (charging)"
+		}
+		return line
 	}
 	line := fmt.Sprintf("%s: %d%%", deviceName, battery.levelInPercent)
 	if battery.charging {

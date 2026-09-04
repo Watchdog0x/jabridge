@@ -40,13 +40,26 @@ func switchableDevices() []switchDeviceItem {
 }
 
 func selectRegistryDevice(registryID int) (string, error) {
+	name, audioTarget, switchAudio, err := selectRegistryDeviceState(registryID)
+	if err != nil {
+		return "", err
+	}
+	if switchAudio {
+		if err := followSelectedDeviceAudio(audioTarget); err != nil {
+			return "", err
+		}
+	}
+	return name, nil
+}
+
+func selectRegistryDeviceState(registryID int) (name, audioTarget string, switchAudio bool, err error) {
 	deviceStateMu.Lock()
 	device, exists := deviceManager[registryID]
 	if !exists || device == nil {
 		deviceStateMu.Unlock()
-		return "", fmt.Errorf("device %d is no longer connected", registryID)
+		return "", "", false, fmt.Errorf("device %d is no longer connected", registryID)
 	}
-	name := device.deviceName
+	name = device.deviceName
 	if device.isDongle {
 		selectedDongle = registryID
 		if current, ok := deviceManager[selectedHeadset]; ok && current != nil &&
@@ -54,11 +67,14 @@ func selectRegistryDevice(registryID int) (string, error) {
 			selectedHeadset = firstHeadsetForDongleLocked(device.deviceID)
 		}
 	} else {
+		switchAudio = true
+		audioTarget = device.deviceName
 		selectedHeadset = registryID
 		if device.deviceConnection == deviceConnectionType_BT {
 			for id, candidate := range deviceManager {
 				if candidate != nil && candidate.isDongle && candidate.deviceID == device.parentDeviceID {
 					selectedDongle = id
+					audioTarget = candidate.deviceName
 					break
 				}
 			}
@@ -66,22 +82,27 @@ func selectRegistryDevice(registryID int) (string, error) {
 	}
 	deviceStateMu.Unlock()
 	requestUIRedraw()
-	return name, nil
+	return name, audioTarget, switchAudio, nil
 }
 
 func firstHeadsetForDongleLocked(parentID uint16) int {
-	selected := -1
+	wireless, direct := -1, -1
 	for id, device := range deviceManager {
 		if device == nil || device.isDongle {
 			continue
 		}
-		if device.deviceConnection == deviceConnectionType_USB || device.parentDeviceID == parentID {
-			if selected == -1 || id < selected {
-				selected = id
+		if device.deviceConnection == deviceConnectionType_BT && device.parentDeviceID == parentID {
+			if wireless == -1 || id < wireless {
+				wireless = id
 			}
+		} else if device.deviceConnection == deviceConnectionType_USB && (direct == -1 || id < direct) {
+			direct = id
 		}
 	}
-	return selected
+	if wireless >= 0 {
+		return wireless
+	}
+	return direct
 }
 
 func switchDeviceLabel(item switchDeviceItem) string {

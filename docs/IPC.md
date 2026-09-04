@@ -54,6 +54,15 @@ The result is formatted JSON, so it is also easy for another program to read.
 ./jabridge ipc select 1
 ```
 
+For a direct-USB headset, selection prefers matching headset PipeWire nodes.
+For a headset routed through a Link dongle, selection prefers that Link's
+PipeWire output and microphone. The simpler CLI wrapper is `jabridge use
+usb|dongle`.
+
+Each object returned by `devices.list` includes `selected`. This lets a client
+show the same active dongle and headset connection as the service.
+The selected headset connection is remembered across service restarts.
+
 ## 4. Watch live events
 
 ```bash
@@ -135,7 +144,7 @@ The response is:
 | `service.shutdown` | Stop a portable non-systemd service | Stops the service |
 | `version` | Service version | No |
 | `devices.list` | Connected devices | No |
-| `device.select` | Choose the active device | No |
+| `device.select` | Choose a control connection and matching PipeWire audio | No |
 | `device.battery` | Battery state | No |
 | `device.firmware` | Installed firmware version | No |
 | `device.features` | Basic feature flags | No |

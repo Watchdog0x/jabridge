@@ -56,6 +56,10 @@ several choices show the current choice. Jabridge uses the connected device and
 its matching public model profile, so unsupported choices stay hidden. If the
 profile is unavailable, choice settings stay read-only.
 
+Some older firmware entries remain in Jabra's catalog with an empty settings
+profile. In that case Jabridge uses the newest populated profile for the same
+USB ID and variant, and `jabridge model` clearly shows both versions.
+
 A wired headset with no battery shows only its name. It does not show `0%` or
 an unavailable-battery message in the menu.
 
@@ -70,6 +74,7 @@ an unavailable-battery message in the menu.
 | `./jabridge model` | Match the current device profile |
 | `./jabridge models` | Summarize Jabra's live model catalog |
 | `./jabridge sound` | Show Jabra PipeWire sound devices |
+| `./jabridge use usb\|dongle` | Choose the headset connection and matching PipeWire audio |
 | `./jabridge firmware` | Show installed and available firmware |
 | `./jabridge update --check --prerelease` | Check for a newer test build |
 | `./jabridge setup` | Repeat the one-time Linux access setup |
@@ -80,6 +85,8 @@ Change a setting by copying its name and one of its choices:
 ```bash
 ./jabridge settings set dongle.auto-pairing on
 ./jabridge settings set headset.voice-prompts voice
+./jabridge settings set headset.auto-sleep 1-hour
+./jabridge settings set headset.headset-name "Office headset"
 ./jabridge settings set headset.three-dot-button push-to-talk
 ```
 
@@ -90,6 +97,19 @@ values:
 ```bash
 source <(./jabridge completion bash)
 ```
+
+If the same headset is connected both directly and through a Link dongle, use
+the TUI `Switch device` screen or one simple command:
+
+```bash
+./jabridge use dongle
+./jabridge use usb
+```
+
+The choice controls which hardware path supplies firmware, battery, and
+settings. Jabridge also makes the matching PipeWire output and microphone the
+defaults when those nodes are present. The choice is remembered for the next
+service start without saving a serial number or Bluetooth address.
 
 ## Update Jabridge
 

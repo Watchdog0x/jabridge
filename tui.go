@@ -323,6 +323,14 @@ func handleEnterKey(results chan<- actionResult) bool {
 				setStatus(err.Error(), true)
 				return false
 			}
+			name, _, _, err := selectRegistryDeviceState(registryID)
+			if err != nil {
+				setStatus(err.Error(), true)
+				return false
+			}
+			setStatus("Now using "+name, false)
+			returnToStartMenu()
+			return false
 		}
 		name, err := selectRegistryDevice(registryID)
 		if err != nil {

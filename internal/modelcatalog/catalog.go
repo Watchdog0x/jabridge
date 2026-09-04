@@ -37,6 +37,8 @@ type Capabilities struct {
 	PID                      uint16
 	Variant                  string
 	Firmware                 string
+	DeviceFirmware           string
+	ExactFirmwareProfile     bool
 	FirmwareProtocol         int
 	FirmwareProtocolKnown    bool
 	FirmwareDowngradeAllowed bool
@@ -301,10 +303,11 @@ func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware 
 		return nil, err
 	}
 
-	var matchedProduct *catalogProduct
-	matchedVariant := ""
-	matchedFirmwareProtocol := 0
-	matchedFirmwareProtocolKnown := false
+	type catalogMatch struct {
+		product *catalogProduct
+		variant catalogVariant
+	}
+	var matches []catalogMatch
 	for index := range products {
 		for _, candidate := range products[index].Variants {
 			if candidate.VendorID != 0x0b0e || candidate.ProductID != int(pid) {
@@ -313,44 +316,88 @@ func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware 
 			if variant != "" && !strings.EqualFold(candidate.VariantType, variant) {
 				continue
 			}
-			matchedProduct = &products[index]
-			matchedVariant = candidate.VariantType
-			if candidate.FirmwareProtocol != nil {
-				matchedFirmwareProtocol = *candidate.FirmwareProtocol
-				matchedFirmwareProtocolKnown = true
-			}
-			break
-		}
-		if matchedProduct != nil {
-			break
+			matches = append(matches, catalogMatch{product: &products[index], variant: candidate})
 		}
 	}
-	if matchedProduct == nil {
+	if len(matches) == 0 {
 		return nil, fmt.Errorf("PID 0x%04x variant %q is not in the current model catalog", pid, variant)
 	}
-	selectedFirmware := firmware
-	if selectedFirmware == "" {
-		selectedFirmware = newestFirmware(matchedProduct.FirmwareReleases)
+	if variant == "" {
+		variants := make(map[string]struct{})
+		for _, match := range matches {
+			variants[strings.ToUpper(match.variant.VariantType)] = struct{}{}
+		}
+		if len(variants) != 1 {
+			return nil, fmt.Errorf("PID 0x%04x has %d model variants; read the device variant before applying settings", pid, len(variants))
+		}
 	}
-	if selectedFirmware == "" {
+	matchedProduct := matches[0].product
+	matchedVariant := matches[0].variant.VariantType
+	matchedFirmwareProtocol := 0
+	matchedFirmwareProtocolKnown := false
+	if matches[0].variant.FirmwareProtocol != nil {
+		matchedFirmwareProtocol = *matches[0].variant.FirmwareProtocol
+		matchedFirmwareProtocolKnown = true
+	}
+	availableFirmware := firmwareVersionsNewestFirst(matchedProduct.FirmwareReleases)
+	latestFirmware := ""
+	if len(availableFirmware) > 0 {
+		latestFirmware = availableFirmware[0]
+	}
+	if firmware == "" && latestFirmware == "" {
 		return nil, fmt.Errorf("model %s has no public firmware entry", matchedProduct.ProductName)
 	}
-
-	schemaURL := strings.TrimRight(client.ModelsBaseURL, "/") +
-		fmt.Sprintf("/vendors/%d/products/%d/variants/%s/firmware-versions/%s/device-models/%s/schema-versions/%s.json",
-			0x0b0e,
-			pid,
-			url.PathEscape(matchedVariant),
-			url.PathEscape(selectedFirmware),
-			url.PathEscape(client.ModelName),
-			url.PathEscape(client.SchemaVersion),
-		)
-	var schema any
-	if err := client.getJSON(ctx, schemaURL, &schema); err != nil {
-		return nil, fmt.Errorf("load model schema: %w", err)
+	candidates := make([]string, 0, len(availableFirmware)+1)
+	appendCandidate := func(candidate string) {
+		if candidate == "" {
+			return
+		}
+		for _, existing := range candidates {
+			if existing == candidate {
+				return
+			}
+		}
+		candidates = append(candidates, candidate)
 	}
-	properties := make(map[string]Property)
-	collectProperties(schema, properties)
+	if firmware != "" {
+		appendCandidate(firmware)
+	}
+	for _, candidate := range availableFirmware {
+		appendCandidate(candidate)
+	}
+	var (
+		selectedFirmware  string
+		properties        map[string]Property
+		firstEmptyVersion string
+		firstEmpty        map[string]Property
+		lastSchemaErr     error
+	)
+	for _, candidate := range candidates {
+		candidateProperties, schemaErr := client.loadProperties(ctx, pid, matchedVariant, candidate)
+		if schemaErr != nil {
+			lastSchemaErr = schemaErr
+			continue
+		}
+		if len(candidateProperties) > 0 {
+			selectedFirmware = candidate
+			properties = candidateProperties
+			break
+		}
+		if firstEmptyVersion == "" {
+			firstEmptyVersion = candidate
+			firstEmpty = candidateProperties
+		}
+	}
+	if selectedFirmware == "" {
+		if firstEmptyVersion != "" {
+			selectedFirmware = firstEmptyVersion
+			properties = firstEmpty
+		} else if lastSchemaErr != nil {
+			return nil, fmt.Errorf("load model schema: %w", lastSchemaErr)
+		} else {
+			return nil, errors.New("model has no usable settings profile")
+		}
+	}
 	return &Capabilities{
 		ProductName:              matchedProduct.ProductName,
 		ProductGroupName:         matchedProduct.ProductGroupName,
@@ -358,12 +405,33 @@ func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware 
 		PID:                      pid,
 		Variant:                  matchedVariant,
 		Firmware:                 selectedFirmware,
+		DeviceFirmware:           firmware,
+		ExactFirmwareProfile:     firmware == "" || selectedFirmware == firmware,
 		FirmwareProtocol:         matchedFirmwareProtocol,
 		FirmwareProtocolKnown:    matchedFirmwareProtocolKnown,
 		FirmwareDowngradeAllowed: matchedProduct.FirmwareDowngradeAllowed,
 		SupportedProtocols:       append([]string(nil), matchedProduct.SupportedProtocols...),
 		Properties:               properties,
 	}, nil
+}
+
+func (client *Client) loadProperties(ctx context.Context, pid uint16, variant, firmware string) (map[string]Property, error) {
+	schemaURL := strings.TrimRight(client.ModelsBaseURL, "/") +
+		fmt.Sprintf("/vendors/%d/products/%d/variants/%s/firmware-versions/%s/device-models/%s/schema-versions/%s.json",
+			0x0b0e,
+			pid,
+			url.PathEscape(variant),
+			url.PathEscape(firmware),
+			url.PathEscape(client.ModelName),
+			url.PathEscape(client.SchemaVersion),
+		)
+	var schema any
+	if err := client.getJSON(ctx, schemaURL, &schema); err != nil {
+		return nil, err
+	}
+	properties := make(map[string]Property)
+	collectProperties(schema, properties)
+	return properties, nil
 }
 
 func (client *Client) getJSON(ctx context.Context, endpoint string, target any) error {
@@ -390,18 +458,20 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, target any) 
 	return nil
 }
 
-func newestFirmware(releases []firmwareRelease) string {
+func firmwareVersionsNewestFirst(releases []firmwareRelease) []string {
 	versions := make([]string, 0, len(releases))
+	seen := make(map[string]struct{}, len(releases))
 	for _, release := range releases {
-		if release.Version != "" && !release.Revoked {
+		if release.Version == "" || release.Revoked {
+			continue
+		}
+		if _, exists := seen[release.Version]; !exists {
+			seen[release.Version] = struct{}{}
 			versions = append(versions, release.Version)
 		}
 	}
 	sort.SliceStable(versions, func(i, j int) bool { return compareVersions(versions[i], versions[j]) > 0 })
-	if len(versions) == 0 {
-		return ""
-	}
-	return versions[0]
+	return versions
 }
 
 func compareVersions(left, right string) int {

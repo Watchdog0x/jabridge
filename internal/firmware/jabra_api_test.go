@@ -73,6 +73,27 @@ func TestQueryFirmwareVersionForDongleSource(t *testing.T) {
 	}
 }
 
+func TestQueryFirmwareVersionForHeadsetThroughDongle(t *testing.T) {
+	transport := &fakeTransport{replies: [][]byte{
+		padTo63([]byte{0x05, 0x00, 0x04, 0x00, 0xC8, 0x12, 0x02, 0x00, 48}),
+		padTo63([]byte{
+			0x05, 0x00, 0x04, 0x52, 0xCC, 0x02, 0x03,
+			0x05, '2', '.', '9', '.', '2',
+		}),
+	}}
+	version, err := QueryFirmwareVersion(transport, 0x04, 0x52, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "2.9.2" {
+		t.Fatalf("version = %q, want 2.9.2", version)
+	}
+	want := padTo63([]byte{0x05, 0x04, 0x00, 0x52, 0x46, 0x02, 0x03})
+	if !bytes.Equal(transport.writes[0], want) {
+		t.Fatalf("child firmware request = %x, want %x", transport.writes[0][:7], want[:7])
+	}
+}
+
 // TestGetDeviceGNPInfoFake verifies the GNP DeviceInfo query against
 // the live capture: TX 05 08 00 00 46 02 02 → RX 00 08 00 C9 02 02 02 01 67
 func TestGetDeviceGNPInfoFake(t *testing.T) {

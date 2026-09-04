@@ -31,11 +31,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - A dated firmware-catalog audit covering every current Jabra USB PID and all
   98 unique latest firmware files without redistributing those files.
 - `jabridge sound`, with guarded PipeWire output, volume, and mute controls.
+- `jabridge use usb|dongle`, which selects a headset control connection and
+  the matching PipeWire output and microphone, and remembers that choice
+  across service restarts without storing serial or Bluetooth addresses.
 - Device switching for multiple connected dongles and headsets.
 - Editable remembered-device actions for connect, disconnect, and two-step
   forget operations.
 - Headset choice settings for voice prompts, sidetone level, controller
   ringtone/volume, and supported programmable buttons.
+- Model-filtered boom-arm actions, guidance, audio protection, auto-sleep,
+  button sounds, mute reminder, sound mode, firmware lock, headset ringer,
+  computer-audio priority, and CLI headset-name editing.
 - IPC subscriptions and device, battery, and pairing change notifications.
 - Simple `jabridge ipc` commands and an IPC quick-start guide.
 - The full IPC guide is published beside the portable archive as `IPC.md`, so
@@ -109,6 +115,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 - Restricted daemon socket and PID files to the current user and rejected
   unsafe filesystem paths.
 - Accepted both standard ELF executables and PIE binaries during app updates.
+- Corrected wireless-headset battery reads to STATUS/HS_BATTERY (`0x12/0x02`)
+  and strictly decode its 0-to-100 value instead of an RSSI-like byte.
+- Read connected-headset firmware, variant, battery, and settings through Link
+  dongle address 4, fixing `Installed: unknown` for supported wireless models.
+- Preserved unrelated bits and fields when changing boom-arm or DSP sidetone
+  settings, and handled the documented `0`/`255` button-sounds encoding.
 - Recognized the current public Link 360, 370, 380, 390, and 400 USB IDs while
   keeping pairing and settings writes on their narrow test allowlists.
 - Stopped labelling every non-dongle Jabra USB product as a headset in CLI

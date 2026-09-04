@@ -51,6 +51,7 @@ type jabra_DeviceInfo struct {
 	powerSupply         string // /sys/class/power_supply/... path
 	gnpDestination      byte
 	gnpDestinationKnown bool
+	metadataProbeAt     time.Time
 }
 
 type batteryComponent int
@@ -219,9 +220,10 @@ const (
 	gnpFlagQuery byte = 0x40
 	gnpFlagCmd   byte = 0x80
 
-	// GNP classes discovered from live probe (2026-04-12)
-	gnpClassDevInfo byte = 0x02 // device name, serial, fw version, etc.
-	gnpClassStatus  byte = 0x04 // battery, features, capabilities
+	gnpClassDevInfo        byte = 0x02 // device name, serial, fw version, etc.
+	gnpClassLegacyStatus   byte = 0x04 // legacy feature and busylight operations
+	gnpClassFirmwareUpdate byte = 0x0f
+	gnpClassStatus         byte = 0x12 // current STATUS command group
 
 	// GNP opcodes — class 0x02 (DeviceInfo)
 	gnpOpDeviceName     byte = 0x00 // → len-prefixed UTF-8
@@ -230,8 +232,8 @@ const (
 	gnpOpFirmwareVer    byte = 0x03 // → len-prefixed ASCII
 	gnpOpVersionEncoded byte = 0x0e // → 6 bytes (padding + major.minor.patch)
 
-	// GNP opcodes — class 0x04 (Status/Capabilities)
-	gnpOpBattery     byte = 0x01 // → 4 bytes [rssi, flags, component, level%]
+	// Status and legacy-status operations.
+	gnpOpBattery     byte = 0x02 // STATUS__HS_BATTERY → [flags, level, ...]
 	gnpOpBusylight   byte = 0x22 // GET: query returns 0/1; SET: command with payload [0x01=on, 0x00=off]
 	gnpOpFeatureList byte = 0x2d // → 12 bytes capability bitmap
 
@@ -366,15 +368,32 @@ func gnpQueryWithPayloadTimeout(h *hidrawConn, destination, seq, class, op byte,
 	if err := h.write(buf); err != nil {
 		return nil, err
 	}
-	resp, err := h.read(timeout)
-	if err != nil {
-		return nil, err
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := h.read(time.Until(deadline))
+		if err != nil {
+			return nil, err
+		}
+		// Strip report ID and ignore unrelated asynchronous events or replies
+		// left in the shared endpoint queue.
+		if len(resp) > 0 && resp[0] == gnpReportID {
+			resp = resp[1:]
+		}
+		if matchesGNPQueryReply(resp, destination, seq, class, op) {
+			return resp, nil
+		}
 	}
-	// Strip report ID
-	if len(resp) > 0 && resp[0] == gnpReportID {
-		resp = resp[1:]
+	return nil, fmt.Errorf("GNP query 0x%02x/0x%02x timed out", class, op)
+}
+
+func matchesGNPQueryReply(resp []byte, source, seq, class, op byte) bool {
+	if len(resp) < 5 || resp[0] != 0 || resp[1] != source || resp[2] != seq || resp[3]&0xc0 != 0xc0 {
+		return false
 	}
-	return resp, nil
+	if resp[4] == 0xfe {
+		return true
+	}
+	return len(resp) >= 6 && resp[4] == class && resp[5] == op
 }
 
 func parseGNPReplyPayload(resp []byte, seq, class, op byte) ([]byte, error) {
@@ -964,7 +983,7 @@ func refreshSelectedDeviceData() {
 	}
 	refreshDongleChildDevice()
 
-	if headset, exists := selectedHeadsetSnapshot(); exists && headset.deviceConnection == deviceConnectionType_USB {
+	if headset, exists := selectedHeadsetSnapshot(); exists {
 		updated, err := getBatteryStatus(headset.deviceID)
 		if err == nil {
 			changed := false
@@ -993,6 +1012,7 @@ func refreshSelectedDeviceData() {
 }
 
 func refreshDongleChildDevice() {
+	defer applySelectedConnectionPreference()
 	dongle, exists := selectedDongleSnapshot()
 	if !exists || dongle.hidrawPath == "" {
 		removeDongleChildAfterMiss()
@@ -1020,7 +1040,11 @@ func refreshDongleChildDevice() {
 	if strings.TrimSpace(name) == "" {
 		name = fmt.Sprintf("Jabra headset (PID %04x)", productID)
 	}
-	if upsertDongleChild(dongle.deviceID, productID, name) {
+	changed := upsertDongleChild(dongle.deviceID, productID, name)
+	if refreshDongleChildMetadata(dongle.deviceID) {
+		changed = true
+	}
+	if changed {
 		requestUIRedraw()
 	}
 }
@@ -1029,11 +1053,19 @@ func upsertDongleChild(parentID, productID uint16, name string) bool {
 	deviceStateMu.Lock()
 	defer deviceStateMu.Unlock()
 	dongleChildMisses = 0
+	controlPath := ""
+	for _, device := range deviceManager {
+		if device != nil && device.deviceID == parentID {
+			controlPath = device.hidrawPath
+			break
+		}
+	}
 	for _, device := range deviceManager {
 		if device != nil && device.deviceConnection == deviceConnectionType_BT && device.parentDeviceID == parentID {
-			changed := device.productID != productID || device.deviceName != name
+			changed := device.productID != productID || device.deviceName != name || device.hidrawPath != controlPath
 			device.productID = productID
 			device.deviceName = name
+			device.hidrawPath = controlPath
 			return changed
 		}
 	}
@@ -1049,6 +1081,7 @@ func upsertDongleChild(parentID, productID uint16, name string) bool {
 		productID:        productID,
 		vendorID:         jabraVendorID,
 		deviceName:       name,
+		hidrawPath:       controlPath,
 		parentDeviceID:   parentID,
 		deviceConnection: deviceConnectionType_BT,
 		featureFlags:     &featureFlags{},
@@ -1056,6 +1089,49 @@ func upsertDongleChild(parentID, productID uint16, name string) bool {
 	if selectedHeadset == -1 {
 		selectedHeadset = id
 	}
+	return true
+}
+
+func refreshDongleChildMetadata(parentID uint16) bool {
+	var child *jabra_DeviceInfo
+	for _, device := range deviceSnapshots() {
+		if device != nil && device.deviceConnection == deviceConnectionType_BT && device.parentDeviceID == parentID {
+			child = device
+			break
+		}
+	}
+	if child == nil {
+		return false
+	}
+	if child.firmwareVersion != "" && child.variantType != "" {
+		return false
+	}
+	if !child.metadataProbeAt.IsZero() && time.Since(child.metadataProbeAt) < 30*time.Second {
+		return false
+	}
+	now := time.Now()
+	updateDeviceByID(child.deviceID, func(stored *jabra_DeviceInfo) {
+		stored.metadataProbeAt = now
+	})
+	version := child.firmwareVersion
+	if version == "" {
+		if value, err := readFirmwareVersion(child); err == nil {
+			version = value
+		}
+	}
+	variant := child.variantType
+	if variant == "" {
+		if value, err := readDeviceVariant(child); err == nil {
+			variant = value
+		}
+	}
+	if version == child.firmwareVersion && variant == child.variantType {
+		return false
+	}
+	updateDeviceByID(child.deviceID, func(stored *jabra_DeviceInfo) {
+		stored.firmwareVersion = version
+		stored.variantType = variant
+	})
 	return true
 }
 
@@ -1272,7 +1348,7 @@ func getSupportedFeature(deviceID uint16) *featureFlags {
 			if dev.isDongle {
 				src = gnpSrcDongle
 			}
-			payload, err := gnpQueryPayload(h, src, nextSeq(), gnpClassStatus, gnpOpFeatureList)
+			payload, err := gnpQueryPayload(h, src, nextSeq(), gnpClassLegacyStatus, gnpOpFeatureList)
 			if err == nil && len(payload) >= 2 {
 				// Parse feature bitmap — pairs of (id, flags)
 				for i := 0; i+1 < len(payload); i += 2 {
@@ -1497,10 +1573,11 @@ func setAutoPairing(autoPairing bool) error {
 /*                             BATTERY STATUS                               */
 /****************************************************************************/
 
-// getBatteryStatus reads Linux's HID power_supply data. The earlier preview
-// treated a fluctuating signal byte as a percentage and produced values above
-// 200%. Until the vendor payload layout is proven across real headsets, the
-// kernel's validated 0..100 capacity is the only accepted battery source.
+// getBatteryStatus reads the headset's STATUS__HS_BATTERY value first and
+// falls back to Linux power_supply for a directly connected headset. The
+// status payload stores flags at byte 0 and battery percent at byte 1. An
+// earlier preview queried the wrong status operation and displayed RSSI-like
+// bytes above 200 percent as battery.
 func getBatteryStatus(deviceID uint16) (*batteryStatus, error) {
 	dev := deviceForID(deviceID)
 	if dev == nil || dev.isDongle {
@@ -1509,7 +1586,17 @@ func getBatteryStatus(deviceID uint16) (*batteryStatus, error) {
 	if dev == nil {
 		return nil, ErrNotSupported
 	}
+	status, gnpErr := readGNPBatteryStatus(dev)
+	if gnpErr == nil {
+		return status, nil
+	}
+	if dev.deviceConnection != deviceConnectionType_USB {
+		return nil, fmt.Errorf("battery unavailable through the dongle for %s: %w", dev.deviceName, gnpErr)
+	}
 
+	// A direct USB connection may expose a kernel-validated battery if its GNP
+	// endpoint does not answer. Never use that value for a wireless child: the
+	// selected connection remains the source of truth.
 	paths := []string{}
 	if dev.powerSupply != "" {
 		paths = append(paths, dev.powerSupply)
@@ -1531,6 +1618,78 @@ func getBatteryStatus(deviceID uint16) (*batteryStatus, error) {
 		return nil, fmt.Errorf("battery unavailable: no valid 0-100 capacity for %s", dev.deviceName)
 	}
 	return aggregateBatteryComponents(components), nil
+}
+
+func readGNPBatteryStatus(device *jabra_DeviceInfo) (*batteryStatus, error) {
+	h, destination, err := settingTransport(device)
+	if err != nil {
+		return nil, err
+	}
+	defer h.close()
+	payload, err := gnpQueryPayloadWithDataTimeout(
+		h, destination, nextSeq(), gnpClassStatus, gnpOpBattery, nil, 900*time.Millisecond,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return decodeGNPBatteryPayload(payload)
+}
+
+func decodeGNPBatteryPayload(payload []byte) (*batteryStatus, error) {
+	if len(payload) < 2 {
+		return nil, fmt.Errorf("battery response returned %d bytes", len(payload))
+	}
+	flags := payload[0]
+	level, err := validatedBatteryCapacity(int(payload[1]))
+	if err != nil {
+		return nil, err
+	}
+	status := &batteryStatus{
+		levelInPercent: level,
+		charging:       flags&0x01 != 0,
+		batteryLow:     flags&0x02 != 0,
+		component:      batteryHeadband,
+	}
+	if flags&0x80 == 0 {
+		return status, nil
+	}
+	if len(payload) < 5 {
+		return nil, fmt.Errorf("multi-battery response returned %d bytes", len(payload))
+	}
+	count := int(payload[4])
+	if count == 0 {
+		return status, nil
+	}
+	if count > 16 || len(payload) < 5+count*3 {
+		return nil, fmt.Errorf("invalid multi-battery count %d for %d bytes", count, len(payload))
+	}
+	status.component = batteryCombined
+	status.components = make([]batteryComponentStatus, 0, count)
+	for index := 0; index < count; index++ {
+		offset := 5 + index*3
+		unitLevel, levelErr := validatedBatteryCapacity(int(payload[offset]))
+		if levelErr != nil {
+			return nil, fmt.Errorf("battery unit %d: %w", index+1, levelErr)
+		}
+		label, component := gnpBatteryComponent(payload[offset+2], index)
+		status.components = append(status.components, batteryComponentStatus{
+			label: label, levelInPercent: unitLevel, component: component,
+		})
+	}
+	return status, nil
+}
+
+func gnpBatteryComponent(address byte, index int) (string, batteryComponent) {
+	switch address {
+	case 4:
+		return "Right", batteryRight
+	case 5:
+		return "Left", batteryLeft
+	case 21:
+		return "Case", batteryCradle
+	default:
+		return fmt.Sprintf("Battery %d", index+1), batteryHeadband
+	}
 }
 
 func readBatteryComponent(powerSupplyPath string, index, total int) (batteryComponentStatus, error) {
@@ -1590,7 +1749,7 @@ func aggregateBatteryComponents(components []batteryComponentStatus) *batterySta
 
 func validatedBatteryCapacity(capacity int) (uint8, error) {
 	if capacity < 0 || capacity > 100 {
-		return 0, fmt.Errorf("invalid kernel battery capacity %d", capacity)
+		return 0, fmt.Errorf("invalid battery capacity %d", capacity)
 	}
 	return uint8(capacity), nil
 }
@@ -1612,7 +1771,7 @@ func readIntFile(path string) (int, error) {
 // byte[6]=length, byte[7..]=ASCII version string.
 func getFirmwareVersion(deviceID uint16) string {
 	dev := deviceForID(deviceID)
-	if dev == nil || dev.hidrawPath == "" {
+	if dev == nil {
 		return ""
 	}
 	if dev.firmwareVersion != "" {
@@ -1629,19 +1788,18 @@ func getFirmwareVersion(deviceID uint16) string {
 }
 
 func readFirmwareVersion(dev *jabra_DeviceInfo) (string, error) {
-	if dev == nil || dev.hidrawPath == "" {
-		return "", errors.New("device has no GNP hidraw interface")
+	h, defaultDestination, err := settingTransport(dev)
+	if err != nil {
+		return "", err
 	}
+	defer h.close()
 	var failures []string
-	for _, destination := range firmwareReadDestinations(dev) {
-		h, err := openHidraw(dev.hidrawPath)
-		if err != nil {
-			return "", fmt.Errorf("open hidraw: %w", err)
-		}
+	destinations := append([]byte{defaultDestination}, firmwareReadDestinations(dev)...)
+	destinations = uniqueDestinations(destinations)
+	for _, destination := range destinations {
 		payload, readErr := gnpQueryPayloadWithDataTimeout(
 			h, destination, nextSeq(), gnpClassDevInfo, gnpOpFirmwareVer, nil, 900*time.Millisecond,
 		)
-		h.close()
 		if readErr != nil {
 			failures = append(failures, fmt.Sprintf("address %d: %v", destination, readErr))
 			continue
@@ -1653,6 +1811,42 @@ func readFirmwareVersion(dev *jabra_DeviceInfo) (string, error) {
 		failures = append(failures, fmt.Sprintf("address %d: %v", destination, decodeErr))
 	}
 	return "", fmt.Errorf("read firmware: %s", strings.Join(failures, "; "))
+}
+
+func readDeviceVariant(dev *jabra_DeviceInfo) (string, error) {
+	h, destination, err := settingTransport(dev)
+	if err != nil {
+		return "", err
+	}
+	defer h.close()
+	payload, err := gnpQueryPayloadWithDataTimeout(
+		h, destination, nextSeq(), gnpClassDevInfo, gnpOpDeviceInfo, nil, 900*time.Millisecond,
+	)
+	if err != nil {
+		return "", err
+	}
+	variant, ok := decodeDeviceVariant(payload)
+	if !ok {
+		return "", errors.New("invalid device variant response")
+	}
+	return variant, nil
+}
+
+func uniqueDestinations(values []byte) []byte {
+	result := make([]byte, 0, len(values))
+	for _, value := range values {
+		found := false
+		for _, existing := range result {
+			if existing == value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func firmwareReadDestinations(dev *jabra_DeviceInfo) []byte {
@@ -1670,6 +1864,10 @@ func firmwareReadDestinations(dev *jabra_DeviceInfo) []byte {
 	}
 	if dev != nil && dev.isDongle {
 		appendDestination(gnpSrcDongle)
+		return destinations
+	}
+	if dev != nil && dev.deviceConnection == deviceConnectionType_BT {
+		appendDestination(4)
 		return destinations
 	}
 	// Direct headsets normally answer at HS_BT_USB (8), while controllers,
@@ -1731,7 +1929,7 @@ func (s *jabraBusylightSender) SetBusylight(on bool) error {
 	// Busylight: class=0x04, op=0x22, src=dongle(0x01) or host(0x08)
 	// Try dongle src first, fall back to host
 	for _, src := range []byte{gnpSrcDongle, gnpSrcHost} {
-		err := gnpCommand(h, src, nextSeq(), gnpClassStatus, gnpOpBusylight, []byte{payload})
+		err := gnpCommand(h, src, nextSeq(), gnpClassLegacyStatus, gnpOpBusylight, []byte{payload})
 		if err == nil {
 			return nil
 		}

@@ -24,6 +24,7 @@ package firmware
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -192,37 +193,48 @@ func GetFirmwareVersion(dev *JabraDevice) (string, error) {
 }
 
 func queryFirmwareVersion(tr OtaTransport, source, seq byte) (string, error) {
+	return QueryFirmwareVersion(tr, source, seq, 5*time.Second)
+}
+
+// QueryFirmwareVersion reads IDENT.VERSION from a caller-selected GNP
+// address. Address 4 is the first headset routed through a Link dongle.
+func QueryFirmwareVersion(tr OtaTransport, source, seq byte, timeout time.Duration) (string, error) {
 	query := buildInitQuery(source, seq, 0x02, 0x03)
 	if err := tr.Write(query); err != nil {
 		return "", fmt.Errorf("write: %w", err)
 	}
 
-	resp, err := tr.Read(5 * time.Second)
-	if err != nil {
-		return "", fmt.Errorf("read: %w", err)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := tr.Read(time.Until(deadline))
+		if err != nil {
+			return "", fmt.Errorf("read: %w", err)
+		}
+		// Strip report ID if present. Ignore unrelated asynchronous events and
+		// wait for the reply carrying our source address and sequence number.
+		if len(resp) > 0 && resp[0] == GnpReportID {
+			resp = resp[1:]
+		}
+		if len(resp) < 8 || resp[0] != 0x00 || resp[1] != source || resp[2] != seq {
+			continue
+		}
+		if resp[3]&0xC0 != 0xC0 {
+			continue
+		}
+		if resp[4] == 0xFE {
+			return "", fmt.Errorf("device returned error: 0x%02x", resp[5])
+		}
+		if resp[4] != 0x02 || resp[5] != 0x03 {
+			continue
+		}
+		// byte[6] = string length, byte[7..] = ASCII
+		strLen := int(resp[6])
+		if len(resp) < 7+strLen {
+			return "", fmt.Errorf("response too short for %d-byte string", strLen)
+		}
+		return string(resp[7 : 7+strLen]), nil
 	}
-
-	// Strip report ID if present
-	if len(resp) > 0 && resp[0] == GnpReportID {
-		resp = resp[1:]
-	}
-	// Validate response: byte[0]=0x00 (dst), byte[3]=0xC0|len (response),
-	// byte[4]=0x02 (class), byte[5]=0x03 (op)
-	if len(resp) < 8 || resp[0] != 0x00 {
-		return "", fmt.Errorf("invalid response: %x", resp[:min(10, len(resp))])
-	}
-	if resp[3]&0xC0 != 0xC0 {
-		return "", fmt.Errorf("not a response packet: flags=0x%02x", resp[3])
-	}
-	if resp[4] == 0xFE {
-		return "", fmt.Errorf("device returned error: 0x%02x", resp[5])
-	}
-	// byte[6] = string length, byte[7..] = ASCII
-	strLen := int(resp[6])
-	if len(resp) < 7+strLen {
-		return "", fmt.Errorf("response too short for %d-byte string", strLen)
-	}
-	return string(resp[7 : 7+strLen]), nil
+	return "", errors.New("firmware version reply timed out")
 }
 
 // ── Device info via GNP (class=0x02, op=0x02) ────────────────────────

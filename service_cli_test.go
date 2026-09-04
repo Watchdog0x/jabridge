@@ -8,7 +8,7 @@ func TestOnlyHardwareCommandsPauseLegacyDirectAccess(t *testing.T) {
 			t.Errorf("%s did not request exclusive hardware access", command)
 		}
 	}
-	for _, command := range []string{"service", "ipc", "setup", "sound", "update", "completion", "models"} {
+	for _, command := range []string{"service", "ipc", "setup", "sound", "use", "update", "completion", "models"} {
 		if commandNeedsDirectHardware(command) {
 			t.Errorf("%s unnecessarily requested direct hardware access", command)
 		}

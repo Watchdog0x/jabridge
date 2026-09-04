@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
 func TestDongleSettingDefinitionsAreUnique(t *testing.T) {
@@ -48,6 +50,22 @@ func TestBoolSettingPayloadConversion(t *testing.T) {
 	}
 	if got := encodeBoolSettingPayload(nested, false); !bytes.Equal(got, []byte{7, 0}) {
 		t.Fatalf("encode nested false = %x", got)
+	}
+
+	buttonSounds := boolSettingDefinition{Key: "button-sounds", HasRawValues: true, FalseRaw: 0, TrueRaw: 0xff}
+	if got, err := decodeBoolSettingPayload(buttonSounds, []byte{0xff}); err != nil || !got {
+		t.Fatalf("decode 0xff boolean = %v, %v", got, err)
+	}
+	if got := encodeBoolSettingPayload(buttonSounds, true); !bytes.Equal(got, []byte{0xff}) {
+		t.Fatalf("encode 0xff boolean = %x", got)
+	}
+
+	boomArm := boolSettingDefinition{Key: "boom-arm", BitMask: 0x02}
+	if got, err := decodeBoolSettingPayload(boomArm, []byte{0x0b}); err != nil || !got {
+		t.Fatalf("decode boom-arm bit = %v, %v", got, err)
+	}
+	if got := encodeBoolSettingPayload(boomArm, true); !bytes.Equal(got, []byte{0x02}) {
+		t.Fatalf("encode boom-arm bit = %x", got)
 	}
 }
 
@@ -102,6 +120,73 @@ func TestConfigurationModePackets(t *testing.T) {
 	endWant := []byte{0x05, 0x01, 0x00, 0x45, 0x86, 0x0d, 0x12}
 	if !bytes.Equal(end[:len(endWant)], endWant) {
 		t.Fatalf("end packet = %x, want %x", end[:len(endWant)], endWant)
+	}
+}
+
+func TestHeadsetBatteryReadPacketUsesCurrentStatusCommand(t *testing.T) {
+	report, err := buildGNPReport(4, 0x31, gnpFlagQuery, gnpClassStatus, gnpOpBattery, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0x05, 0x04, 0x00, 0x31, 0x46, 0x12, 0x02}
+	if !bytes.Equal(report[:len(want)], want) {
+		t.Fatalf("battery packet = %x, want %x", report[:len(want)], want)
+	}
+}
+
+func TestEvolve2SettingDefinitionsUsePublishedCommands(t *testing.T) {
+	want := map[string]struct {
+		class byte
+		op    byte
+	}{
+		"boom-arm-answer":           {gnpClassConfig, 0x98},
+		"auto-reject-call":          {gnpClassConfig, 0x3c},
+		"button-sounds":             {gnpClassConfig, 0x3f},
+		"firmware-upgrade-lock":     {gnpClassFirmwareUpdate, 0x34},
+		"prioritize-computer-audio": {gnpClassConfig, 0x99},
+		"headset-ringer":            {gnpClassConfig, 0x13},
+	}
+	for key, expected := range want {
+		definition, found := findBoolSettingDefinition(settingScopeHeadset, key)
+		if !found || definition.Class != expected.class || definition.Op != expected.op {
+			t.Errorf("%s = %#v", key, definition)
+		}
+	}
+	buttonSounds, _ := findBoolSettingDefinition(settingScopeHeadset, "button-sounds")
+	if !buttonSounds.HasRawValues || buttonSounds.TrueRaw != 0xff || buttonSounds.FalseRaw != 0 {
+		t.Fatalf("button-sounds encoding = %#v", buttonSounds)
+	}
+}
+
+func TestFirstCatalogPropertySupportsModelSpecificAliases(t *testing.T) {
+	capabilities := &modelcatalog.Capabilities{Properties: map[string]modelcatalog.Property{
+		"sidetoneLevelDsp": {Name: "sidetoneLevelDsp"},
+	}}
+	property, found := firstCatalogProperty(capabilities, []string{"sidetoneLevelEnum", "sidetoneLevelDsp"})
+	if !found || property.Name != "sidetoneLevelDsp" {
+		t.Fatalf("property = %#v, found=%v", property, found)
+	}
+}
+
+func TestHeadsetNameDefinitionAndValidation(t *testing.T) {
+	if len(headsetTextSettingDefinitions) != 1 {
+		t.Fatalf("text settings = %#v", headsetTextSettingDefinitions)
+	}
+	definition := headsetTextSettingDefinitions[0]
+	if definition.Key != "headset-name" || definition.Class != gnpClassConfig || definition.Op != 0x56 || definition.MaxBytes != 32 {
+		t.Fatalf("headset name definition = %#v", definition)
+	}
+	if err := validateSettingText("Office headset", definition.MaxBytes); err != nil {
+		t.Fatalf("valid name rejected: %v", err)
+	}
+	if err := validateSettingText("", definition.MaxBytes); err == nil {
+		t.Fatal("empty name accepted")
+	}
+	if err := validateSettingText(strings.Repeat("x", 33), definition.MaxBytes); err == nil {
+		t.Fatal("oversized name accepted")
+	}
+	if err := validateSettingText("bad\nname", definition.MaxBytes); err == nil {
+		t.Fatal("control character accepted")
 	}
 }
 

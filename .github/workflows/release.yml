@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v1.0.0-rc.10
+        description: Release tag, for example v1.0.0-rc.11
         required: true
         type: string
       prerelease:

@@ -17,7 +17,7 @@ func TestSignedRangeChoices(t *testing.T) {
 
 func TestSidetoneLevelsMatchPublishedModelChoices(t *testing.T) {
 	choices := sidetoneLevelChoices()
-	want := []string{"-9 dB", "-6 dB", "-3 dB", "0 dB", "3 dB", "6 dB"}
+	want := []string{"-9 dB", "-6 dB", "-4 dB", "-3 dB", "-2 dB", "0 dB", "2 dB", "3 dB", "4 dB", "6 dB"}
 	if len(choices) != len(want) {
 		t.Fatalf("sidetone choices = %d, want %d", len(choices), len(want))
 	}
@@ -38,6 +38,14 @@ func TestCatalogLimitsButtonChoicesForExactModel(t *testing.T) {
 		if choice.Name == "Microsoft Teams" || choice.Name == "Music" || choice.Name == "Headset busylight" {
 			t.Fatalf("catalog-excluded choice remained: %q", choice.Name)
 		}
+	}
+}
+
+func TestButtonCatalogNamesMatchPropertyDefinitions(t *testing.T) {
+	allowed := []string{"busylightHeadset", "msTeam"}
+	choices := choicesAllowedByCatalog(commonButtonFunctions, allowed)
+	if len(choices) != 2 || choices[0].Name != "Headset busylight" || choices[1].Name != "Microsoft Teams" {
+		t.Fatalf("button property aliases = %#v", choices)
 	}
 }
 
@@ -63,6 +71,28 @@ func TestButtonFunctionDefinitions(t *testing.T) {
 	}
 	if len(wantIDs) != 0 {
 		t.Fatalf("missing button definitions: %v", wantIDs)
+	}
+}
+
+func TestExpandedHeadsetChoiceCommands(t *testing.T) {
+	want := map[string]byte{
+		"boom-arm-action":   0x98,
+		"boom-arm-guidance": 0xbc,
+		"audio-protection":  0x01,
+		"auto-sleep":        0x90,
+		"mute-reminder":     0x1e,
+		"sound-mode":        0x15,
+	}
+	for _, definition := range headsetChoiceSettingDefinitions {
+		if operation, exists := want[definition.Key]; exists {
+			if definition.Op != operation || definition.Class != gnpClassConfig {
+				t.Errorf("%s = %#v", definition.Key, definition)
+			}
+			delete(want, definition.Key)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing expanded choices: %v", want)
 	}
 }
 
@@ -92,6 +122,17 @@ func TestChoiceCyclingAndLookup(t *testing.T) {
 	}
 	if got, ok := findChoiceIndex(spaced, "-9-db"); !ok || got != 1 {
 		t.Fatalf("unit choice lookup = %d, %v", got, ok)
+	}
+}
+
+func TestMaskedChoiceKeepsUnrelatedBoomArmBits(t *testing.T) {
+	got, err := mergeSettingPayload([]byte{0x0a}, 0, 0x0d, 0x01)
+	if err != nil || len(got) != 1 || got[0] != 0x03 {
+		t.Fatalf("masked boom-arm value = %x, %v; want 03", got, err)
+	}
+	dsp, err := mergeSettingPayload([]byte{0x00, 0xfa}, 1, 0, 0x03)
+	if err != nil || len(dsp) != 2 || dsp[0] != 0 || dsp[1] != 3 {
+		t.Fatalf("DSP sidetone value = %x, %v; want 0003", dsp, err)
 	}
 }
 

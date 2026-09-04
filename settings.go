@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
 type settingScope int
@@ -16,19 +19,26 @@ const (
 )
 
 type boolSettingDefinition struct {
-	Key              string
-	Label            string
-	Scope            settingScope
-	Class            byte
-	Op               byte
-	Destination      byte
-	Request          []byte
-	ResponseIndex    int
-	WritePrefix      []byte
-	Invert           bool
-	Writable         bool
-	NeedsConfigMode  bool
-	ValidatedLink380 bool
+	Key                 string
+	Label               string
+	Scope               settingScope
+	Class               byte
+	Op                  byte
+	Destination         byte
+	Request             []byte
+	ResponseIndex       int
+	WritePrefix         []byte
+	Invert              bool
+	Writable            bool
+	NeedsConfigMode     bool
+	ValidatedLink380    bool
+	CatalogProperties   []string
+	HasRawValues        bool
+	FalseRaw            byte
+	TrueRaw             byte
+	BitMask             byte
+	PreservePayload     bool
+	ProbeWithoutCatalog bool
 }
 
 type boolSettingValue struct {
@@ -40,7 +50,25 @@ type boolSettingValue struct {
 type deviceSettingValue struct {
 	Boolean *boolSettingValue
 	Choice  *choiceSettingValue
+	Text    *textSettingValue
 	Remote  *remoteSettingValue
+}
+
+type textSettingDefinition struct {
+	Key               string
+	Label             string
+	Class             byte
+	Op                byte
+	Destination       byte
+	CatalogProperties []string
+	Writable          bool
+	MaxBytes          int
+}
+
+type textSettingValue struct {
+	Definition textSettingDefinition
+	Value      string
+	Editable   bool
 }
 
 type remoteSettingValue struct {
@@ -59,6 +87,9 @@ func (setting deviceSettingValue) key() string {
 	if setting.Choice != nil {
 		return setting.Choice.Definition.Key
 	}
+	if setting.Text != nil {
+		return setting.Text.Definition.Key
+	}
 	if setting.Remote != nil {
 		return setting.Remote.Key
 	}
@@ -71,6 +102,9 @@ func (setting deviceSettingValue) label() string {
 	}
 	if setting.Choice != nil {
 		return setting.Choice.Definition.Label
+	}
+	if setting.Text != nil {
+		return setting.Text.Definition.Label
 	}
 	if setting.Remote != nil {
 		return setting.Remote.Label
@@ -85,6 +119,9 @@ func (setting deviceSettingValue) valueName() string {
 	if setting.Choice != nil {
 		return choiceSettingName(*setting.Choice)
 	}
+	if setting.Text != nil {
+		return setting.Text.Value
+	}
 	if setting.Remote != nil {
 		return setting.Remote.Value
 	}
@@ -97,6 +134,9 @@ func (setting deviceSettingValue) editable() bool {
 	}
 	if setting.Choice != nil {
 		return setting.Choice.Editable
+	}
+	if setting.Text != nil {
+		return setting.Text.Editable
 	}
 	return setting.Remote != nil && setting.Remote.Editable
 }
@@ -130,6 +170,9 @@ func (setting deviceSettingValue) nextValueName() (string, error) {
 		}
 		return setting.Remote.Choices[0], nil
 	}
+	if setting.Text != nil {
+		return "", fmt.Errorf("use `jabridge settings set headset.%s VALUE` to edit text", setting.Text.Definition.Key)
+	}
 	return "", errors.New("invalid setting")
 }
 
@@ -143,6 +186,9 @@ func writeNextDeviceSetting(device *jabra_DeviceInfo, setting deviceSettingValue
 			return err
 		}
 		return writeChoiceSetting(device, *setting.Choice, index)
+	}
+	if setting.Text != nil {
+		return fmt.Errorf("use the settings command to edit %s", setting.Text.Definition.Key)
 	}
 	return errors.New("invalid setting")
 }
@@ -175,36 +221,89 @@ var headsetBoolSettingDefinitions = []boolSettingDefinition{
 	{
 		Key: "sidetone", Label: "Sidetone", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x85, Invert: true, Writable: true,
+		CatalogProperties: []string{"sidetoneEnabled"}, ProbeWithoutCatalog: true,
+	},
+	{
+		Key: "sidetone", Label: "Sidetone", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x7c, Invert: true, Writable: true,
+		ResponseIndex: 0, PreservePayload: true,
+		CatalogProperties: []string{"sidetoneEnabledDsp"},
 	},
 	{
 		Key: "in-call-busylight", Label: "In-call busylight", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x39, Writable: true,
+		CatalogProperties: []string{"inCallBusyLightEnabled"}, ProbeWithoutCatalog: true,
 	},
 	{
 		Key: "on-head-detection", Label: "On-head detection", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x92, Writable: true,
+		CatalogProperties: []string{"onHeadDetectionEnabled"}, ProbeWithoutCatalog: true,
 	},
 	{
 		Key: "music-mode", Label: "Music mode", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x25, Writable: true,
+		CatalogProperties: []string{"musicModeEnabled"}, ProbeWithoutCatalog: true,
 	},
 	{
 		Key: "auto-answer-on-head", Label: "Answer call when worn", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x91, Request: []byte{1}, ResponseIndex: 1,
 		WritePrefix: []byte{1}, Writable: true,
+		CatalogProperties: []string{"autoAnswerCallOnHeadEnabled"}, ProbeWithoutCatalog: true,
 	},
 	{
 		Key: "auto-pause-music", Label: "Pause music when removed", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x8e, Request: []byte{0}, ResponseIndex: 1,
 		WritePrefix: []byte{0}, Writable: true,
+		CatalogProperties: []string{"autoPauseMusicOnHeadEnabled"}, ProbeWithoutCatalog: true,
 	},
 	{
 		Key: "reverse-stereo", Label: "Reverse left and right audio", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x82, Writable: true,
+		CatalogProperties: []string{"reversedStereoChannelsEnabled"}, ProbeWithoutCatalog: true,
 	},
 	{
 		Key: "smart-ringer", Label: "SmartRinger", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0xda, Destination: 3, Writable: true,
+		CatalogProperties: []string{"smartRingerEnabled", "baseSmartRingerEnabled"}, ProbeWithoutCatalog: true,
+	},
+	{
+		Key: "boom-arm-answer", Label: "Answer call by rotating boom arm", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x98, Writable: true, BitMask: 0x02, PreservePayload: true,
+		CatalogProperties: []string{"boomArmRotateAcceptCall"},
+	},
+	{
+		Key: "auto-reject-call", Label: "Auto reject waiting call", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x3c, Writable: true,
+		CatalogProperties: []string{"autoRejectBgWaitingEnabled"},
+	},
+	{
+		Key: "button-sounds", Label: "Button sounds", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x3f, Writable: true,
+		HasRawValues: true, FalseRaw: 0x00, TrueRaw: 0xff,
+		CatalogProperties: []string{"buttonSoundsEnabled"},
+	},
+	{
+		Key: "firmware-upgrade-lock", Label: "Firmware upgrade lock", Scope: settingScopeHeadset,
+		Class: gnpClassFirmwareUpdate, Op: 0x34, Writable: true,
+		CatalogProperties: []string{"firmwareUpgradeLock"},
+	},
+	{
+		Key: "prioritize-computer-audio", Label: "Prioritize computer audio", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x99, Writable: true,
+		CatalogProperties: []string{"prioritizedComputerAudioEnabled"},
+	},
+	{
+		Key: "headset-ringer", Label: "Ringtone in headset", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x13, Request: []byte{0}, ResponseIndex: 1,
+		WritePrefix: []byte{0}, Writable: true,
+		CatalogProperties: []string{"ringer"},
+	},
+}
+
+var headsetTextSettingDefinitions = []textSettingDefinition{
+	{
+		Key: "headset-name", Label: "Headset name", Class: gnpClassConfig, Op: 0x56,
+		CatalogProperties: []string{"bluetoothName"}, Writable: true, MaxBytes: 32,
 	},
 }
 
@@ -260,9 +359,17 @@ func settingDestination(override, defaultDestination byte) byte {
 }
 
 func readBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition) (bool, error) {
-	h, src, err := settingTransport(device)
+	payload, err := readBoolSettingPayload(device, definition)
 	if err != nil {
 		return false, err
+	}
+	return decodeBoolSettingPayload(definition, payload)
+}
+
+func readBoolSettingPayload(device *jabra_DeviceInfo, definition boolSettingDefinition) ([]byte, error) {
+	h, src, err := settingTransport(device)
+	if err != nil {
+		return nil, err
 	}
 	defer h.close()
 
@@ -277,9 +384,9 @@ func readBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition)
 		900*time.Millisecond,
 	)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return decodeBoolSettingPayload(definition, payload)
+	return payload, nil
 }
 
 func decodeBoolSettingPayload(definition boolSettingDefinition, payload []byte) (bool, error) {
@@ -287,10 +394,23 @@ func decodeBoolSettingPayload(definition boolSettingDefinition, payload []byte) 
 		return false, fmt.Errorf("setting %s returned %d bytes", definition.Key, len(payload))
 	}
 	raw := payload[definition.ResponseIndex]
-	if raw > 1 {
-		return false, fmt.Errorf("setting %s returned invalid boolean %d", definition.Key, raw)
+	var value bool
+	if definition.BitMask != 0 {
+		masked := raw & definition.BitMask
+		if masked != 0 && masked != definition.BitMask {
+			return false, fmt.Errorf("setting %s returned invalid masked boolean %d", definition.Key, raw)
+		}
+		value = masked == definition.BitMask
+	} else {
+		falseRaw, trueRaw := byte(0), byte(1)
+		if definition.HasRawValues {
+			falseRaw, trueRaw = definition.FalseRaw, definition.TrueRaw
+		}
+		if raw != falseRaw && raw != trueRaw {
+			return false, fmt.Errorf("setting %s returned invalid boolean %d", definition.Key, raw)
+		}
+		value = raw == trueRaw
 	}
-	value := raw == 1
 	if definition.Invert {
 		value = !value
 	}
@@ -298,15 +418,23 @@ func decodeBoolSettingPayload(definition boolSettingDefinition, payload []byte) 
 }
 
 func encodeBoolSettingPayload(definition boolSettingDefinition, value bool) []byte {
-	raw := value
+	logical := value
 	if definition.Invert {
-		raw = !raw
+		logical = !logical
+	}
+	falseRaw, trueRaw := byte(0), byte(1)
+	if definition.HasRawValues {
+		falseRaw, trueRaw = definition.FalseRaw, definition.TrueRaw
+	}
+	raw := falseRaw
+	if logical {
+		raw = trueRaw
+		if definition.BitMask != 0 {
+			raw = definition.BitMask
+		}
 	}
 	payload := append([]byte(nil), definition.WritePrefix...)
-	if raw {
-		return append(payload, 1)
-	}
-	return append(payload, 0)
+	return append(payload, raw)
 }
 
 func canEditBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition) bool {
@@ -327,6 +455,17 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
 	}
 	payload := encodeBoolSettingPayload(definition, value)
+	if definition.PreservePayload {
+		current, err := readBoolSettingPayload(device, definition)
+		if err != nil {
+			return fmt.Errorf("read %s before write: %w", definition.Key, err)
+		}
+		raw := payload[len(payload)-1]
+		payload, err = mergeSettingPayload(current, definition.ResponseIndex, definition.BitMask, raw)
+		if err != nil {
+			return fmt.Errorf("setting %s: %w", definition.Key, err)
+		}
+	}
 	if err := writeSettingPacket(device, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
 		return fmt.Errorf("write %s: %w", definition.Key, err)
 	}
@@ -339,6 +478,19 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 		return fmt.Errorf("verify %s: wrote %s but read %s", definition.Key, onOff(value), onOff(readBack))
 	}
 	return nil
+}
+
+func mergeSettingPayload(current []byte, index int, mask, raw byte) ([]byte, error) {
+	if index < 0 || index >= len(current) {
+		return nil, fmt.Errorf("setting payload index %d is outside %d bytes", index, len(current))
+	}
+	result := append([]byte(nil), current...)
+	if mask != 0 {
+		result[index] = (result[index] &^ mask) | (raw & mask)
+	} else {
+		result[index] = raw
+	}
+	return result, nil
 }
 
 func writeSettingPacket(device *jabra_DeviceInfo, overrideDestination, class, op byte, payload []byte, needsConfigMode bool) error {
@@ -457,18 +609,49 @@ func refreshedSettingsDevice(original *jabra_DeviceInfo) *jabra_DeviceInfo {
 
 func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []boolSettingValue {
 	values := make([]boolSettingValue, 0, len(settingDefinitions(scope)))
+	var capabilities *modelcatalog.Capabilities
+	var catalogErr error
+	if scope == settingScopeHeadset {
+		capabilities, catalogErr = lookupDeviceModel(device)
+	}
+	seen := make(map[string]struct{})
 	for _, definition := range settingDefinitions(scope) {
+		if _, exists := seen[definition.Key]; exists {
+			continue
+		}
+		catalogMatched := scope != settingScopeHeadset || len(definition.CatalogProperties) == 0
+		if scope == settingScopeHeadset && catalogErr == nil {
+			_, catalogMatched = firstCatalogProperty(capabilities, definition.CatalogProperties)
+		} else if scope == settingScopeHeadset && catalogErr != nil {
+			catalogMatched = definition.ProbeWithoutCatalog
+		}
+		if !catalogMatched {
+			continue
+		}
 		value, err := readBoolSetting(device, definition)
 		if err != nil {
 			continue
 		}
+		seen[definition.Key] = struct{}{}
 		values = append(values, boolSettingValue{
 			Definition: definition,
 			Value:      value,
-			Editable:   canEditBoolSetting(device, definition),
+			Editable:   canEditBoolSetting(device, definition) && (scope != settingScopeHeadset || catalogErr == nil),
 		})
 	}
 	return values
+}
+
+func firstCatalogProperty(capabilities *modelcatalog.Capabilities, names []string) (modelcatalog.Property, bool) {
+	if capabilities == nil {
+		return modelcatalog.Property{}, false
+	}
+	for _, name := range names {
+		if property, exists := capabilities.Properties[name]; exists {
+			return property, true
+		}
+	}
+	return modelcatalog.Property{}, false
 }
 
 func readSupportedDeviceSettings(device *jabra_DeviceInfo, scope settingScope) []deviceSettingValue {
@@ -481,7 +664,94 @@ func readSupportedDeviceSettings(device *jabra_DeviceInfo, scope settingScope) [
 		copy := value
 		settings = append(settings, deviceSettingValue{Choice: &copy})
 	}
+	if scope == settingScopeHeadset {
+		for _, value := range readSupportedTextSettings(device) {
+			copy := value
+			settings = append(settings, deviceSettingValue{Text: &copy})
+		}
+	}
 	return settings
+}
+
+func readSupportedTextSettings(device *jabra_DeviceInfo) []textSettingValue {
+	capabilities, err := lookupDeviceModel(device)
+	if err != nil {
+		return nil
+	}
+	values := make([]textSettingValue, 0, len(headsetTextSettingDefinitions))
+	for _, definition := range headsetTextSettingDefinitions {
+		if _, supported := firstCatalogProperty(capabilities, definition.CatalogProperties); !supported {
+			continue
+		}
+		value, readErr := readTextSetting(device, definition)
+		if readErr != nil {
+			continue
+		}
+		values = append(values, textSettingValue{Definition: definition, Value: value, Editable: definition.Writable})
+	}
+	return values
+}
+
+func readTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition) (string, error) {
+	h, defaultDestination, err := settingTransport(device)
+	if err != nil {
+		return "", err
+	}
+	defer h.close()
+	payload, err := gnpQueryPayloadWithDataTimeout(
+		h, settingDestination(definition.Destination, defaultDestination), nextSeq(),
+		definition.Class, definition.Op, nil, 900*time.Millisecond,
+	)
+	if err != nil {
+		return "", err
+	}
+	if index := strings.IndexByte(string(payload), 0); index >= 0 {
+		payload = payload[:index]
+	}
+	if len(payload) == 0 || !utf8.Valid(payload) {
+		return "", errors.New("headset name is empty or invalid UTF-8")
+	}
+	return string(payload), nil
+}
+
+func writeTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition, value string) error {
+	value = strings.TrimSpace(value)
+	if !definition.Writable {
+		return fmt.Errorf("setting %s is read-only", definition.Key)
+	}
+	if err := validateSettingText(value, definition.MaxBytes); err != nil {
+		return err
+	}
+	payload := append([]byte(value), 0)
+	if err := writeSettingPacket(device, definition.Destination, definition.Class, definition.Op, payload, false); err != nil {
+		return fmt.Errorf("write %s: %w", definition.Key, err)
+	}
+	readBack, err := readTextSetting(device, definition)
+	if err != nil {
+		return fmt.Errorf("verify %s: %w", definition.Key, err)
+	}
+	if readBack != value {
+		return fmt.Errorf("verify %s: wrote %q but read %q", definition.Key, value, readBack)
+	}
+	return nil
+}
+
+func validateSettingText(value string, maximum int) error {
+	if value == "" {
+		return errors.New("value cannot be empty")
+	}
+	if !utf8.ValidString(value) {
+		return errors.New("value must be valid UTF-8")
+	}
+	if maximum > 0 && len([]byte(value)) > maximum {
+		return fmt.Errorf("value is longer than %d bytes", maximum)
+	}
+	for _, character := range value {
+		if character == 0 || character < 0x20 || character == 0x7f {
+			return errors.New("value contains a control character")
+		}
+	}
+	return nil
 }
 
 func onOff(value bool) string {

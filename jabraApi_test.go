@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -344,14 +346,14 @@ func TestUSBDeviceIsRegisteredBeforeProtocolEnrichment(t *testing.T) {
 }
 
 func TestDongleChildLifecycle(t *testing.T) {
-	dongle := &jabra_DeviceInfo{deviceID: 0, productID: 0x24c8, isDongle: true}
+	dongle := &jabra_DeviceInfo{deviceID: 0, productID: 0x24c8, isDongle: true, hidrawPath: "/dev/hidraw-test"}
 	withDeviceState(t, devices{0: dongle}, -1, 0)
 
 	if !upsertDongleChild(0, 0x24b7, "Jabra Evolve2 65") {
 		t.Fatal("new dongle child did not change state")
 	}
 	child, exists := selectedHeadsetSnapshot()
-	if !exists || child.productID != 0x24b7 || child.deviceConnection != deviceConnectionType_BT {
+	if !exists || child.productID != 0x24b7 || child.deviceConnection != deviceConnectionType_BT || child.hidrawPath != dongle.hidrawPath {
 		t.Fatalf("unexpected dongle child: %#v", child)
 	}
 	if upsertDongleChild(0, 0x24b7, "Jabra Evolve2 65") {
@@ -447,6 +449,27 @@ func TestHidrawReadHonorsPollTimeout(t *testing.T) {
 	}
 }
 
+func TestGNPQueryReplyMatchingIgnoresEventsAndOtherSequences(t *testing.T) {
+	if matchesGNPQueryReply([]byte{0, 4, 0, 0x08, 0x12, 0x02}, 4, 0x31, 0x12, 0x02) {
+		t.Fatal("asynchronous event matched a query")
+	}
+	if matchesGNPQueryReply([]byte{0, 4, 0x30, 0xc8, 0x12, 0x02}, 4, 0x31, 0x12, 0x02) {
+		t.Fatal("different sequence matched a query")
+	}
+	if matchesGNPQueryReply([]byte{0, 8, 0x31, 0xc8, 0x12, 0x02, 0, 48}, 4, 0x31, 0x12, 0x02) {
+		t.Fatal("reply from another device address matched the query")
+	}
+	if matchesGNPQueryReply([]byte{4, 4, 0x31, 0xc8, 0x12, 0x02, 0, 48}, 4, 0x31, 0x12, 0x02) {
+		t.Fatal("reply not addressed to the host matched the query")
+	}
+	if !matchesGNPQueryReply([]byte{0, 4, 0x31, 0xc8, 0x12, 0x02, 0, 48}, 4, 0x31, 0x12, 0x02) {
+		t.Fatal("matching battery reply was ignored")
+	}
+	if !matchesGNPQueryReply([]byte{0, 4, 0x31, 0xc6, 0xfe, 0x03}, 4, 0x31, 0x12, 0x02) {
+		t.Fatal("matching NAK was ignored")
+	}
+}
+
 func TestBatteryCapacityRejectsSignalLikeValues(t *testing.T) {
 	for _, invalid := range []int{-1, 218, 230, 248} {
 		if _, err := validatedBatteryCapacity(invalid); err == nil {
@@ -455,6 +478,57 @@ func TestBatteryCapacityRejectsSignalLikeValues(t *testing.T) {
 	}
 	if got, err := validatedBatteryCapacity(48); err != nil || got != 48 {
 		t.Fatalf("battery capacity 48 = %d, %v", got, err)
+	}
+}
+
+func TestDecodeGNPBatteryUsesStatusValueNotSignalByte(t *testing.T) {
+	battery, err := decodeGNPBatteryPayload([]byte{0x01, 48, 0x00, 230})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if battery.levelInPercent != 48 || !battery.charging || battery.batteryLow {
+		t.Fatalf("battery = %#v", battery)
+	}
+	if _, err := decodeGNPBatteryPayload([]byte{0x00, 230}); err == nil {
+		t.Fatal("signal-like value was accepted as battery percent")
+	}
+}
+
+func TestDecodeGNPMultipleBatteryUnits(t *testing.T) {
+	// flags, aggregate, reserved bytes, unit count, then 3 bytes per unit.
+	payload := []byte{0x80, 48, 0x00, 0x00, 3, 52, 0x00, 4, 49, 0x00, 5, 80, 0x00, 21}
+	battery, err := decodeGNPBatteryPayload(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if battery.levelInPercent != 48 || battery.component != batteryCombined || len(battery.components) != 3 {
+		t.Fatalf("battery = %#v", battery)
+	}
+	if battery.components[0].label != "Right" || battery.components[0].levelInPercent != 52 ||
+		battery.components[1].label != "Left" || battery.components[1].levelInPercent != 49 ||
+		battery.components[2].label != "Case" || battery.components[2].levelInPercent != 80 {
+		t.Fatalf("components = %#v", battery.components)
+	}
+}
+
+func TestDecodeGNPBatteryRejectsTruncatedUnits(t *testing.T) {
+	if _, err := decodeGNPBatteryPayload([]byte{0x80, 50, 0, 0, 2, 45, 0, 4}); err == nil {
+		t.Fatal("truncated multi-battery response was accepted")
+	}
+}
+
+func TestWirelessBatteryNeverFallsBackToDirectUSBPowerSupply(t *testing.T) {
+	powerSupply := t.TempDir()
+	if err := os.WriteFile(filepath.Join(powerSupply, "capacity"), []byte("48\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	child := &jabra_DeviceInfo{
+		deviceID: 1, deviceName: "Wireless headset", productID: 0x24b7,
+		deviceConnection: deviceConnectionType_BT, parentDeviceID: 7, powerSupply: powerSupply,
+	}
+	withDeviceState(t, devices{1: child}, 1, -1)
+	if battery, err := getBatteryStatus(child.deviceID); err == nil || battery != nil || !strings.Contains(err.Error(), "through the dongle") {
+		t.Fatalf("wireless fallback = %#v, %v", battery, err)
 	}
 }
 

@@ -15,6 +15,8 @@ func TestLookupReturnsExactVariantProperties(t *testing.T) {
 			_, _ = fmt.Fprint(writer, `{"bundles":[],"unbundledProducts":[{"productName":"Test Headset","productGroupName":"Test Family","deviceType":"OverTheEar","firmwareDowngradeAllowed":true,"supportedProtocols":["GNP"],"variants":[{"vendorId":2830,"productId":4660,"variantType":"01-02","name":"Test Headset UC","fwuProtocolId":7}],"firmwareReleases":[{"version":"1.2.0","revoked":false},{"version":"1.10.0","revoked":false}]}]}`)
 		case "/models/vendors/2830/products/4660/variants/01-02/firmware-versions/1.10.0/device-models/Jabra SDK V4/schema-versions/1.10.0.json":
 			_, _ = fmt.Fprint(writer, `{"device":{"settings":[{"settingAccess":"ReadWrite","requiresRestart":false,"sdkProperties":["sidetoneEnabled"],"possibleValues":[{"value":true},{"value":false}]}]}}`)
+		case "/models/vendors/2830/products/4660/variants/01-02/firmware-versions/1.2.0/device-models/Jabra SDK V4/schema-versions/1.10.0.json":
+			_, _ = fmt.Fprint(writer, `{"device":{"settings":[]}}`)
 		default:
 			http.NotFound(writer, request)
 		}
@@ -44,6 +46,49 @@ func TestLookupReturnsExactVariantProperties(t *testing.T) {
 	property, exists := capabilities.Properties["sidetoneEnabled"]
 	if !exists || property.Access != "ReadWrite" || len(property.PossibleValues) != 2 {
 		t.Fatalf("property = %#v, exists=%v", property, exists)
+	}
+	withoutVariant, err := client.Lookup(context.Background(), 0x1234, "", "")
+	if err != nil || withoutVariant.Variant != "01-02" {
+		t.Fatalf("unambiguous PID fallback = %#v, %v", withoutVariant, err)
+	}
+	fallback, err := client.Lookup(context.Background(), 0x1234, "01-02", "1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.Firmware != "1.10.0" || fallback.DeviceFirmware != "1.2.0" || fallback.ExactFirmwareProfile {
+		t.Fatalf("populated profile fallback = %#v", fallback)
+	}
+}
+
+func TestLookupFindsNewestPopulatedProfileAcrossOlderReleases(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/bundles.json":
+			_, _ = fmt.Fprint(writer, `{"bundles":[],"unbundledProducts":[{"productName":"Test Headset","variants":[{"vendorId":2830,"productId":4660,"variantType":"01-02"}],"firmwareReleases":[{"version":"3.0.0"},{"version":"2.0.0"},{"version":"1.0.0"}]}]}`)
+		case "/models/vendors/2830/products/4660/variants/01-02/firmware-versions/3.0.0/device-models/Jabra SDK V4/schema-versions/1.10.0.json",
+			"/models/vendors/2830/products/4660/variants/01-02/firmware-versions/2.0.0/device-models/Jabra SDK V4/schema-versions/1.10.0.json":
+			_, _ = fmt.Fprint(writer, `{"device":{"settings":[]}}`)
+		case "/models/vendors/2830/products/4660/variants/01-02/firmware-versions/1.0.0/device-models/Jabra SDK V4/schema-versions/1.10.0.json":
+			_, _ = fmt.Fprint(writer, `{"device":{"settings":[{"sdkProperty":"voicePrompts","possibleValues":[{"value":"voice"}]}]}}`)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{
+		HTTPClient: server.Client(), BundlesURL: server.URL + "/bundles.json",
+		ModelsBaseURL: server.URL + "/models", ModelName: "Jabra SDK V4", SchemaVersion: "1.10.0",
+	}
+	capabilities, err := client.Lookup(context.Background(), 0x1234, "01-02", "2.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capabilities.Firmware != "1.0.0" || capabilities.DeviceFirmware != "2.0.0" || capabilities.ExactFirmwareProfile {
+		t.Fatalf("older populated fallback = %#v", capabilities)
+	}
+	if _, exists := capabilities.Properties["voicePrompts"]; !exists {
+		t.Fatalf("fallback properties = %#v", capabilities.Properties)
 	}
 }
 
@@ -124,5 +169,24 @@ func TestLookupRejectsUnknownPID(t *testing.T) {
 	client := &Client{HTTPClient: server.Client(), BundlesURL: server.URL, ModelsBaseURL: server.URL}
 	if _, err := client.Lookup(context.Background(), 0xffff, "", ""); err == nil {
 		t.Fatal("unknown PID was accepted")
+	}
+}
+
+func TestLookupWithoutVariantRequiresOneUnambiguousVariant(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/bundles.json":
+			_, _ = fmt.Fprint(writer, `{"bundles":[],"unbundledProducts":[{"productName":"Test","variants":[
+				{"vendorId":2830,"productId":4660,"variantType":"01-01"},
+				{"vendorId":2830,"productId":4660,"variantType":"01-02"}
+			],"firmwareReleases":[{"version":"1.0.0","revoked":false}]}]}`)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	client := &Client{HTTPClient: server.Client(), BundlesURL: server.URL, ModelsBaseURL: server.URL}
+	if _, err := client.Lookup(context.Background(), 0x1234, "", ""); err == nil {
+		t.Fatal("ambiguous PID was accepted without a variant")
 	}
 }

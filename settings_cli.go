@@ -73,6 +73,11 @@ func printSettingsForDevice(kind, prefix string, device *jabra_DeviceInfo, scope
 				prefix, setting.key(), choiceValueToken(setting.valueName()), mode, strings.Join(choices, ", "))
 			continue
 		}
+		if setting.Text != nil {
+			fmt.Printf("  %s.%s = %q  (%s; set a quoted name with the command below)\n",
+				prefix, setting.key(), setting.valueName(), mode)
+			continue
+		}
 		fmt.Printf("  %s.%s = %s  (%s)\n", prefix, setting.key(), strings.ToLower(setting.valueName()), mode)
 	}
 }
@@ -131,6 +136,16 @@ func applyDeviceSettingFromText(device *jabra_DeviceInfo, setting deviceSettingV
 		}
 		return valueName, true, nil
 	}
+	if setting.Text != nil {
+		value := strings.TrimSpace(textValue)
+		if setting.Text.Value == value {
+			return value, false, nil
+		}
+		if err := writeTextSetting(device, setting.Text.Definition, value); err != nil {
+			return "", false, err
+		}
+		return value, true, nil
+	}
 	return "", false, fmt.Errorf("invalid setting %s", setting.key())
 }
 
@@ -182,6 +197,7 @@ func printSettingsUsage() {
   jabridge settings set dongle.prioritize-computer-audio off
   jabridge settings set headset.sidetone on
   jabridge settings set headset.voice-prompts voice
+  jabridge settings set headset.headset-name "Office headset"
   jabridge settings set headset.three-dot-button push-to-talk
 
 Only settings answered by the connected device are listed. Every change is

@@ -16,6 +16,14 @@ type soundVolume struct {
 	Muted   bool
 }
 
+var (
+	takeAudioSnapshot   = pipewire.TakeSnapshot
+	setDefaultAudioNode = func(nodeID int) error {
+		_, err := runWPCTL("set-default", strconv.Itoa(nodeID))
+		return err
+	}
+)
+
 func runSound(args []string) error {
 	if len(args) == 0 || (len(args) == 1 && args[0] == "status") {
 		return printSoundStatus()
@@ -108,7 +116,7 @@ func printSoundStatus() error {
 }
 
 func resolveJabraSink(nodeID string) (pipewire.Node, error) {
-	snapshot, err := pipewire.TakeSnapshot()
+	snapshot, err := takeAudioSnapshot()
 	if err != nil {
 		return pipewire.Node{}, err
 	}
@@ -132,6 +140,96 @@ func resolveJabraSink(nodeID string) (pipewire.Node, error) {
 		}
 	}
 	return pipewire.Node{}, fmt.Errorf("PipeWire node %d is not a Jabra output", wanted)
+}
+
+func followSelectedDeviceAudio(targetName string) error {
+	if strings.TrimSpace(targetName) == "" {
+		return nil
+	}
+	snapshot, err := takeAudioSnapshot()
+	if err != nil {
+		return nil // Device control still works on systems without PipeWire tools.
+	}
+	selected := make([]pipewire.Node, 0, 2)
+	if sink, found := bestMatchingAudioNode(snapshot.JabraSinkNodes(), targetName); found {
+		selected = append(selected, sink)
+	}
+	if source, found := bestMatchingAudioNode(snapshot.JabraSourceNodes(), targetName); found {
+		selected = append(selected, source)
+	}
+	for _, node := range selected {
+		if err := setDefaultAudioNode(node.ID); err != nil {
+			return fmt.Errorf("set PipeWire default for %s: %w", soundNodeName(node), err)
+		}
+	}
+	return nil
+}
+
+func bestMatchingAudioNode(nodes []pipewire.Node, targetName string) (pipewire.Node, bool) {
+	tokens := audioMatchTokens(targetName)
+	if len(tokens) == 0 {
+		return pipewire.Node{}, false
+	}
+	bestIndex, bestScore := -1, -1
+	for index, node := range nodes {
+		candidate := normalizeAudioName(strings.Join([]string{
+			node.Props.NodeName, node.Props.NodeDescription, node.Props.NodeNick, node.Props.CardName,
+		}, " "))
+		score := 0
+		matched := true
+		for _, token := range tokens {
+			if !strings.Contains(candidate, token) {
+				matched = false
+				break
+			}
+			score += len(token)
+		}
+		if !matched {
+			continue
+		}
+		if strings.EqualFold(node.State, "running") {
+			score += 2
+		} else if strings.EqualFold(node.State, "idle") {
+			score++
+		}
+		if score > bestScore || (score == bestScore && bestIndex >= 0 && node.ID < nodes[bestIndex].ID) {
+			bestIndex, bestScore = index, score
+		}
+	}
+	if bestIndex < 0 {
+		return pipewire.Node{}, false
+	}
+	return nodes[bestIndex], true
+}
+
+func audioMatchTokens(name string) []string {
+	ignored := map[string]bool{
+		"jabra": true, "usb": true, "headset": true, "stereo": true, "mono": true,
+		"analog": true, "audio": true, "device": true,
+	}
+	fields := strings.Fields(normalizeAudioName(name))
+	tokens := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if !ignored[field] && len(field) > 1 {
+			tokens = append(tokens, field)
+		}
+	}
+	return tokens
+}
+
+func normalizeAudioName(value string) string {
+	var builder strings.Builder
+	space := true
+	for _, character := range strings.ToLower(value) {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') {
+			builder.WriteRune(character)
+			space = false
+		} else if !space {
+			builder.WriteByte(' ')
+			space = true
+		}
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func readSoundVolume(nodeID int) (soundVolume, error) {

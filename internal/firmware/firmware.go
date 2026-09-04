@@ -149,6 +149,7 @@ type USBDevice struct {
 	Product      string
 	Serial       string
 	ViaDongle    bool
+	Firmware     string
 }
 
 // enumerateUSB walks /sys/bus/usb/devices and returns all devices matching
@@ -1254,7 +1255,9 @@ func cmdStatus() {
 			SerialNumber:  d.Serial,
 			IsDongle:      isDonglePID(d.ProductID),
 		}
-		if !d.ViaDongle {
+		if d.ViaDongle && d.Firmware != "" {
+			installed = d.Firmware
+		} else if !d.ViaDongle {
 			if hidrawPath, err := findHidrawForDevice(probe); err == nil {
 				probe.HidrawPath = hidrawPath
 				if version, err := GetFirmwareVersion(probe); err == nil && version != "" {
@@ -1302,10 +1305,12 @@ func connectedDongleChildren(devices []USBDevice) []USBDevice {
 			continue
 		}
 		name, nameErr := QueryChildName(transport, 0x51, 750*time.Millisecond)
-		_ = transport.Close()
 		if nameErr != nil {
+			_ = transport.Close()
 			continue
 		}
+		firmwareVersion, _ := QueryFirmwareVersion(transport, 4, 0x52, 900*time.Millisecond)
+		_ = transport.Close()
 		if strings.TrimSpace(name) == "" {
 			name = fmt.Sprintf("Jabra headset (PID %04x)", productID)
 		}
@@ -1314,6 +1319,7 @@ func connectedDongleChildren(devices []USBDevice) []USBDevice {
 			ProductID: productID,
 			Product:   name,
 			ViaDongle: true,
+			Firmware:  firmwareVersion,
 		})
 	}
 	return children

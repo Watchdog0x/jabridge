@@ -37,6 +37,20 @@ func TestReplaceTUIDeviceStateMirrorsService(t *testing.T) {
 	}
 }
 
+func TestReplaceTUIDeviceStateUsesServiceSelection(t *testing.T) {
+	withDeviceState(t, devices{}, -1, -1)
+	replaceTUIDeviceState(
+		[]ipc.DeviceInfo{
+			{ID: 0, Name: "Link 380", IsDongle: true, Connection: "usb", Selected: true},
+			{ID: 1, Name: "Evolve2 65", Connection: "usb"},
+			{ID: 2, Name: "Evolve2 65", Connection: "dongle", ParentID: 0, Selected: true},
+		}, nil, ipc.FeatureInfo{},
+	)
+	if selectedDongle != 0 || selectedHeadset != 2 {
+		t.Fatalf("service selection mirrored as dongle=%d headset=%d", selectedDongle, selectedHeadset)
+	}
+}
+
 func TestRemoteSettingCyclesOnlyServiceChoices(t *testing.T) {
 	setting := deviceSettingValue{Remote: &remoteSettingValue{
 		Key: "voice-prompts", Value: "Voice", Editable: true,

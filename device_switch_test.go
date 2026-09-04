@@ -42,6 +42,48 @@ func TestSelectHeadsetAndDongle(t *testing.T) {
 	}
 }
 
+func TestSelectedConnectionChoosesMatchingPipeWireName(t *testing.T) {
+	withDeviceState(t, devices{
+		0: {deviceID: 0, deviceName: "Jabra Link 380", isDongle: true},
+		1: {deviceID: 1, deviceName: "Jabra Evolve2 65", deviceConnection: deviceConnectionType_USB},
+		2: {deviceID: 2, deviceName: "Jabra Evolve2 65", deviceConnection: deviceConnectionType_BT, parentDeviceID: 0},
+	}, 1, 0)
+	_, target, follow, err := selectRegistryDeviceState(2)
+	if err != nil || !follow || target != "Jabra Link 380" {
+		t.Fatalf("dongle route = %q, %v, %v", target, follow, err)
+	}
+	_, target, follow, err = selectRegistryDeviceState(1)
+	if err != nil || !follow || target != "Jabra Evolve2 65" {
+		t.Fatalf("USB route = %q, %v, %v", target, follow, err)
+	}
+}
+
+func TestSelectingDonglePrefersItsWirelessHeadsetOverDirectUSB(t *testing.T) {
+	withDeviceState(t, devices{
+		0: {deviceID: 0, deviceName: "USB headset", deviceConnection: deviceConnectionType_USB},
+		1: {deviceID: 1, deviceName: "Link 380", isDongle: true},
+		2: {deviceID: 2, deviceName: "Wireless headset", deviceConnection: deviceConnectionType_BT, parentDeviceID: 1},
+	}, 0, 1)
+	if got := firstHeadsetForDongleLocked(1); got != 2 {
+		t.Fatalf("headset for dongle = %d, want wireless child 2", got)
+	}
+}
+
+func TestIPCDeviceListMarksServiceSelections(t *testing.T) {
+	withDeviceState(t, devices{
+		4: {deviceID: 4, deviceName: "Link 380", isDongle: true},
+		7: {deviceID: 7, deviceName: "USB headset", deviceConnection: deviceConnectionType_USB},
+		9: {deviceID: 9, deviceName: "Wireless headset", deviceConnection: deviceConnectionType_BT, parentDeviceID: 4},
+	}, 9, 4)
+	selected := make(map[uint16]bool)
+	for _, device := range (&jabraAPIBridge{}).ListDevices() {
+		selected[device.ID] = device.Selected
+	}
+	if !selected[4] || selected[7] || !selected[9] {
+		t.Fatalf("IPC selected flags = %#v", selected)
+	}
+}
+
 func TestSwitchDeviceLabelIsSimpleAndShowsConnection(t *testing.T) {
 	item := switchDeviceItem{Active: true, Device: &jabra_DeviceInfo{
 		deviceName: "Evolve2 65", productID: 0x24b7, deviceConnection: deviceConnectionType_BT,
