@@ -2,11 +2,29 @@ package modelcatalog
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func TestModelSettingMetadataPreservesChoicesAndUnknownRestart(t *testing.T) {
+	var document any
+	err := json.Unmarshal([]byte(`{"groupName":"Audio","settings":[{"settingId":"NOISE_CONTROL","type":"Enum","sdkProperties":["ancAmbienceMode"],"helpText":"Choose listening mode","settingAccess":"ReadOnly","requiresRestart":false,"possibleValues":[{"value":"off"},{"value":"anc"}]},{"settingId":"NAME","type":"String","sdkProperties":["bluetoothName"]}]}`), &document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	properties := map[string]Property{}
+	collectProperties(document, properties)
+	mode := properties["ancAmbienceMode"]
+	if mode.SettingID != "NOISE_CONTROL" || mode.Group != "Audio" || mode.Access != "ReadOnly" || !mode.RestartKnown || mode.RequiresRestart || len(mode.PossibleValues) != 2 {
+		t.Fatal(mode)
+	}
+	if properties["bluetoothName"].RestartKnown {
+		t.Fatal("missing restart information treated as false")
+	}
+}
 
 func TestLookupReturnsExactVariantProperties(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

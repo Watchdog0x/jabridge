@@ -7,9 +7,21 @@ import (
 
 // HIDReport describes sizes only; it contains no device input or identity.
 type HIDReport struct {
-	ID    byte
-	Kind  string
-	Bytes int
+	ID     byte
+	Kind   string
+	Bytes  int
+	Fields []HIDField
+}
+
+type HIDField struct {
+	OffsetBits uint64
+	SizeBits   uint32
+	Count      uint32
+	UsagePage  uint32
+	Usages     []uint32
+	UsageMin   uint32
+	UsageMax   uint32
+	Flags      uint32
 }
 
 func InspectHIDReports(path string) ([]HIDReport, error) {
@@ -24,6 +36,7 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 	type globals struct {
 		id          byte
 		size, count uint32
+		page        uint32
 	}
 	type key struct {
 		id   byte
@@ -32,6 +45,9 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 	state := globals{}
 	var stack []globals
 	bits := map[key]uint64{}
+	fields := map[key][]HIDField{}
+	var usages []uint32
+	var usageMin, usageMax uint32
 	for offset := 0; offset < len(descriptor); {
 		prefix := descriptor[offset]
 		offset++
@@ -62,6 +78,8 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 		kind, tag := (prefix>>2)&3, prefix>>4
 		if kind == 1 {
 			switch tag {
+			case 0:
+				state.page = value
 			case 7:
 				state.size = value
 			case 8:
@@ -80,9 +98,21 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 				state = stack[len(stack)-1]
 				stack = stack[:len(stack)-1]
 			}
+		} else if kind == 2 {
+			switch tag {
+			case 0:
+				usages = append(usages, value)
+			case 1:
+				usageMin = value
+			case 2:
+				usageMax = value
+			}
 		} else if kind == 0 {
 			name := map[byte]string{8: "input", 9: "output", 11: "feature"}[tag]
 			if name == "" {
+				usages = nil
+				usageMin = 0
+				usageMax = 0
 				continue
 			}
 			k := key{state.id, name}
@@ -90,7 +120,11 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 			if count > 65536 || bits[k]+count > 65536 {
 				return nil, fmt.Errorf("HID report exceeds supported size")
 			}
+			fields[k] = append(fields[k], HIDField{OffsetBits: bits[k], SizeBits: state.size, Count: state.count, UsagePage: state.page, Usages: append([]uint32(nil), usages...), UsageMin: usageMin, UsageMax: usageMax, Flags: value})
 			bits[k] += count
+			usages = nil
+			usageMin = 0
+			usageMax = 0
 		}
 	}
 	var reports []HIDReport
@@ -99,7 +133,7 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 		if k.id != 0 {
 			size++
 		}
-		reports = append(reports, HIDReport{ID: k.id, Kind: k.kind, Bytes: size})
+		reports = append(reports, HIDReport{ID: k.id, Kind: k.kind, Bytes: size, Fields: fields[k]})
 	}
 	sort.Slice(reports, func(i, j int) bool {
 		if reports[i].ID != reports[j].ID {

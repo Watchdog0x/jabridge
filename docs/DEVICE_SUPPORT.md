@@ -47,7 +47,7 @@ today. The only hardware-qualified device is currently one Link 380 USB-A
 | Link 400 | Catalogued, but it is a DECT dongle rather than the Link 380 Bluetooth path | A separate tested DECT pairing implementation |
 | Evolve, Evolve2, Engage, Speak, Speak2, Perform | USB identity and exact online model profiles can be used; common read operations are candidates | Test each protocol family and model before enabling writes |
 | Engage 40, Engage 50, Engage 50 II controllers | Exact model profiles expose controller settings and multiple-choice button functions | Real controller tests for every read and write |
-| Evolve3 | Catalogued with newer firmware protocols 16 and 17 | New protocol work and real hardware; do not reuse the protocol-7 updater |
+| Evolve3 | USB discovery and model-filtered common settings, plus ANC/HearThrough, wind reduction, spatial audio and undock-answer definitions | Hardware read-back tests; firmware protocols 16 and 17 still need native transfer/recovery implementations |
 | Biz, Pro, UC Voice and older Link devices | Catalogued legacy devices | Tests for firmware protocols 1, 4, and 5 and older control layouts |
 | PanaCast 20, 40, 50, 55 and U30 | Catalogued camera and room-device profiles | Camera controls and firmware protocols 10, 11, and 18 are separate work |
 | Video Bar System, Control IP and Scheduler | Catalogued appliances or controllers | They are not ordinary headset HID devices and are outside the current native headset path |
@@ -60,6 +60,35 @@ families, but it does not mean they share one wire protocol:
 - [JabraCLI supported devices](https://developer.jabra.com/sdks-and-tools/jabracli)
 - [Jabra Device Properties explorer](https://developer.jabra.com/sdks-and-tools/device-properties)
 - [Jabra Linux integration options](https://developer.jabra.com/sdks-and-tools/linux)
+
+## Evolve3 and Speak 510 test targets
+
+The public catalog checked on 5 September 2026 lists these Evolve3 groups:
+
+| Group | Exact USB product IDs | Firmware protocol |
+| --- | --- | --- |
+| Evolve3 45 | 254f, 2550, 2551, 2552, 2553, 2554 | 17 |
+| Evolve3 65 | 2549, 254a, 254b, 254c, 254d, 254e | 17 |
+| Evolve3 65 Flex | 2555, 2556, 2557 | 16 |
+| Evolve3 75 | 2546, 2547, 2548 | 16 |
+| Evolve3 85 | 253d, 253e, 253f | 16 |
+
+The USB vendor is `0b0e`. Model settings are filtered against the actual
+variant and firmware profile. New control definitions have packet/decoder
+tests, but no Evolve3 hardware is available locally to qualify reads or writes.
+The native updater does not implement firmware protocols 16/17.
+
+Speak 510 (`0420`/`0422`) uses firmware protocol 1 and has multiple catalog
+variants. Jabridge must read the variant before choosing a settings profile.
+Direct USB detection, installed firmware reads, controls and UI reconnects
+are separate test items in [issue #3](https://github.com/Watchdog0x/jabridge/issues/3).
+Run `jabridge debug --buttons --output report.txt` on the host. A timeout alone
+does not establish a udev failure. A missing report layout is a transport gap,
+not proof that the speakerphone cannot be supported.
+
+Sources: [Jabra model/property explorer](https://developer.jabra.com/sdks-and-tools/device-properties),
+[Evolve3 75 support](https://www.jabra.com/supportpages/jabra-evolve3-75),
+[Speak 510 support](https://www.jabra.com/en-emea/supportpages/jabra-speak-510).
 
 ## Pairing without a dongle button
 

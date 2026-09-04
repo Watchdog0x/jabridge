@@ -48,8 +48,13 @@ type Capabilities struct {
 
 type Property struct {
 	Name            string
+	SettingID       string
+	Kind            string
+	Group           string
+	Help            string
 	Access          string
 	RequiresRestart bool
+	RestartKnown    bool
 	PossibleValues  []string
 }
 
@@ -500,21 +505,39 @@ func compareVersions(left, right string) int {
 }
 
 func collectProperties(value any, output map[string]Property) {
+	collectPropertiesWithGroup(value, output, "")
+}
+
+func collectPropertiesWithGroup(value any, output map[string]Property, group string) {
 	switch typed := value.(type) {
 	case []any:
 		for _, entry := range typed {
-			collectProperties(entry, output)
+			collectPropertiesWithGroup(entry, output, group)
 		}
 	case map[string]any:
+		if name, ok := typed["groupName"].(string); ok {
+			group = name
+		}
 		names := propertyNames(typed)
 		for _, name := range names {
 			property := output[name]
 			property.Name = name
+			property.Group = group
+			if id, ok := typed["settingId"].(string); ok {
+				property.SettingID = id
+			}
+			if kind, ok := typed["type"].(string); ok {
+				property.Kind = kind
+			}
+			if help, ok := typed["helpText"].(string); ok {
+				property.Help = help
+			}
 			if access, ok := typed["settingAccess"].(string); ok {
 				property.Access = access
 			}
 			if restart, ok := typed["requiresRestart"].(bool); ok {
 				property.RequiresRestart = restart
+				property.RestartKnown = true
 			}
 			if possible, ok := typed["possibleValues"].([]any); ok {
 				for _, raw := range possible {
@@ -526,7 +549,7 @@ func collectProperties(value any, output map[string]Property) {
 			output[name] = property
 		}
 		for _, child := range typed {
-			collectProperties(child, output)
+			collectPropertiesWithGroup(child, output, group)
 		}
 	}
 }

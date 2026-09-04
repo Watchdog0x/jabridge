@@ -39,6 +39,7 @@ type boolSettingDefinition struct {
 	BitMask             byte
 	PreservePayload     bool
 	ProbeWithoutCatalog bool
+	ResponseBytes       int
 }
 
 type boolSettingValue struct {
@@ -220,6 +221,25 @@ var dongleBoolSettingDefinitions = []boolSettingDefinition{
 
 var headsetBoolSettingDefinitions = []boolSettingDefinition{
 	{
+		Key: "answer-on-undock", Label: "Answer call when undocked", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x45, Writable: true, CatalogProperties: []string{"acceptCallOnUndock"},
+	},
+	{
+		Key: "wind-noise-reduction", Label: "Wind noise reduction", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0xef, Request: []byte{0}, ResponseIndex: 1, WritePrefix: []byte{0}, Writable: true,
+		CatalogProperties: []string{"windNoiseReductionEnabled"},
+	},
+	{
+		Key: "spatial-call-audio", Label: "Spatial sound for calls", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0xe4, ResponseIndex: 0, BitMask: 1, PreservePayload: true, ResponseBytes: 3, Writable: true,
+		CatalogProperties: []string{"spatialSoundForCallEnabled"},
+	},
+	{
+		Key: "spatial-media-audio", Label: "Spatial sound for music", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0xe4, ResponseIndex: 1, BitMask: 1, PreservePayload: true, ResponseBytes: 3, Writable: true,
+		CatalogProperties: []string{"spatialSoundForMediaEnabled"},
+	},
+	{
 		Key: "sidetone", Label: "Sidetone", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x85, Invert: true, Writable: true,
 		CatalogProperties: []string{"sidetoneEnabled"}, ProbeWithoutCatalog: true,
@@ -395,6 +415,9 @@ func readBoolSettingPayload(device *jabra_DeviceInfo, definition boolSettingDefi
 }
 
 func decodeBoolSettingPayload(definition boolSettingDefinition, payload []byte) (bool, error) {
+	if definition.ResponseBytes > 0 && len(payload) != definition.ResponseBytes {
+		return false, fmt.Errorf("setting %s returned unexpected field count", definition.Key)
+	}
 	if definition.ResponseIndex < 0 || definition.ResponseIndex >= len(payload) {
 		return false, fmt.Errorf("setting %s returned %d bytes", definition.Key, len(payload))
 	}
@@ -464,6 +487,9 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 		current, err := readBoolSettingPayload(device, definition)
 		if err != nil {
 			return fmt.Errorf("read %s before write: %w", definition.Key, err)
+		}
+		if _, err := decodeBoolSettingPayload(definition, current); err != nil {
+			return err
 		}
 		raw := payload[len(payload)-1]
 		payload, err = mergeSettingPayload(current, definition.ResponseIndex, definition.BitMask, raw)
@@ -626,7 +652,9 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 		}
 		catalogMatched := scope != settingScopeHeadset || len(definition.CatalogProperties) == 0
 		if scope == settingScopeHeadset && catalogErr == nil {
-			_, catalogMatched = firstCatalogProperty(capabilities, definition.CatalogProperties)
+			property, matched := firstCatalogProperty(capabilities, definition.CatalogProperties)
+			catalogMatched = matched
+			definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
 		} else if scope == settingScopeHeadset && catalogErr != nil {
 			catalogMatched = definition.ProbeWithoutCatalog
 		}
@@ -659,6 +687,12 @@ func firstCatalogProperty(capabilities *modelcatalog.Capabilities, names []strin
 	return modelcatalog.Property{}, false
 }
 
+func catalogAllowsSettingWrite(property modelcatalog.Property) bool {
+	// Empty access metadata is common; known command support and device reply
+	// checks still apply. Explicit read-only/unknown access must never enable a write.
+	return property.Access == "" || strings.EqualFold(property.Access, "ReadWrite")
+}
+
 func readSupportedDeviceSettings(device *jabra_DeviceInfo, scope settingScope) []deviceSettingValue {
 	settings := make([]deviceSettingValue, 0)
 	for _, value := range readSupportedBoolSettings(device, scope) {
@@ -685,9 +719,11 @@ func readSupportedTextSettings(device *jabra_DeviceInfo) []textSettingValue {
 	}
 	values := make([]textSettingValue, 0, len(headsetTextSettingDefinitions))
 	for _, definition := range headsetTextSettingDefinitions {
-		if _, supported := firstCatalogProperty(capabilities, definition.CatalogProperties); !supported {
+		property, supported := firstCatalogProperty(capabilities, definition.CatalogProperties)
+		if !supported {
 			continue
 		}
+		definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
 		value, readErr := readTextSetting(device, definition)
 		if readErr != nil {
 			continue

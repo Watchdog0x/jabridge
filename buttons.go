@@ -33,7 +33,18 @@ func runButtons(args []string) error {
 		}
 		seconds = value
 	}
-	paths := jabraInputPaths()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
+	defer cancel()
+	fmt.Printf("Listening for %d seconds. Press headset buttons or turn the wheel. Ctrl+C stops.\n", seconds)
+	count := 0
+	err := collectButtonEvents(ctx, jabraInputPaths(), func(label string) { fmt.Println(label); count++ })
+	fmt.Printf("Finished: %d observations.\n", count)
+	return err
+}
+
+func collectButtonEvents(ctx context.Context, paths []string, emit func(string)) error {
 	var fds []unix.PollFd
 	defer func() {
 		for _, fd := range fds {
@@ -43,7 +54,7 @@ func runButtons(args []string) error {
 	for _, path := range paths {
 		fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 		if err != nil {
-			fmt.Printf("%s: %s\n", filepath.Base(path), diagnosticError(err))
+			emit(fmt.Sprintf("%s: %s", filepath.Base(path), diagnosticError(err)))
 			continue
 		}
 		fds = append(fds, unix.PollFd{Fd: int32(fd), Events: unix.POLLIN})
@@ -51,14 +62,8 @@ func runButtons(args []string) error {
 	if len(fds) == 0 {
 		return errors.New("no accessible Jabra input events; run jabridge setup, reconnect USB, then jabridge debug")
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
-	defer cancel()
-	fmt.Printf("Listening for %d seconds. Press headset buttons or turn the wheel. Ctrl+C stops.\n", seconds)
 	eventSize := 2*(strconv.IntSize/8) + 8
 	buffer := make([]byte, eventSize*64)
-	count := 0
 	for ctx.Err() == nil {
 		if _, err := unix.Poll(fds, 100); err != nil {
 			if err == unix.EINTR {
@@ -80,6 +85,9 @@ func runButtons(args []string) error {
 			if err != nil {
 				return fmt.Errorf("read Jabra input: %s", diagnosticError(err))
 			}
+			if n == 0 {
+				return errors.New("input stream ended")
+			}
 			for offset := 0; offset+eventSize <= n; offset += eventSize {
 				event := buffer[offset+eventSize-8 : offset+eventSize]
 				if binary.NativeEndian.Uint16(event) == unix.EV_SYN && binary.NativeEndian.Uint16(event[2:]) == 3 {
@@ -87,13 +95,11 @@ func runButtons(args []string) error {
 				}
 				label := mediaInputEvent(binary.NativeEndian.Uint16(event), binary.NativeEndian.Uint16(event[2:]), int32(binary.NativeEndian.Uint32(event[4:])))
 				if label != "" {
-					fmt.Println(label)
-					count++
+					emit(label)
 				}
 			}
 		}
 	}
-	fmt.Printf("Finished: %d media/call events.\n", count)
 	return nil
 }
 
@@ -112,6 +118,13 @@ func jabraInputPaths() []string {
 	return paths
 }
 
+var mediaKeyNames = map[uint16]string{
+	113: "Mute", 248: "Microphone mute", 115: "Volume up", 114: "Volume down",
+	169: "Call", 0x1be: "Hang up", 164: "Play/pause", 207: "Play", 119: "Pause",
+	166: "Stop", 163: "Next track", 165: "Previous track",
+	148: "Programmable button 1", 149: "Programmable button 2", 202: "Programmable button 3", 203: "Programmable button 4",
+}
+
 func mediaInputEvent(kind, code uint16, value int32) string {
 	// Stable Linux UAPI values from linux/input-event-codes.h.
 	if kind == unix.EV_REL && (code == 0x08 || code == 0x06 || code == 0x07) {
@@ -120,13 +133,7 @@ func mediaInputEvent(kind, code uint16, value int32) string {
 	if kind != unix.EV_KEY {
 		return ""
 	}
-	name := map[uint16]string{
-		113: "Mute", 248: "Microphone mute",
-		115: "Volume up", 114: "Volume down",
-		169: "Call", 0x1be: "Hang up",
-		164: "Play/pause", 207: "Play", 119: "Pause",
-		166: "Stop", 163: "Next track", 165: "Previous track",
-	}[code]
+	name := mediaKeyNames[code]
 	state := map[int32]string{0: "released", 1: "pressed", 2: "repeat"}[value]
 	if name == "" || state == "" {
 		return ""

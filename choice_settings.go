@@ -52,6 +52,20 @@ var commonButtonFunctions = []settingChoice{
 
 var headsetChoiceSettingDefinitions = []choiceSettingDefinition{
 	{
+		Key: "noise-control", Label: "Noise control", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0xbe, Request: []byte{1}, WritePrefix: []byte{1}, Writable: true,
+		CatalogProperties: []string{"ancAmbienceMode"}, Choices: []settingChoice{
+			{Name: "Off", Raw: 1, CatalogValue: "off"}, {Name: "HearThrough", Raw: 2, CatalogValue: "hearThrough"}, {Name: "ANC", Raw: 4, CatalogValue: "anc"},
+		},
+	},
+	{
+		Key: "hearthrough-level", Label: "HearThrough level", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0xbe, Request: []byte{2}, WritePrefix: []byte{2}, Writable: true,
+		CatalogProperties: []string{"ancHearThroughLevel"}, Choices: []settingChoice{
+			{Name: "Level 1", Raw: 0, CatalogValue: "0"}, {Name: "Level 2", Raw: 1, CatalogValue: "1"}, {Name: "Level 3", Raw: 2, CatalogValue: "2"},
+		},
+	},
+	{
 		Key: "sidetone-level", Label: "Sidetone level", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x68, Choices: sidetoneLevelChoices(),
 		CatalogProperties: []string{"sidetoneLevelEnum"}, Writable: true, ProbeWithoutCatalog: true,
@@ -323,6 +337,7 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 				continue
 			}
 			definition.Choices = choices
+			definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
 		} else if definition.ProbeWithoutCatalog {
 			// A current device-model profile is needed before Jabridge can
 			// promise that every write choice is valid for this exact model.

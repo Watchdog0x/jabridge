@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC13.
+Thank you for testing Jabridge 1.0.0 RC14.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,17 +17,29 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC13
+## Download RC14
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.13 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.13).
+[v1.0.0-rc.14 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.14).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.13_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.13_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.13_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.14_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.14_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.14_linux_amd64
 ./jabridge --version
 ```
+
+The main report command is `./jabridge debug --output report.txt`.
+In a terminal it includes a 20-second button window; follow the prompt and
+press one device control at a time. `--buttons=false` skips observation.
+The report includes all exposed model settings and choices, native read
+results, HID field layout/activity, firmware metadata/cached-file checks,
+and sanitized service/IPC failures. Unknown fields remain unknown.
+
+For Speak 510, collect the report on the host; optionally collect a second
+inside Distrobox with another filename. For Evolve3, test direct USB and the
+Link route separately. Native flashing for protocols 1, 16 and 17 is not
+implemented; a firmware download or matching checksum does not qualify it.
 
 For Engage 50 II, please run `./jabridge setup` once as your normal user.
 Only the access-rule step asks for administrator permission. If setup fails,

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -20,31 +22,66 @@ import (
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	"github.com/Watchdog0x/jabridge/internal/firmware"
 	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
 // Debug reports are assembled from selected fields, never raw logs or packets.
 func runDebug(args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Println("Usage: jabridge debug [--output FILE]\nChecks HID access and service health without changing devices.\nThe report omits serial numbers, Bluetooth addresses, usernames and raw logs.")
+		fmt.Println("Usage: jabridge debug [--buttons] [--output FILE]\nChecks native reads, firmware metadata/cached files, HID access and service health.\nInteractive terminals include a 20-second button/wheel observation; --buttons=false skips it.\nUse --buttons to include observation in scripts. Normal controls still act.\nThe report omits serial numbers, Bluetooth addresses, usernames and raw logs.")
 		return nil
 	}
 	var output io.Writer = os.Stdout
-	if len(args) != 0 {
-		if len(args) != 2 || args[0] != "--output" {
-			return errors.New("usage: jabridge debug [--output FILE]")
-		}
-		file, err := os.OpenFile(args[1], os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	flags := flag.NewFlagSet("debug", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	path := flags.String("output", "", "save report")
+	buttons := flags.Bool("buttons", term.IsTerminal(int(os.Stdin.Fd())), "observe button events")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("usage: jabridge debug [--buttons] [--output FILE]")
+	}
+	if *path != "" {
+		file, err := os.OpenFile(*path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err != nil {
 			return fmt.Errorf("create debug report without overwrite: %w", err)
 		}
 		defer func() { _ = file.Close() }()
 		output = file
 	}
-	fmt.Fprintln(os.Stderr, "Checking device access and native reads. This can take up to about two minutes...")
-	if err := writeDebugReport(output); err != nil {
+	fmt.Fprintln(os.Stderr, "Checking device access, native reads and firmware. This may take a few minutes...")
+	var report bytes.Buffer
+	if err := writeDebugReport(&report); err != nil {
 		return err
 	}
-	if len(args) == 2 {
+	if *buttons {
+		fmt.Fprintln(os.Stderr, "Press device media/call buttons and turn its wheel for 20 seconds. Normal controls still act; Ctrl+C ends observation.")
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		hidResult := make(chan string, 1)
+		go func() { hidResult <- observeHIDActivity(ctx) }()
+		fmt.Fprintln(&report, "\nObserved Linux media/button events:")
+		count := 0
+		err := collectButtonEvents(ctx, jabraInputPaths(), func(label string) { fmt.Fprintln(&report, label); fmt.Fprintln(os.Stderr, label); count++ })
+		// Vendor-only devices may have no evdev nodes. Still observe their HID
+		// input for the full window instead of canceling immediately.
+		fmt.Fprint(&report, <-hidResult)
+		cancel()
+		stop()
+		if err != nil {
+			fmt.Fprintf(&report, "BLOCKED observation: %s\n", err)
+		}
+		fmt.Fprintf(&report, "INFO observations: %d. Zero events does not prove unsupported buttons; the device may need vendor event support.\n", count)
+	}
+	n, err := output.Write(report.Bytes())
+	if err != nil {
+		return err
+	}
+	if n != report.Len() {
+		return io.ErrShortWrite
+	}
+	if *path != "" {
 		fmt.Fprintln(os.Stderr, "Debug report saved. Attach the report file to your issue.")
 	}
 	return nil
@@ -75,6 +112,7 @@ func writeDebugReport(destination io.Writer) error {
 	out := &report
 	fmt.Fprintf(out, "Jabridge debug %s\nPlatform: %s/%s\n", buildinfo.Version, runtime.GOOS, runtime.GOARCH)
 	writeSystemDiagnostic(out)
+	writeEnvironmentDiagnostic(out)
 	fmt.Fprintf(out, "Device access rule installed: %t\n", deviceAccessRuleInstalled())
 	fmt.Fprintf(out, "Custom IPC socket configured: %t\n", os.Getenv("JABRIDGE_SOCKET") != "")
 	devices, err := enumerateJabraUSB()
@@ -91,6 +129,9 @@ func writeDebugReport(destination io.Writer) error {
 			if inspectErr == nil {
 				for _, report := range reports {
 					fmt.Fprintf(out, "    report %d %s: %d bytes\n", report.ID, report.Kind, report.Bytes)
+					for _, field := range report.Fields {
+						fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x usages=%x range=%x..%x flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.Usages, field.UsageMin, field.UsageMax, field.Flags)
+					}
 				}
 			}
 		}
@@ -104,6 +145,7 @@ func writeDebugReport(destination io.Writer) error {
 		fmt.Fprintf(out, "Jabra input %s: %s\n", filepath.Base(path), diagnosticError(openErr))
 	}
 	fmt.Fprintln(out, serviceDiagnosticSummary())
+	writeRecentServiceFailures(out)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	client, err := ipc.Dial(ctx, ipcSocketPath())
@@ -112,8 +154,12 @@ func writeDebugReport(destination io.Writer) error {
 		err = client.Ping(ctx)
 	}
 	fmt.Fprintf(out, "IPC: %s\n", diagnosticError(err))
+	var pids []uint16
+	for _, device := range devices {
+		pids = append(pids, device.productID)
+	}
 	if err == nil {
-		writeNativeDiagnostic(out, client)
+		pids = append(pids, writeNativeDiagnostic(out, client)...)
 	} else {
 		fmt.Fprintln(out, "Native device tests: BLOCKED (service unavailable). Run setup and repeat; access checks above still apply.")
 		for _, device := range devices {
@@ -125,9 +171,19 @@ func writeDebugReport(destination io.Writer) error {
 				continue
 			}
 			fmt.Fprintf(out, "Catalog %04x:%04x: INFO profile %s, %d properties; no device reads were performed\n", device.vendorID, device.productID, safeFirmwareDiagnostic(capabilities.Firmware), len(capabilities.Properties))
+			for _, check := range catalogCoverageChecks(capabilities, nil) {
+				fmt.Fprintf(out, "  %s: %s\n", check.Feature, check.Detail)
+			}
 		}
 	}
 	writeAudioDiagnostic(out)
+	writeButtonCapabilities(out)
+	writeFirmwareDiagnostic(out, pids)
+	steps := reportNextSteps(report.String())
+	fmt.Fprintln(out, "\nWhat to investigate next:")
+	for index, step := range steps {
+		fmt.Fprintf(out, "%d. %s\n", index+1, step)
+	}
 	fmt.Fprintln(out, "\nManual checks still needed: button/wheel events, audible output, microphone recording, meeting-app controls, reconnect/power cycles, setting writes and firmware recovery.")
 	fmt.Fprintln(out, "Run jabridge buttons for the button check. Report PASS/FAIL/NOT TESTED for the manual checks.")
 	fmt.Fprintln(out, "No settings or firmware were changed. No service was started or stopped. Native reads, when available, were performed by the service.")
@@ -166,7 +222,7 @@ func writeSystemDiagnostic(out *bytes.Buffer) {
 	}
 }
 
-func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) {
+func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) (pids []uint16) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	var version struct {
@@ -177,6 +233,11 @@ func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) {
 		return
 	}
 	fmt.Fprintf(out, "Service matches app version: %t\n", version.Version == buildinfo.Version)
+	if err := client.Subscribe(ctx); err != nil {
+		fmt.Fprintln(out, "IPC event subscription: BLOCKED:", ipcDiagnosticFailure(err))
+	} else {
+		fmt.Fprintln(out, "IPC event subscription: PASS registration; event delivery requires actual device changes")
+	}
 	var devices []ipc.DeviceInfo
 	if err := client.Call(ctx, "devices.list", nil, &devices); err != nil {
 		fmt.Fprintln(out, "Native tests: BLOCKED (cannot read service inventory)")
@@ -187,6 +248,7 @@ func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) {
 		fmt.Fprintln(out, "Native tests: NOT TESTED (service inventory is empty; scan may still be starting)")
 	}
 	for index, device := range devices {
+		pids = append(pids, device.PID)
 		fmt.Fprintf(out, "\nNative device %d USB 0b0e:%04x selected=%t dongle=%t\n", device.ID, device.PID, device.Selected, device.IsDongle)
 		connection := "direct USB"
 		if device.Connection == "dongle" {
@@ -199,13 +261,35 @@ func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) {
 		}
 		var checks []ipc.DiagnosticCheck
 		if err := client.Call(ctx, "diagnostics.device", map[string]uint16{"id": device.ID}, &checks); err != nil {
-			fmt.Fprintln(out, "BLOCKED: native diagnostic unavailable or timed out. Update the app, run jabridge service restart, then repeat.")
+			fmt.Fprintln(out, "BLOCKED:", ipcDiagnosticFailure(err))
 			continue
 		}
 		for _, check := range checks {
 			fmt.Fprintf(out, "  %-12s %s: %s\n", check.State, check.Feature, check.Detail)
 		}
 	}
+	events := map[string]int{}
+drainEvents:
+	for count := 0; count < 64; count++ {
+		select {
+		case event, open := <-client.Notifications():
+			if !open {
+				break drainEvents
+			}
+			switch event.Method {
+			case "device.attached", "device.detached", "device.battery.update", "device.pairing.update":
+				events[event.Method]++
+			}
+		default:
+			break drainEvents
+		}
+	}
+	if len(events) == 0 {
+		fmt.Fprintln(out, "IPC event delivery: NOT TESTED (no device-change event observed)")
+	} else {
+		fmt.Fprintf(out, "IPC observed event counts: %v\n", events)
+	}
+	return pids
 }
 
 func writeAudioDiagnostic(out *bytes.Buffer) {

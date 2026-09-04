@@ -121,10 +121,14 @@ type DownloadResult struct {
 var firmwareModelCatalog = modelcatalog.NewClient()
 
 func addOfficialReleaseEvidence(pid uint16, release *Release) error {
+	return addOfficialReleaseEvidenceContext(context.Background(), pid, release)
+}
+
+func addOfficialReleaseEvidenceContext(parent context.Context, pid uint16, release *Release) error {
 	if release == nil {
 		return errors.New("missing firmware release")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), MetadataTimeout)
+	ctx, cancel := context.WithTimeout(parent, MetadataTimeout)
 	defer cancel()
 	evidence, err := firmwareModelCatalog.FirmwareRelease(ctx, pid, release.Version)
 	if err != nil {
@@ -215,9 +219,13 @@ func readTextSysfs(path string) string {
 // and returns the parsed response. VariantType is ignored server-side for
 // most products, so we pass empty string.
 func fetchFirmwareInfo(pid uint16) (*Firmware, error) {
+	return fetchFirmwareInfoContext(context.Background(), pid)
+}
+
+func fetchFirmwareInfoContext(ctx context.Context, pid uint16) (*Firmware, error) {
 	url := fmt.Sprintf("%s/%x?VendorId=%04x&VariantType=", MetadataBaseURL, pid, JabraVendorID)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +281,79 @@ func LatestForPID(pid uint16) (LatestInfo, error) {
 		FileName:    latest.FileName,
 		FileSize:    latest.FileSize,
 	}, nil
+}
+
+// FirmwareDiagnostic verifies metadata and, if already downloaded, the exact
+// published file. It never downloads a package or opens a hardware device.
+type FirmwareDiagnostic struct {
+	Latest            LatestInfo
+	Protocols         []int
+	ChecksumPublished bool
+	Cached            bool
+	ChecksumMatches   bool
+	NativeLayout      bool
+	Stage             string
+}
+
+func DiagnoseFirmware(ctx context.Context, pid uint16, cacheDir string) (FirmwareDiagnostic, error) {
+	result := FirmwareDiagnostic{Stage: "metadata"}
+	metadata, err := fetchFirmwareInfoContext(ctx, pid)
+	if err != nil {
+		return result, err
+	}
+	if len(metadata.Releases) == 0 {
+		return result, errors.New("no published firmware")
+	}
+	release := metadata.Releases[0]
+	result.Latest = LatestInfo{ProductID: pid, Version: release.Version, FileName: release.FileName, FileSize: release.FileSize}
+	result.Stage = "published checksum"
+	if err := addOfficialReleaseEvidenceContext(ctx, pid, &release); err != nil {
+		return result, err
+	}
+	result.ChecksumPublished = true
+	result.Protocols = append([]int(nil), release.FirmwareProtocol...)
+	name := filepath.Base(release.FileName)
+	if name == "." || name == "" || name == string(filepath.Separator) {
+		return result, errors.New("invalid catalog filename")
+	}
+	path := filepath.Join(cacheDir, name)
+	result.Stage = "cached file"
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		result.Stage = "not downloaded"
+		return result, nil
+	}
+	if err != nil {
+		return result, err
+	}
+	if !info.Mode().IsRegular() {
+		return result, errors.New("cached firmware is not a regular file")
+	}
+	result.Cached = true
+	if info.Size() > 64<<20 {
+		result.Stage = "file exceeds diagnostic size budget"
+		return result, nil
+	}
+	if info.Size() <= 0 || info.Size() > MaxFirmwareSize {
+		return result, errors.New("cached firmware has invalid size")
+	}
+	digest, err := firmwareFileMD5(path)
+	if err != nil {
+		return result, err
+	}
+	if digest != release.OfficialMD5 {
+		return result, errors.New("cached firmware checksum mismatch")
+	}
+	result.ChecksumMatches = true
+	result.Stage = "native layout"
+	for _, protocol := range result.Protocols {
+		if protocol == 7 {
+			result.NativeLayout = validateNativeCSRArchive(path) == nil
+			break
+		}
+	}
+	result.Stage = "complete"
+	return result, nil
 }
 
 // DownloadLatest downloads the latest firmware file without installing it.

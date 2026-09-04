@@ -7,6 +7,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- Integrated button observation with `debug --buttons`, advertised media-key
+  capabilities, container context and evidence-based troubleshooting steps.
+- Debug checks for published firmware, official checksums and matching cached
+  files, with explicit gaps for firmware protocols 1, 16 and 17.
+- Model-filtered Evolve3/common control definitions for ANC/HearThrough, wind
+  reduction, spatial call/media audio and answering when undocked.
+
 - Per-device native diagnostic checks through service IPC, with explicit
   read successes, failures, blockers and model properties not yet covered.
 - PipeWire discovery and manual-test gaps in the shareable report; catalog

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -42,10 +43,22 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 	ready := management != nil && management.gnpDestinationKnown
 	if !ready {
 		add("native control", "BLOCKED", "No responsive management endpoint. Check HID access/report diagnostics; not proof of unsupported hardware.")
+		if management != nil && management.controlDiagnostic != "" {
+			add("IDENT discovery attempts", "INFO", management.controlDiagnostic)
+		}
 	} else {
-		add("native control", "INFO", "Using the service-owned management endpoint; individual reads are tested below.")
+		address := device.gnpDestination
+		if device.deviceConnection == deviceConnectionType_BT {
+			address = 4
+		}
+		add("native control", "INFO", fmt.Sprintf("daemon endpoint=%s address=%d; individual reads tested below", filepath.Base(management.hidrawPath), address))
 		if version, err := readFirmwareVersion(device); err == nil {
-			add("native installed firmware", "PASS", safeFirmwareDiagnostic(version))
+			if safeFirmwareDiagnostic(version) == "version format unrecognized" {
+				add("native installed firmware", "FAIL", "response version format unrecognized")
+			} else {
+				device.firmwareVersion = version
+				add("native installed firmware", "PASS", safeFirmwareDiagnostic(version))
+			}
 		} else {
 			add("native installed firmware", "FAIL", protocolDiagnosticError(err))
 		}
@@ -155,6 +168,7 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 	}
 	for _, definition := range settingDefinitions(scope) {
 		run(definition.Key, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) { value, err := readBoolSetting(device, definition); return onOff(value), err })
+		annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 	}
 	for _, definition := range choiceSettingDefinitions(scope) {
 		run(definition.Key, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) {
@@ -167,6 +181,7 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 			}
 			return choiceSettingName(value), err
 		})
+		annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 	}
 	if !device.isDongle {
 		for _, definition := range headsetTextSettingDefinitions {
@@ -176,24 +191,65 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 			})
 		}
 	}
-	checks = append(checks, unimplementedCatalogChecks(capabilities, covered)...)
+	checks = append(checks, catalogCoverageChecks(capabilities, covered)...)
 	return checks
 }
 
-func unimplementedCatalogChecks(capabilities *modelcatalog.Capabilities, covered map[string]bool) []ipc.DiagnosticCheck {
+func annotateSettingQuery(checks []ipc.DiagnosticCheck, key string, device *jabra_DeviceInfo, override, class, op byte) {
+	if len(checks) == 0 || checks[len(checks)-1].Feature != "setting "+key {
+		return
+	}
+	check := &checks[len(checks)-1]
+	if strings.Contains(check.Detail, "query=") {
+		return
+	}
+	address := gnpSrcHost
+	if device.isDongle {
+		address = gnpSrcDongle
+	} else if device.deviceConnection == deviceConnectionType_BT {
+		address = 4
+	} else if device.gnpDestinationKnown {
+		address = device.gnpDestination
+	}
+	address = settingDestination(override, address)
+	check.Detail += fmt.Sprintf("; query=%02x/%02x address=%d", class, op, address)
+}
+
+func catalogCoverageChecks(capabilities *modelcatalog.Capabilities, covered map[string]bool) []ipc.DiagnosticCheck {
 	if capabilities == nil {
 		return nil
 	}
 	var keys []string
 	for key := range capabilities.Properties {
-		if !covered[key] {
-			keys = append(keys, key)
-		}
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	var checks []ipc.DiagnosticCheck
 	for _, key := range keys {
-		checks = append(checks, ipc.DiagnosticCheck{Feature: "catalog property " + key, State: "NOT COVERED", Detail: "No matching setting reader in this diagnostic; may be telemetry or an unimplemented setting."})
+		state := "NOT COVERED"
+		if covered[key] {
+			state = "INFO"
+		}
+		checks = append(checks, ipc.DiagnosticCheck{Feature: "catalog property " + key, State: state, Detail: catalogPropertyDetail(capabilities.Properties[key])})
 	}
 	return checks
+}
+
+func catalogPropertyDetail(property modelcatalog.Property) string {
+	access := property.Access
+	if access == "" {
+		access = "unknown"
+	}
+	restart := "unknown"
+	if property.RestartKnown {
+		restart = fmt.Sprint(property.RequiresRestart)
+	}
+	detail := fmt.Sprintf("id=%s; type=%s; choices=%v; access=%s; restart=%s", property.SettingID, property.Kind, property.PossibleValues, access, restart)
+	if property.Group != "" {
+		detail += "; group=" + property.Group
+	}
+	if property.Help != "" {
+		detail += "; help=" + property.Help
+	}
+	return detail + "; metadata only, runtime protection not tested"
 }

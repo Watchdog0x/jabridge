@@ -119,6 +119,28 @@ If setup or device controls fail, run:
 ./jabridge debug --output jabridge-debug.txt
 ```
 
+For a report with a 20-second button and volume-wheel check:
+
+```bash
+./jabridge debug --buttons --output jabridge-buttons.txt
+```
+
+In an interactive terminal this observation is included by default. Follow
+the prompt and press one device control at a time. Use `--buttons=false` to
+skip it. Non-interactive runs only observe buttons when `--buttons` is given.
+Passive HID observations contain report IDs and changed bit positions, not
+raw input values. Unknown vendor events remain marked as unmapped.
+
+The report also checks published firmware and an existing matching file in
+`./firmware`, and ends with specific next steps. It does not download or flash
+firmware. It detects container context to help compare host and Distrobox
+reports without assuming the container caused a failure.
+
+All model-profile settings are included with IDs, valid choices, type and
+available access/restart metadata. Current native read results are separate;
+fields absent from the profile remain unknown. See the
+[PR #27 settings comparison](docs/SETTINGS_PARITY.md) for the remaining ports.
+
 Attach that file to your issue. It checks device access, HID report sizes,
 service exit status, native firmware/battery/setting reads through the service,
 model-catalog coverage and PipeWire discovery. It leaves out serial numbers,
