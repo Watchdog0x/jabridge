@@ -2,9 +2,30 @@ package firmware
 
 import (
 	"bytes"
+	"os"
 	"testing"
 	"time"
 )
+
+func TestFirmwareTransportUsesDeclaredReportSize(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	transport := &HidrawTransport{f: writer, reportSize: 64}
+	if err := transport.Write(make([]byte, 63)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 64)
+	n, err := reader.Read(buffer)
+	if err != nil || n != 64 {
+		t.Fatalf("framing: n=%d err=%v", n, err)
+	}
+	if err := transport.Write(make([]byte, 65)); err == nil {
+		t.Fatal("oversized report accepted")
+	}
+}
 
 func TestParseGnpOutputReportSizeFound(t *testing.T) {
 	descriptor := []byte{

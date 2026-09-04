@@ -52,6 +52,7 @@ type jabra_DeviceInfo struct {
 	gnpDestination      byte
 	gnpDestinationKnown bool
 	metadataProbeAt     time.Time
+	controlDiagnostic   string
 }
 
 type batteryComponent int
@@ -267,8 +268,9 @@ func experimentalDeviceWritesEnabled() bool {
 // ── Hidraw transport (minimal, for GNP queries) ──────────────────────
 
 type hidrawConn struct {
-	f    *os.File
-	path string
+	f          *os.File
+	path       string
+	reportSize int
 }
 
 func openHidraw(path string) (*hidrawConn, error) {
@@ -276,7 +278,12 @@ func openHidraw(path string) (*hidrawConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &hidrawConn{f: f, path: path}, nil
+	size, err := firmwaretool.GnpOutputReportSize(path)
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &hidrawConn{f: f, path: path, reportSize: size}, nil
 }
 
 func (h *hidrawConn) close() {
@@ -287,6 +294,14 @@ func (h *hidrawConn) close() {
 }
 
 func (h *hidrawConn) write(report []byte) error {
+	if h.reportSize > 0 && len(report) != h.reportSize {
+		if len(report) > h.reportSize {
+			return fmt.Errorf("GNP report exceeds device output size")
+		}
+		padded := make([]byte, h.reportSize)
+		copy(padded, report)
+		report = padded
+	}
 	n, err := h.f.Write(report)
 	if err != nil {
 		return err
@@ -772,10 +787,13 @@ func registerUSBDevice(usbDevice usbDev) (*jabra_DeviceInfo, bool) {
 }
 
 func enrichUSBDevice(device *jabra_DeviceInfo) {
-	if device == nil || device.hidrawPath == "" {
+	if device == nil {
 		return
 	}
 	path, destination, found := discoverGNPControlEndpoint(device)
+	updateDeviceByID(device.deviceID, func(stored *jabra_DeviceInfo) {
+		stored.controlDiagnostic = device.controlDiagnostic
+	})
 	if !found {
 		return
 	}
@@ -839,8 +857,23 @@ func discoverGNPControlEndpoint(device *jabra_DeviceInfo) (string, byte, bool) {
 	}
 	allPaths := findHidrawPathsForPID(device.vendorID, device.productID)
 	paths := filterGNPManagementPaths(allPaths, firmwaretool.HasGnpOutputReport)
+	if len(paths) == 0 {
+		device.controlDiagnostic = "No supported management report. Run jabridge debug to check permissions and descriptors."
+		return "", 0, false
+	}
 	destinations := firmwareReadDestinations(device)
-	return firstResponsiveGNPEndpoint(paths, destinations, probeGNPEndpoint)
+	var attempts []string
+	path, destination, found := firstResponsiveGNPEndpoint(paths, destinations, func(path string, destination byte) bool {
+		err := probeGNPEndpointDetail(path, destination)
+		result := "reply received"
+		if err != nil {
+			result = err.Error()
+		}
+		attempts = append(attempts, fmt.Sprintf("%s address %d: %s", filepath.Base(path), destination, result))
+		return err == nil
+	})
+	device.controlDiagnostic = strings.Join(attempts, "; ")
+	return path, destination, found
 }
 
 func filterGNPManagementPaths(paths []string, supportsGNP func(string) bool) []string {
@@ -868,22 +901,31 @@ func firstResponsiveGNPEndpoint(
 	return "", 0, false
 }
 
-func probeGNPEndpoint(path string, destination byte) bool {
+func probeGNPEndpointDetail(path string, destination byte) error {
 	const endpointProbeTimeout = 180 * time.Millisecond
 	h, err := openHidraw(path)
 	if err != nil {
-		return false
+		return fmt.Errorf("open: %s", diagnosticError(err))
 	}
 	defer h.close()
+	var attempts []string
 	for _, operation := range []byte{gnpOpDeviceInfo, gnpOpDeviceName, gnpOpFirmwareVer} {
 		_, queryErr := gnpQueryPayloadWithDataTimeout(
 			h, destination, nextSeq(), gnpClassDevInfo, operation, nil, endpointProbeTimeout,
 		)
 		if queryErr == nil {
-			return true
+			return nil
 		}
+		result := diagnosticError(queryErr)
+		if strings.Contains(queryErr.Error(), "timeout") {
+			result = "timeout"
+		}
+		if strings.Contains(queryErr.Error(), "GNP NAK") {
+			result = "device rejected query"
+		}
+		attempts = append(attempts, fmt.Sprintf("IDENT/%02x=%s", operation, result))
 	}
-	return false
+	return errors.New(strings.Join(attempts, ", "))
 }
 
 func refreshNewDeviceData(device *jabra_DeviceInfo) {

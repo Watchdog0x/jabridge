@@ -94,6 +94,12 @@ func runSetup(args []string) error {
 
 	time.Sleep(300 * time.Millisecond)
 	found, usable = probeJabraHidrawAccess()
+	if found && usable {
+		fmt.Println("Headset access is ready. Starting your user service...")
+	}
+	if found && !usable {
+		fmt.Println("Access rule installed. Reconnect USB once. Starting your user service...")
+	}
 	if err := enableUserService(installedExecutable); err != nil {
 		return err
 	}
@@ -170,6 +176,9 @@ func installUserFiles() (string, error) {
 	service, err := userServiceContents()
 	if err != nil {
 		return "", err
+	}
+	if err := os.MkdirAll(filepath.Join(homeDirectory, ".config", "jabridge"), 0o700); err != nil {
+		return "", fmt.Errorf("create connection settings directory: %w", err)
 	}
 	servicePath := filepath.Join(homeDirectory, ".config", "systemd", "user", "jabridge.service")
 	if err := installUserFile(servicePath, service, 0o644); err != nil {
@@ -312,6 +321,7 @@ func reloadAndTriggerUdev() error {
 	commands := [][]string{
 		{"control", "--reload-rules"},
 		{"trigger", "--subsystem-match=hidraw", "--action=add"},
+		{"trigger", "--subsystem-match=input", "--action=add"},
 		{"settle", "--timeout=5"},
 	}
 	for _, arguments := range commands {

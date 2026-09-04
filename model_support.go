@@ -74,6 +74,9 @@ func runModel() error {
 			fmt.Printf("  Type:     %s\n", readableDeviceType(capabilities.DeviceType))
 		}
 		profileLabel := capabilities.Firmware
+		if capabilities.DeviceFirmware == "" {
+			profileLabel += " (catalog only; installed firmware unavailable)"
+		}
 		if capabilities.DeviceFirmware != "" && !capabilities.ExactFirmwareProfile {
 			profileLabel += fmt.Sprintf(" (newest populated profile; device %s)", capabilities.DeviceFirmware)
 		}

@@ -340,7 +340,11 @@ func settingTransport(device *jabra_DeviceInfo) (*hidrawConn, byte, error) {
 	}
 	h := openDeviceHidraw(device)
 	if h == nil {
-		return nil, 0, errors.New("device has no usable GNP hidraw interface")
+		paths := findHidrawPathsForPID(device.vendorID, device.productID)
+		if len(paths) == 0 {
+			return nil, 0, errors.New("no HID interface found; reconnect USB and run jabridge debug")
+		}
+		return nil, 0, fmt.Errorf("%s; run jabridge debug for all interfaces", describeHIDAccess(paths[0]))
 	}
 	src := gnpSrcHost
 	if device.isDongle {

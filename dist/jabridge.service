@@ -13,6 +13,7 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%t
+ReadWritePaths=-%h/.config/jabridge
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

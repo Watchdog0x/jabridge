@@ -4,11 +4,21 @@ _jabridge_completion() {
     COMPREPLY=()
 
     if (( COMP_CWORD == 1 )); then
-        mapfile -t COMPREPLY < <(compgen -W 'status battery diagnose settings model models sound use firmware update setup service ipc completion daemon --version --help' -- "$current")
+        mapfile -t COMPREPLY < <(compgen -W 'status battery diagnose debug buttons settings model models sound use firmware update setup service ipc completion daemon --version --help' -- "$current")
         return
     fi
 
     case "${COMP_WORDS[1]}" in
+        debug)
+            if [[ "${COMP_WORDS[COMP_CWORD-1]}" == "--output" ]]; then
+                mapfile -t COMPREPLY < <(compgen -f -- "$current")
+            else
+                mapfile -t COMPREPLY < <(compgen -W '--output --help' -- "$current")
+            fi
+            ;;
+        buttons)
+            mapfile -t COMPREPLY < <(compgen -W '--seconds --help' -- "$current")
+            ;;
         update)
             mapfile -t COMPREPLY < <(compgen -W '--check --prerelease --help' -- "$current")
             ;;

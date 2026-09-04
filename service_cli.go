@@ -247,7 +247,7 @@ func waitForService(timeout time.Duration) error {
 	defer cancel()
 	client, err := ipc.DialWithRetry(ctx, ipcSocketPath())
 	if err != nil {
-		return fmt.Errorf("service did not become ready: %w", err)
+		return fmt.Errorf("service did not become ready: %w\n%s\nRun jabridge debug --output jabridge-debug.txt and share that file", err, serviceDiagnosticSummary())
 	}
 	defer func() { _ = client.Close() }()
 	pingContext, stop := context.WithTimeout(ctx, 2*time.Second)

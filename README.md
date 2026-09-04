@@ -111,6 +111,33 @@ settings. Jabridge also makes the matching PipeWire output and microphone the
 defaults when those nodes are present. The choice is remembered for the next
 service start without saving a serial number or Bluetooth address.
 
+## Help with problems
+
+If setup or device controls fail, run:
+
+```bash
+./jabridge debug --output jabridge-debug.txt
+```
+
+Attach that file to your issue. It checks device access, HID report sizes,
+service exit status and the connection to the service. It leaves out serial
+numbers, Bluetooth addresses, usernames and raw logs. It does not change a
+device or restart the service. Use a new filename if the report already exists.
+
+To check headset buttons and the volume wheel:
+
+```bash
+./jabridge buttons
+```
+
+Press buttons during the 20-second check. This shows media and call events
+that Linux exposes. Other programs still receive them. This does not yet
+remap vendor buttons or answer calls in meeting apps. Run `./jabridge setup`
+again after updating to install the Jabra-only input access rule.
+
+Only the one-time access-rule installation needs your administrator password.
+Run Jabridge and its service as your normal user.
+
 ## Update Jabridge
 
 Check first:

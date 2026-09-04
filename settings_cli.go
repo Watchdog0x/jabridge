@@ -56,7 +56,11 @@ func printSettingsForDevice(kind, prefix string, device *jabra_DeviceInfo, scope
 	fmt.Printf("%s: %s\n", kind, device.deviceName)
 	values := readSupportedDeviceSettings(device, scope)
 	if len(values) == 0 {
-		fmt.Println("  No supported settings found.")
+		if !device.gnpDestinationKnown {
+			fmt.Println("  Settings unavailable: the control interface did not answer. Run jabridge diagnose and jabridge debug.")
+		} else {
+			fmt.Println("  No settings could be read for this model. Run jabridge diagnose and jabridge model.")
+		}
 		return
 	}
 	for _, setting := range values {

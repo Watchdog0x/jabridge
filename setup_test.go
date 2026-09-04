@@ -77,6 +77,7 @@ func TestUserServiceUsesInstalledBinaryAndBootHardening(t *testing.T) {
 	for _, want := range [][]byte{
 		[]byte("ExecStart=%h/.local/bin/jabridge --daemon"),
 		[]byte("ReadWritePaths=%t"),
+		[]byte("ReadWritePaths=-%h/.config/jabridge"),
 		[]byte("WantedBy=default.target"),
 	} {
 		if !bytes.Contains(service, want) {

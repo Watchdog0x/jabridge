@@ -153,10 +153,16 @@ func runDiagnose() error {
 		paths := findHidrawPathsForPID(device.vendorID, device.productID)
 		fmt.Printf("%s (0b0e:%04x)\n", device.deviceName, device.productID)
 		fmt.Printf("  HID interfaces: %d\n", len(paths))
+		for _, path := range paths {
+			fmt.Println(describeHIDAccess(path))
+		}
 		if device.gnpDestinationKnown {
 			fmt.Printf("  Control endpoint: ready (address %d)\n", device.gnpDestination)
 		} else {
 			fmt.Println("  Control endpoint: no read-only reply")
+			if device.controlDiagnostic != "" {
+				fmt.Printf("  Detail: %s\n", device.controlDiagnostic)
+			}
 		}
 		if device.firmwareVersion != "" {
 			fmt.Printf("  Firmware: %s\n", device.firmwareVersion)

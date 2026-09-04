@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC11.
+Thank you for testing Jabridge 1.0.0 RC12.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,17 +17,29 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC11
+## Download RC12
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.11 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.11).
+[v1.0.0-rc.12 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.12).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.11_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.11_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.11_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.12_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.12_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.12_linux_amd64
 ./jabridge --version
 ```
+
+For Engage 50 II, please run `./jabridge setup` once as your normal user.
+Only the access-rule step asks for administrator permission. If setup fails,
+continue with `./jabridge debug --output engage-with-link.txt` and share that
+file. Repeat without the Link controller using `engage-headset-only.txt`.
+The report works even when the service cannot start. It does not include
+serial numbers, Bluetooth addresses, usernames, or raw logs.
+
+After setup, `./jabridge buttons` listens for 20 seconds. Press the headset
+buttons and turn the wheel. Please share which events appear. Normal button
+actions still work during this check. Buttons that Linux does not expose may
+produce no events; this is not full vendor-button or call-app integration.
 
 ## Run the safe commands
 
@@ -129,10 +141,12 @@ saved-pairing reads, firmware-file matching, reconnect checks, and all five
 current setting reads. Controlled tests changed and restored each of its five
 settings with read-back verification.
 
-An Engage 50 II with its Link controller was detected by RC3 and its firmware
-download completed, but missing `hidraw` permission blocked device reads. RC11
-adds clearer permission help and controller firmware probing. That headset
-still needs a normal-user retest after installing the udev rule.
+RC11 Engage 50 II testing confirmed USB detection and PipeWire enumeration:
+`4052` with the Link controller and `4056` with the headset alone. Both expose
+one USB device. Installed firmware and settings remained unavailable, and
+setup timed out starting the service. The cause is not confirmed. RC12 adds
+access/report diagnostics, service exit details and descriptor framing fixes
+for a focused retest.
 
 No Jabridge headset-setting write, remembered-device write, factory reset, or
 firmware flash has passed a replaceable-hardware test yet.

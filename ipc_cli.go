@@ -25,7 +25,7 @@ func runIPC(args []string) error {
 	defer cancel()
 	client, err := ipc.Dial(connectContext, ipcSocketPath())
 	if err != nil {
-		return fmt.Errorf("service is not running; start it with 'jabridge --daemon': %w", err)
+		return fmt.Errorf("service is not running; run 'jabridge service start': %w", err)
 	}
 	defer func() { _ = client.Close() }()
 

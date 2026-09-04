@@ -7,6 +7,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- `jabridge debug [--output FILE]` with shareable HID access, report-size and
+  service-exit diagnostics, without raw device data or private identities.
+- `jabridge buttons [--seconds N]` for Jabra media/call input events exposed
+  by Linux, without grabbing devices or remapping their controls.
+- Service-start errors explain namespace/executable failures when systemd
+  reports them and point to the debug report.
+- HID output sizing follows descriptor fields, including split fields and
+  saved/restored global state; 64-byte management endpoints receive 64 bytes.
+- User-service access to its connection preferences folder.
+
 - Native-Go Jabra USB and hidraw device layer.
 - Jabridge daemon with JSON-RPC over a Unix socket.
 - PipeWire meeting detection and busylight controller.

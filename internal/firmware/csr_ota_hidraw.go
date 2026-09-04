@@ -29,8 +29,9 @@ import (
 // Safe for use from a single goroutine; if you need multiplexed access,
 // wrap it in your own mutex.
 type HidrawTransport struct {
-	path string
-	f    *os.File
+	path       string
+	f          *os.File
+	reportSize int
 }
 
 // OpenHidraw opens a /dev/hidrawN file for read/write. Returns an error
@@ -42,7 +43,12 @@ func OpenHidraw(path string) (*HidrawTransport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	return &HidrawTransport{path: path, f: f}, nil
+	size, err := GnpOutputReportSize(path)
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("inspect management report: %w", err)
+	}
+	return &HidrawTransport{path: path, f: f, reportSize: size}, nil
 }
 
 // Write sends a 63-byte HID output report to the device. Any length
@@ -52,6 +58,14 @@ func (t *HidrawTransport) Write(report []byte) error {
 	// Accept any report size (63 or 64 depending on device)
 	if len(report) < 7 {
 		return fmt.Errorf("hidraw: report too short: %d bytes", len(report))
+	}
+	if t.reportSize > 0 && len(report) != t.reportSize {
+		if len(report) > t.reportSize {
+			return fmt.Errorf("GNP report exceeds device output size")
+		}
+		padded := make([]byte, t.reportSize)
+		copy(padded, report)
+		report = padded
 	}
 	n, err := t.f.Write(report)
 	if err != nil {
@@ -327,12 +341,21 @@ func DetectGnpReportSize(hidrawPath string) int {
 // Discovery uses it to avoid writing even read-only GNP queries to unrelated
 // audio, button, consumer-control, or dock interfaces.
 func HasGnpOutputReport(hidrawPath string) bool {
-	descriptor, err := readHidrawReportDescriptor(hidrawPath)
+	size, err := GnpOutputReportSize(hidrawPath)
+	return err == nil && size > 0
+}
+
+// GnpOutputReportSize preserves access and descriptor errors for diagnostics.
+func GnpOutputReportSize(path string) (int, error) {
+	descriptor, err := readHidrawReportDescriptor(path)
 	if err != nil {
-		return false
+		return 0, err
 	}
-	_, found := parseGnpOutputReportSizeFound(descriptor)
-	return found
+	size, found := parseGnpOutputReportSizeFound(descriptor)
+	if !found {
+		return 0, fmt.Errorf("HID descriptor has no supported GNP output report (ID 5, 63 or 64 bytes)")
+	}
+	return size, nil
 }
 
 type hidrawReportDescriptor struct {
@@ -375,52 +398,13 @@ func readHidrawReportDescriptor(hidrawPath string) ([]byte, error) {
 // parseGnpOutputReportSizeFound walks an HID report descriptor and returns the
 // exact output report size for GNP Report ID 0x05 only when it is declared.
 func parseGnpOutputReportSizeFound(desc []byte) (int, bool) {
-	var (
-		currentReportID   byte
-		currentReportSize int // in bits
-		currentReportCnt  int
-	)
-	i := 0
-	for i < len(desc) {
-		b := desc[i]
-		bSize := int(b & 0x03)
-		if bSize == 3 {
-			bSize = 4
-		}
-		bType := (b >> 2) & 0x03
-		bTag := (b >> 4) & 0x0f
-		i++
-		if i+bSize > len(desc) {
-			return 0, false
-		}
-		var data uint32
-		for j := 0; j < bSize; j++ {
-			data |= uint32(desc[i+j]) << (8 * j)
-		}
-		i += bSize
-
-		switch bType {
-		case 1: // Global
-			switch bTag {
-			case 7: // Report Size (bits per field)
-				currentReportSize = int(data)
-			case 8: // Report ID
-				currentReportID = byte(data)
-			case 9: // Report Count
-				currentReportCnt = int(data)
-			}
-		case 0: // Main
-			switch bTag {
-			case 9: // Output
-				if currentReportID == GnpReportID {
-					// Total bytes = Report Count * Report Size / 8, plus
-					// 1 byte for the Report ID prefix.
-					totalBytes := (currentReportCnt * currentReportSize / 8) + 1
-					if totalBytes == 63 || totalBytes == 64 {
-						return totalBytes, true
-					}
-				}
-			}
+	reports, err := parseHIDReports(desc)
+	if err != nil {
+		return 0, false
+	}
+	for _, report := range reports {
+		if report.ID == GnpReportID && report.Kind == "output" && (report.Bytes == 63 || report.Bytes == 64) {
+			return report.Bytes, true
 		}
 	}
 	return 0, false

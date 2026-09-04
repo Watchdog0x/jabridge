@@ -449,6 +449,28 @@ func TestHidrawReadHonorsPollTimeout(t *testing.T) {
 	}
 }
 
+func TestHidrawUsesDeclaredReportSize(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	connection := &hidrawConn{f: writer, reportSize: 64}
+	report := make([]byte, 63)
+	report[0] = 5
+	if err := connection.write(report); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 64)
+	n, err := reader.Read(buffer)
+	if err != nil || n != 64 || buffer[0] != 5 || buffer[63] != 0 {
+		t.Fatalf("framing: n=%d err=%v", n, err)
+	}
+	if err := connection.write(make([]byte, 65)); err == nil {
+		t.Fatal("oversized report accepted")
+	}
+}
+
 func TestGNPQueryReplyMatchingIgnoresEventsAndOtherSequences(t *testing.T) {
 	if matchesGNPQueryReply([]byte{0, 4, 0, 0x08, 0x12, 0x02}, 4, 0x31, 0x12, 0x02) {
 		t.Fatal("asynchronous event matched a query")
