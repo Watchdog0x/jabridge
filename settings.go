@@ -214,6 +214,7 @@ var dongleBoolSettingDefinitions = []boolSettingDefinition{
 	{
 		Key: "softphone-integration", Label: "Softphone integration", Scope: settingScopeDongle,
 		Class: gnpClassConfig, Op: 0x4c, Writable: true, NeedsConfigMode: true, ValidatedLink380: true,
+		CatalogProperties: []string{"softphoneIntegrationEnabled"},
 	},
 }
 

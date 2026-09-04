@@ -245,6 +245,14 @@ type busylightAPI struct {
 	ctrl *BusylightController
 }
 
+func (a *busylightAPI) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error) {
+	diagnostics, ok := a.API.(ipc.DiagnosticAPI)
+	if !ok {
+		return nil, errors.New("device diagnostics unavailable")
+	}
+	return diagnostics.DiagnoseDevice(id)
+}
+
 func (a *busylightAPI) SetBusylightMode(mode string) error {
 	parsed, err := ParseBusylightMode(mode)
 	if err != nil {

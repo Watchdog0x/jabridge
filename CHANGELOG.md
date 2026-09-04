@@ -7,6 +7,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- Per-device native diagnostic checks through service IPC, with explicit
+  read successes, failures, blockers and model properties not yet covered.
+- PipeWire discovery and manual-test gaps in the shareable report; catalog
+  lookup remains separate from proof that hardware reads work.
+
 - `jabridge debug [--output FILE]` with shareable HID access, report-size and
   service-exit diagnostics, without raw device data or private identities.
 - `jabridge buttons [--seconds N]` for Jabra media/call input events exposed

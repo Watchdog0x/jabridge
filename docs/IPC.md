@@ -144,6 +144,7 @@ The response is:
 | `service.shutdown` | Stop a portable non-systemd service | Stops the service |
 | `version` | Service version | No |
 | `devices.list` | Connected devices | No |
+| `diagnostics.device` | Read-only native checks for numeric device `id` | No |
 | `device.select` | Choose a control connection and matching PipeWire audio | No |
 | `device.battery` | Battery state | No |
 | `device.firmware` | Installed firmware version | No |

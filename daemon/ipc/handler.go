@@ -75,6 +75,17 @@ type SettingInfo struct {
 	Choices  []string `json:"choices,omitempty"`
 }
 
+// DiagnosticCheck records evidence, not a blanket compatibility verdict.
+type DiagnosticCheck struct {
+	Feature string `json:"feature"`
+	State   string `json:"state"`
+	Detail  string `json:"detail"`
+}
+
+type DiagnosticAPI interface {
+	DiagnoseDevice(id uint16) ([]DiagnosticCheck, error)
+}
+
 // API is the interface the handler calls to interact with the device layer.
 // This decouples the IPC handler from jabraApi.go globals, making it testable.
 type API interface {
@@ -228,6 +239,22 @@ func decodeParams(raw json.RawMessage, target any) error {
 
 func dispatch(req Request, api API) Response {
 	switch req.Method {
+	case "diagnostics.device":
+		var params struct {
+			ID *uint16 `json:"id"`
+		}
+		if err := decodeParams(req.Params, &params); err != nil || params.ID == nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "diagnostics.device requires numeric id")
+		}
+		diagnostics, ok := api.(DiagnosticAPI)
+		if !ok {
+			return ErrorResponse(req.ID, ErrCodeMethodNF, "device diagnostics unavailable in this service")
+		}
+		checks, err := diagnostics.DiagnoseDevice(*params.ID)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, checks)
 	case "service.ping":
 		return SuccessResponse(req.ID, map[string]bool{"ok": true})
 	case "service.shutdown":

@@ -7,6 +7,7 @@
 package pipewire
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -62,7 +63,9 @@ type pwDumpObject struct {
 
 // TakeSnapshot runs pw-dump and parses the output into a Snapshot.
 func TakeSnapshot() (*Snapshot, error) {
-	cmd := exec.Command("pw-dump")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "pw-dump")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("pw-dump: %w", err)

@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC12.
+Thank you for testing Jabridge 1.0.0 RC13.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,15 +17,15 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC12
+## Download RC13
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.12 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.12).
+[v1.0.0-rc.13 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.13).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.12_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.12_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.12_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.13_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.13_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.13_linux_amd64
 ./jabridge --version
 ```
 
@@ -33,7 +33,12 @@ For Engage 50 II, please run `./jabridge setup` once as your normal user.
 Only the access-rule step asks for administrator permission. If setup fails,
 continue with `./jabridge debug --output engage-with-link.txt` and share that
 file. Repeat without the Link controller using `engage-headset-only.txt`.
-The report works even when the service cannot start. It does not include
+The report works even when the service cannot start. Native tests are then
+marked BLOCKED. With the service running, RC13 records each native firmware,
+battery and setting read, plus catalog properties the diagnostic does not
+cover. PASS means that specific read passed, not that every feature works.
+Audio quality, calls and hardware writes remain separate manual tests.
+It does not include
 serial numbers, Bluetooth addresses, usernames, or raw logs.
 
 After setup, `./jabridge buttons` listens for 20 seconds. Press the headset

@@ -120,9 +120,21 @@ If setup or device controls fail, run:
 ```
 
 Attach that file to your issue. It checks device access, HID report sizes,
-service exit status and the connection to the service. It leaves out serial
-numbers, Bluetooth addresses, usernames and raw logs. It does not change a
-device or restart the service. Use a new filename if the report already exists.
+service exit status, native firmware/battery/setting reads through the service,
+model-catalog coverage and PipeWire discovery. It leaves out serial numbers,
+Bluetooth addresses, custom headset names and raw logs. It does not change
+settings or restart the service. Use a new filename if the report already exists.
+
+Each result is marked PASS, FAIL, BLOCKED, UNAVAILABLE or NOT TESTED. Catalog
+properties with no diagnostic reader are marked NOT COVERED. A catalog match
+does not count as a successful device read. If the service cannot start, the
+report still collects access and catalog information and marks native tests
+BLOCKED. Native checks may take up to about two minutes.
+
+The report cannot prove everything automatically. Audio quality, button
+behavior, meeting-app control, reconnects, settings writes and firmware
+recovery still need separate hardware tests. A failed check is evidence to
+investigate; it does not automatically mean the user's setup is at fault.
 
 To check headset buttons and the volume wheel:
 
