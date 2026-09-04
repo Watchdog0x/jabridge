@@ -47,8 +47,10 @@ type jabra_DeviceInfo struct {
 	batteryStatus    *batteryStatus
 	pairingList      *pairingList
 	// pure-Go additions
-	hidrawPath  string // /dev/hidrawN for GNP
-	powerSupply string // /sys/class/power_supply/... path
+	hidrawPath          string // /dev/hidrawN for GNP
+	powerSupply         string // /sys/class/power_supply/... path
+	gnpDestination      byte
+	gnpDestinationKnown bool
 }
 
 type batteryComponent int
@@ -554,7 +556,16 @@ func readTextFile(path string) string {
 // ── Hidraw discovery ─────────────────────────────────────────────────
 
 func findHidrawForPID(vid, pid uint16) string {
+	paths := findHidrawPathsForPID(vid, pid)
+	if len(paths) > 0 {
+		return paths[0]
+	}
+	return ""
+}
+
+func findHidrawPathsForPID(vid, pid uint16) []string {
 	entries, _ := os.ReadDir("/sys/class/hidraw")
+	paths := make([]string, 0)
 	for _, entry := range entries {
 		ueventPath := filepath.Join("/sys/class/hidraw", entry.Name(), "device", "uevent")
 		data, err := os.ReadFile(ueventPath)
@@ -562,10 +573,10 @@ func findHidrawForPID(vid, pid uint16) string {
 			continue
 		}
 		if hidUeventMatches(data, vid, pid) {
-			return filepath.Join("/dev", entry.Name())
+			paths = append(paths, filepath.Join("/dev", entry.Name()))
 		}
 	}
-	return ""
+	return paths
 }
 
 func hidUeventMatches(data []byte, vid, pid uint16) bool {
@@ -739,18 +750,21 @@ func enrichUSBDevice(device *jabra_DeviceInfo) {
 	if device == nil || device.hidrawPath == "" {
 		return
 	}
+	path, destination, found := discoverGNPControlEndpoint(device)
+	if !found {
+		return
+	}
+	device.hidrawPath = path
+	device.gnpDestination = destination
+	device.gnpDestinationKnown = true
 	h := openDeviceHidraw(device)
 	if h == nil {
 		return
 	}
 	defer h.close()
 	const probeTimeout = 400 * time.Millisecond
-	src := gnpSrcHost
-	if device.isDongle {
-		src = gnpSrcDongle
-	}
 	if device.deviceName == "" {
-		payload, err := gnpQueryPayloadWithDataTimeout(h, src, nextSeq(), gnpClassDevInfo, gnpOpDeviceName, nil, probeTimeout)
+		payload, err := gnpQueryPayloadWithDataTimeout(h, destination, nextSeq(), gnpClassDevInfo, gnpOpDeviceName, nil, probeTimeout)
 		if err == nil {
 			if name, ok := decodeLengthPrefixedString(payload); ok {
 				device.deviceName = name
@@ -758,7 +772,7 @@ func enrichUSBDevice(device *jabra_DeviceInfo) {
 		}
 	}
 	if device.serialNumber == "" {
-		payload, err := gnpQueryPayloadWithDataTimeout(h, src, nextSeq(), gnpClassDevInfo, gnpOpSerialNumber, nil, probeTimeout)
+		payload, err := gnpQueryPayloadWithDataTimeout(h, destination, nextSeq(), gnpClassDevInfo, gnpOpSerialNumber, nil, probeTimeout)
 		if err == nil {
 			if serial, ok := decodeLengthPrefixedString(payload); ok {
 				device.serialNumber = serial
@@ -784,11 +798,56 @@ func enrichUSBDevice(device *jabra_DeviceInfo) {
 		}
 	}
 	updateDeviceByID(device.deviceID, func(stored *jabra_DeviceInfo) {
+		stored.hidrawPath = device.hidrawPath
+		stored.gnpDestination = device.gnpDestination
+		stored.gnpDestinationKnown = device.gnpDestinationKnown
 		stored.deviceName = device.deviceName
 		stored.serialNumber = device.serialNumber
 		stored.variantType = device.variantType
 		stored.firmwareVersion = device.firmwareVersion
 	})
+}
+
+func discoverGNPControlEndpoint(device *jabra_DeviceInfo) (string, byte, bool) {
+	if device == nil {
+		return "", 0, false
+	}
+	paths := findHidrawPathsForPID(device.vendorID, device.productID)
+	destinations := firmwareReadDestinations(device)
+	return firstResponsiveGNPEndpoint(paths, destinations, probeGNPEndpoint)
+}
+
+func firstResponsiveGNPEndpoint(
+	paths []string,
+	destinations []byte,
+	probe func(string, byte) bool,
+) (string, byte, bool) {
+	for _, path := range paths {
+		for _, destination := range destinations {
+			if probe(path, destination) {
+				return path, destination, true
+			}
+		}
+	}
+	return "", 0, false
+}
+
+func probeGNPEndpoint(path string, destination byte) bool {
+	const endpointProbeTimeout = 180 * time.Millisecond
+	h, err := openHidraw(path)
+	if err != nil {
+		return false
+	}
+	defer h.close()
+	for _, operation := range []byte{gnpOpDeviceInfo, gnpOpDeviceName, gnpOpFirmwareVer} {
+		_, queryErr := gnpQueryPayloadWithDataTimeout(
+			h, destination, nextSeq(), gnpClassDevInfo, operation, nil, endpointProbeTimeout,
+		)
+		if queryErr == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func refreshNewDeviceData(device *jabra_DeviceInfo) {
@@ -1580,12 +1639,28 @@ func readFirmwareVersion(dev *jabra_DeviceInfo) (string, error) {
 }
 
 func firmwareReadDestinations(dev *jabra_DeviceInfo) []byte {
-	if dev != nil && dev.isDongle {
-		return []byte{gnpSrcDongle}
+	destinations := make([]byte, 0, 5)
+	appendDestination := func(destination byte) {
+		for _, existing := range destinations {
+			if existing == destination {
+				return
+			}
+		}
+		destinations = append(destinations, destination)
 	}
-	// Direct headsets normally answer at HS_BT_USB (8). Engage Link control
-	// units expose component data at DESKSTAND (3).
-	return []byte{gnpSrcHost, 3}
+	if dev != nil && dev.gnpDestinationKnown {
+		appendDestination(dev.gnpDestination)
+	}
+	if dev != nil && dev.isDongle {
+		appendDestination(gnpSrcDongle)
+		return destinations
+	}
+	// Direct headsets normally answer at HS_BT_USB (8), while controllers,
+	// speakerphones, and older bases can use other device addresses.
+	for _, destination := range []byte{gnpSrcHost, 3, 1, 0, 2} {
+		appendDestination(destination)
+	}
+	return destinations
 }
 
 func decodeFirmwareVersionPayload(payload []byte) (string, error) {

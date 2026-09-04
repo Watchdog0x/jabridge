@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestOnlyHardwareCommandsPauseLegacyDirectAccess(t *testing.T) {
-	for _, command := range []string{"status", "battery", "settings", "model", "firmware", "fw"} {
+	for _, command := range []string{"status", "battery", "diagnose", "settings", "model", "firmware", "fw"} {
 		if !commandNeedsDirectHardware(command) {
 			t.Errorf("%s did not request exclusive hardware access", command)
 		}

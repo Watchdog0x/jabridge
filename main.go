@@ -43,6 +43,8 @@ func main() {
 		err = runStatus()
 	case "battery":
 		err = runBattery()
+	case "diagnose":
+		err = runDiagnose()
 	case "--daemon", "-d", "daemon":
 		err = runDaemon()
 	case "update":
@@ -82,6 +84,7 @@ Usage:
   jabridge             open the terminal UI through the background service
   jabridge status      show connected USB devices
   jabridge battery     show headset battery from 0 to 100 percent
+  jabridge diagnose    check USB and control-interface discovery
   jabridge update      update the app
   jabridge firmware    check or download device firmware
   jabridge settings    list or change supported device settings

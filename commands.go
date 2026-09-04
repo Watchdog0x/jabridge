@@ -139,6 +139,38 @@ func runBattery() error {
 	return nil
 }
 
+func runDiagnose() error {
+	scanAndAttachDevices()
+	devices := deviceSnapshots()
+	if len(devices) == 0 {
+		fmt.Println("No supported Jabra USB device found.")
+		return nil
+	}
+	ids := make([]int, 0, len(devices))
+	for id := range devices {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	for _, id := range ids {
+		device := devices[id]
+		paths := findHidrawPathsForPID(device.vendorID, device.productID)
+		fmt.Printf("%s (0b0e:%04x)\n", device.deviceName, device.productID)
+		fmt.Printf("  HID interfaces: %d\n", len(paths))
+		if device.gnpDestinationKnown {
+			fmt.Printf("  Control endpoint: ready (address %d)\n", device.gnpDestination)
+		} else {
+			fmt.Println("  Control endpoint: no read-only reply")
+		}
+		if device.firmwareVersion != "" {
+			fmt.Printf("  Firmware: %s\n", device.firmwareVersion)
+		} else {
+			fmt.Println("  Firmware: unavailable")
+		}
+	}
+	fmt.Println("No device was changed.")
+	return nil
+}
+
 func formatBatteryLine(deviceName string, battery *batteryStatus) string {
 	if battery == nil || battery.levelInPercent > 100 {
 		return "Battery: unavailable"

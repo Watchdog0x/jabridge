@@ -235,7 +235,7 @@ func restartUserServiceAfterUpdate() error {
 
 func commandNeedsDirectHardware(command string) bool {
 	switch command {
-	case "status", "battery", "settings", "model", "models", "firmware", "fw":
+	case "status", "battery", "diagnose", "settings", "model", "models", "firmware", "fw":
 		return true
 	default:
 		return false

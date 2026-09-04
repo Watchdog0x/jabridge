@@ -64,6 +64,7 @@ an unavailable-battery message in the menu.
 | --- | --- |
 | `./jabridge status` | Show connected devices |
 | `./jabridge battery` | Show battery, or only `Battery: unavailable` |
+| `./jabridge diagnose` | Check USB and management-interface discovery |
 | `./jabridge settings` | Show supported settings and choices |
 | `./jabridge model` | Match the current device profile |
 | `./jabridge sound` | Show Jabra PipeWire sound devices |

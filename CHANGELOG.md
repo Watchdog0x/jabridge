@@ -90,6 +90,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
   timeouts.
 - Made IPC device listing use cached metadata only and bounded initial device
   probes, keeping the service/TUI responsive for non-headset Jabra products.
+- Added read-only multi-interface GNP endpoint discovery and `jabridge
+  diagnose`, so a timeout is not mislabeled as a udev permission failure.
 - Hid unavailable battery text from the TUI for wired headsets without a
   battery; the explicit battery command reports only `Battery: unavailable`.
 - Restricted daemon socket and PID files to the current user and rejected

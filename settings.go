@@ -246,6 +246,8 @@ func settingTransport(device *jabra_DeviceInfo) (*hidrawConn, byte, error) {
 	src := gnpSrcHost
 	if device.isDongle {
 		src = gnpSrcDongle
+	} else if device.gnpDestinationKnown {
+		src = device.gnpDestination
 	}
 	return h, src, nil
 }

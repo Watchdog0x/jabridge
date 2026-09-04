@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -96,8 +97,31 @@ func TestFirmwareReadDestinations(t *testing.T) {
 		t.Fatalf("dongle destinations = %v", got)
 	}
 	got := firmwareReadDestinations(&jabra_DeviceInfo{})
-	if len(got) != 2 || got[0] != gnpSrcHost || got[1] != 3 {
+	if len(got) != 5 || got[0] != gnpSrcHost || got[1] != 3 || got[2] != 1 || got[3] != 0 || got[4] != 2 {
 		t.Fatalf("headset/controller destinations = %v", got)
+	}
+	got = firmwareReadDestinations(&jabra_DeviceInfo{gnpDestination: 1, gnpDestinationKnown: true})
+	if len(got) != 5 || got[0] != 1 {
+		t.Fatalf("discovered destination was not first or was duplicated: %v", got)
+	}
+}
+
+func TestFirstResponsiveGNPEndpointSkipsWrongInterface(t *testing.T) {
+	var attempts []string
+	path, destination, found := firstResponsiveGNPEndpoint(
+		[]string{"/dev/hidraw-wrong", "/dev/hidraw-control"},
+		[]byte{8, 3, 1},
+		func(candidate string, address byte) bool {
+			attempts = append(attempts, fmt.Sprintf("%s:%d", candidate, address))
+			return candidate == "/dev/hidraw-control" && address == 1
+		},
+	)
+	if !found || path != "/dev/hidraw-control" || destination != 1 {
+		t.Fatalf("endpoint = %q address %d found=%v", path, destination, found)
+	}
+	wantLast := "/dev/hidraw-control:1"
+	if len(attempts) != 6 || attempts[len(attempts)-1] != wantLast {
+		t.Fatalf("probe attempts = %v, want six ending in %q", attempts, wantLast)
 	}
 }
 

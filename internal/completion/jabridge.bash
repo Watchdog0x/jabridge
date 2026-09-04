@@ -4,7 +4,7 @@ _jabridge_completion() {
     COMPREPLY=()
 
     if (( COMP_CWORD == 1 )); then
-        mapfile -t COMPREPLY < <(compgen -W 'status battery settings model sound firmware update setup service ipc completion daemon --version --help' -- "$current")
+        mapfile -t COMPREPLY < <(compgen -W 'status battery diagnose settings model sound firmware update setup service ipc completion daemon --version --help' -- "$current")
         return
     fi
 
