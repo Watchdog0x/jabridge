@@ -114,7 +114,7 @@ func writeDebugReport(destination io.Writer) error {
 	fmt.Fprintf(out, "Jabridge debug %s\nPlatform: %s/%s\n", buildinfo.Version, runtime.GOOS, runtime.GOARCH)
 	writeSystemDiagnostic(out)
 	writeEnvironmentDiagnostic(out)
-	fmt.Fprintf(out, "Device access rule installed: %t\n", deviceAccessRuleInstalled())
+	fmt.Fprintf(out, "Current device access rule installed: %t\n", deviceAccessRuleInstalled())
 	fmt.Fprintf(out, "Custom IPC socket configured: %t\n", os.Getenv("JABRIDGE_SOCKET") != "")
 	devices, err := enumerateJabraUSB()
 	if err != nil {
@@ -133,6 +133,9 @@ func writeDebugReport(destination io.Writer) error {
 					for _, field := range report.Fields {
 						fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x usages=%x range=%x..%x flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.Usages, field.UsageMin, field.UsageMax, field.Flags)
 					}
+				}
+				for _, candidate := range vendorControlCandidates(reports) {
+					fmt.Fprintln(out, "    candidate control transport:", candidate)
 				}
 			}
 		}
@@ -194,6 +197,66 @@ func writeDebugReport(destination io.Writer) error {
 		return io.ErrShortWrite
 	}
 	return err
+}
+
+func vendorControlCandidates(reports []firmware.HIDReport) []string {
+	type pair struct {
+		input, output int
+		pages         map[uint32]bool
+	}
+	pairs := map[byte]*pair{}
+	for _, report := range reports {
+		if report.Kind != "input" && report.Kind != "output" {
+			continue
+		}
+		vendor := false
+		for _, field := range report.Fields {
+			if field.UsagePage >= 0xff00 {
+				vendor = true
+				break
+			}
+		}
+		if !vendor {
+			continue
+		}
+		entry := pairs[report.ID]
+		if entry == nil {
+			entry = &pair{pages: map[uint32]bool{}}
+			pairs[report.ID] = entry
+		}
+		if report.Kind == "input" {
+			entry.input = report.Bytes
+		} else {
+			entry.output = report.Bytes
+		}
+		for _, field := range report.Fields {
+			if field.UsagePage >= 0xff00 {
+				entry.pages[field.UsagePage] = true
+			}
+		}
+	}
+	var ids []int
+	for id, entry := range pairs {
+		if entry.input > 0 && entry.output > 0 {
+			ids = append(ids, int(id))
+		}
+	}
+	sort.Ints(ids)
+	var result []string
+	for _, id := range ids {
+		entry := pairs[byte(id)]
+		var pages []int
+		for page := range entry.pages {
+			pages = append(pages, int(page))
+		}
+		sort.Ints(pages)
+		var labels []string
+		for _, page := range pages {
+			labels = append(labels, fmt.Sprintf("%04x", page))
+		}
+		result = append(result, fmt.Sprintf("report %d vendor input=%d bytes output=%d bytes pages=%s (not probed; framing unknown)", id, entry.input, entry.output, strings.Join(labels, ",")))
+	}
+	return result
 }
 
 func writeSystemDiagnostic(out *bytes.Buffer) {

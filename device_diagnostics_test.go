@@ -85,6 +85,13 @@ func TestBlockedSettingsDoNotBecomePassFromCatalogMetadata(t *testing.T) {
 	}
 }
 
+func TestUnknownModelAndTransportDoNotInventIndividualSettings(t *testing.T) {
+	checks := diagnoseSettings(&jabra_DeviceInfo{productID: 0x0422}, nil, false)
+	if len(checks) != 1 || checks[0].Feature != "setting discovery" || checks[0].State != "BLOCKED" {
+		t.Fatalf("checks = %#v", checks)
+	}
+}
+
 func TestProtocolFailuresAreUsefulWithoutRawData(t *testing.T) {
 	if got := protocolDiagnosticError(fmt.Errorf("invalid battery capacity 230 serial=PRIVATE")); got != "response format/value rejected by native decoder" {
 		t.Fatal(got)

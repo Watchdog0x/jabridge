@@ -56,6 +56,21 @@ func TestTimeoutAdviceDoesNotPrescribeRootOrUdev(t *testing.T) {
 	if !strings.Contains(permissions, "run jabridge setup on the host") {
 		t.Fatal(permissions)
 	}
+	buttons := strings.Join(reportNextSteps("Jabra input event15: permission denied"), "\n")
+	if !strings.Contains(buttons, "Button/call-event access is denied") || strings.Contains(buttons, "Device control access is denied") {
+		t.Fatal(buttons)
+	}
+	combined := strings.Join(reportNextSteps("hidraw1: read/write access ready\nJabra input event15: permission denied"), "\n")
+	if strings.Contains(combined, "Device control access is denied") {
+		t.Fatal(combined)
+	}
+}
+
+func TestMissingCurrentRuleGetsExplicitSetupAdvice(t *testing.T) {
+	steps := strings.Join(reportNextSteps("Current device access rule installed: false"), "\n")
+	if !strings.Contains(steps, "missing or outdated") || !strings.Contains(steps, "setup on the host") {
+		t.Fatal(steps)
+	}
 }
 
 func TestFirmwareFindingNeverQualifiesEvolve3OrSpeakFlashing(t *testing.T) {

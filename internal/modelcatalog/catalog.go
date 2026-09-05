@@ -121,6 +121,19 @@ type Variant struct {
 	FirmwareProtocolKnown bool
 }
 
+// AmbiguousVariantError preserves public catalog evidence when a USB PID maps
+// to several variants. Callers must not choose a settings profile until the
+// device itself identifies its variant.
+type AmbiguousVariantError struct {
+	PID      uint16
+	Count    int
+	Variants []string
+}
+
+func (err *AmbiguousVariantError) Error() string {
+	return fmt.Sprintf("PID 0x%04x has %d model variants; read the device variant before applying settings", err.PID, err.Count)
+}
+
 // ReleaseEvidence describes one firmware version using the checksum and PID
 // relationships published in Jabra's model catalog.
 type ReleaseEvidence struct {
@@ -333,7 +346,17 @@ func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware 
 			variants[strings.ToUpper(match.variant.VariantType)] = struct{}{}
 		}
 		if len(variants) != 1 {
-			return nil, fmt.Errorf("PID 0x%04x has %d model variants; read the device variant before applying settings", pid, len(variants))
+			values := make([]string, 0, len(variants))
+			for value := range variants {
+				if safeCatalogVariant(value) {
+					values = append(values, value)
+				}
+			}
+			sort.Strings(values)
+			if len(values) > 16 {
+				values = values[:16]
+			}
+			return nil, &AmbiguousVariantError{PID: pid, Count: len(variants), Variants: values}
 		}
 	}
 	matchedProduct := matches[0].product
@@ -418,6 +441,18 @@ func (client *Client) Lookup(ctx context.Context, pid uint16, variant, firmware 
 		SupportedProtocols:       append([]string(nil), matchedProduct.SupportedProtocols...),
 		Properties:               properties,
 	}, nil
+}
+
+func safeCatalogVariant(value string) bool {
+	if value == "" || len(value) > 32 {
+		return false
+	}
+	for _, char := range value {
+		if (char < '0' || char > '9') && (char < 'A' || char > 'Z') && char != '-' && char != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 func (client *Client) loadProperties(ctx context.Context, pid uint16, variant, firmware string) (map[string]Property, error) {

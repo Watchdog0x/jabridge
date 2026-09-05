@@ -204,6 +204,12 @@ func TestDeferredPanicIsNotRecordedAsSuccess(t *testing.T) {
 	}
 }
 
+func TestExistingOutputFileHasUsefulPrivateErrorCategory(t *testing.T) {
+	if got := Classify(os.ErrExist); got != "already-exists" {
+		t.Fatalf("category = %q", got)
+	}
+}
+
 func TestHistoryChild(t *testing.T) {
 	mode := os.Getenv("JABRIDGE_TEST_HISTORY_CHILD")
 	if mode == "" {

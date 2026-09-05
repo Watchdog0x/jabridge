@@ -95,8 +95,14 @@ func reportNextSteps(body string) []string {
 		}
 		steps = append(steps, value)
 	}
-	if strings.Contains(body, "permission denied") {
-		add("Device access is denied: run jabridge setup on the host, reconnect USB if asked, and repeat as the normal user.")
+	if strings.Contains(body, "Current device access rule installed: false") {
+		add("The current device-access rule is missing or outdated: run jabridge setup on the host once, then reconnect USB if asked.")
+	}
+	if reportLineContains(body, "Jabra input", "permission denied") {
+		add("Button/call-event access is denied: run jabridge setup on the host, reconnect USB if asked, and repeat the button check as the normal user.")
+	}
+	if reportLineContains(body, "hidraw", "permission denied") {
+		add("Device control access is denied: run jabridge setup on the host, reconnect USB if asked, and repeat as the normal user.")
 	}
 	if strings.Contains(body, "ExecMainStatus=226") {
 		add("The service failed during namespace setup: investigate the service sandbox and host namespace/AppArmor policy. Running the app as root is not the fix.")
@@ -129,6 +135,22 @@ func reportNextSteps(body string) []string {
 		add("No specific blocker was classified. Review NOT TESTED items and run the physical button, audio and reconnect checks before claiming full support.")
 	}
 	return steps
+}
+
+func reportLineContains(body string, values ...string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		matches := true
+		for _, value := range values {
+			if !strings.Contains(line, value) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
 }
 
 func writeEnvironmentDiagnostic(out *bytes.Buffer) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,7 +21,7 @@ func main() {
 		command = os.Args[1]
 	}
 	event := history.Event{Component: "app", Action: "run", Command: command}
-	if len(os.Args) > 2 {
+	if len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
 		event.Subcommand = os.Args[2]
 	}
 	defer history.CapturePanic(event)

@@ -211,6 +211,8 @@ func Classify(err error) string {
 		return "permission"
 	case errors.Is(err, os.ErrNotExist):
 		return "missing"
+	case errors.Is(err, os.ErrExist):
+		return "already-exists"
 	case errors.Is(err, unix.EROFS):
 		return "read-only-filesystem"
 	case errors.Is(err, unix.ENOSPC):
@@ -259,7 +261,7 @@ func sanitize(event Event) Event {
 	event.Screen = allowed(event.Screen, "home search remembered dongle-settings headset-settings devices firmware")
 	event.Connection = allowed(event.Connection, "usb dongle")
 	event.Method = allowed(event.Method, "service.ping service.shutdown history.status version devices.list device.select settings.list settings.set device.battery device.firmware device.features device.reset device.busylight bt.list bt.search bt.search.list bt.search.connect bt.connect bt.disconnect bt.forget bt.pair bt.autopair subscribe diagnostics.device")
-	event.Error = allowed(event.Error, "cancelled timeout permission missing read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed")
+	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed")
 	if _, ok := settings.Load(event.Setting); !ok {
 		event.Setting = ""
 	}

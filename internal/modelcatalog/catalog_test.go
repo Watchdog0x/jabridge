@@ -3,9 +3,11 @@ package modelcatalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -184,7 +186,7 @@ func TestLookupRejectsUnknownPID(t *testing.T) {
 		_, _ = fmt.Fprint(writer, `{"bundles":[],"unbundledProducts":[]}`)
 	}))
 	defer server.Close()
-	client := &Client{HTTPClient: server.Client(), BundlesURL: server.URL, ModelsBaseURL: server.URL}
+	client := &Client{HTTPClient: server.Client(), BundlesURL: server.URL + "/bundles.json", ModelsBaseURL: server.URL}
 	if _, err := client.Lookup(context.Background(), 0xffff, "", ""); err == nil {
 		t.Fatal("unknown PID was accepted")
 	}
@@ -203,8 +205,26 @@ func TestLookupWithoutVariantRequiresOneUnambiguousVariant(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client := &Client{HTTPClient: server.Client(), BundlesURL: server.URL, ModelsBaseURL: server.URL}
-	if _, err := client.Lookup(context.Background(), 0x1234, "", ""); err == nil {
-		t.Fatal("ambiguous PID was accepted without a variant")
+	client := &Client{HTTPClient: server.Client(), BundlesURL: server.URL + "/bundles.json", ModelsBaseURL: server.URL}
+	_, err := client.Lookup(context.Background(), 0x1234, "", "")
+	var ambiguity *AmbiguousVariantError
+	if !errors.As(err, &ambiguity) {
+		t.Fatalf("ambiguous PID error = %v", err)
+	}
+	if ambiguity.PID != 0x1234 || ambiguity.Count != 2 || len(ambiguity.Variants) != 2 || ambiguity.Variants[0] != "01-01" || ambiguity.Variants[1] != "01-02" {
+		t.Fatalf("ambiguity evidence = %#v", ambiguity)
+	}
+}
+
+func TestAmbiguousVariantEvidenceIsBoundedAndSanitized(t *testing.T) {
+	for _, value := range []string{"08-01", "13-00-02", "A.B"} {
+		if !safeCatalogVariant(value) {
+			t.Fatalf("safe variant rejected: %q", value)
+		}
+	}
+	for _, value := range []string{"", "private name", "../../../secret", strings.Repeat("A", 33)} {
+		if safeCatalogVariant(value) {
+			t.Fatalf("unsafe variant accepted: %q", value)
+		}
 	}
 }

@@ -78,8 +78,10 @@ func runSetup(args []string) error {
 	}
 
 	found, usable := probeJabraHidrawAccess()
-	accessReady := found && usable
-	if !accessReady && (found || !deviceAccessRuleInstalled()) {
+	// An older rule may make hidraw usable while still omitting input-event
+	// access. Always refresh a missing/outdated rule instead of treating one
+	// accessible node as proof that the complete setup is installed.
+	if setupNeedsDeviceAccessInstall(deviceAccessRuleInstalled(), found, usable) {
 		if os.Geteuid() == 0 {
 			if err := installDeviceAccess(systemUdevRulePath); err != nil {
 				return err
@@ -94,8 +96,12 @@ func runSetup(args []string) error {
 
 	time.Sleep(300 * time.Millisecond)
 	found, usable = probeJabraHidrawAccess()
-	if found && usable {
-		fmt.Println("Headset access is ready. Starting your user service...")
+	inputFound, inputUsable := probeJabraInputAccess()
+	if found && usable && (!inputFound || inputUsable) {
+		fmt.Println("Device access is ready. Starting your user service...")
+	}
+	if found && usable && inputFound && !inputUsable {
+		fmt.Println("Device control is ready. Reconnect USB once for button access. Starting your user service...")
 	}
 	if found && !usable {
 		fmt.Println("Access rule installed. Reconnect USB once. Starting your user service...")
@@ -105,14 +111,32 @@ func runSetup(args []string) error {
 	}
 	fmt.Println("Jabridge is installed and will start automatically when you sign in.")
 	switch {
-	case found && usable:
+	case found && usable && (!inputFound || inputUsable):
 		fmt.Println("Device access is ready.")
+	case found && usable:
+		fmt.Println("Device control is ready. Reconnect USB once for button access.")
 	case found:
 		fmt.Println("Setup complete. Reconnect the USB device once.")
 	default:
 		fmt.Println("Setup complete. Connect your Jabra USB device.")
 	}
 	return nil
+}
+
+func probeJabraInputAccess() (found, usable bool) {
+	for _, path := range jabraInputPaths() {
+		found = true
+		file, err := os.Open(path)
+		if err == nil {
+			_ = file.Close()
+			return true, true
+		}
+	}
+	return found, false
+}
+
+func setupNeedsDeviceAccessInstall(ruleInstalled, hidrawFound, hidrawUsable bool) bool {
+	return !ruleInstalled || hidrawFound && !hidrawUsable
 }
 
 func runPrivilegedSetup(executable string) error {

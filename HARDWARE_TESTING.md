@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC15.
+Thank you for testing Jabridge 1.0.0 RC16.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,21 +17,21 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC15
+## Download RC16
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.15 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.15).
+[v1.0.0-rc.16 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.16).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.15_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.15_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.15_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.16_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.16_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.16_linux_amd64
 ./jabridge --version
 ```
 
 The main report command is `./jabridge debug --output report.txt`.
-RC15 automatically saves a private action/error history. If something happens
-in the TUI, run debug afterward, even after closing/restarting the app. The
+RC15 and newer automatically save a private action/error history. If something
+happens in the TUI, run debug afterward, even after closing/restarting the app. The
 report includes recent events, not just the current device state. Previous
 RC14 TUI activity cannot be recovered. After updating, run
 `./jabridge service restart` once to install the new service unit.

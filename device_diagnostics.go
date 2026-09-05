@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -77,7 +78,16 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 	}
 	capabilities, catalogErr := lookupDeviceModel(device)
 	if catalogErr != nil {
-		add("online model catalog", "UNAVAILABLE", "Model/variant lookup failed; model-filtered settings coverage cannot be established.")
+		var ambiguity *modelcatalog.AmbiguousVariantError
+		if errors.As(catalogErr, &ambiguity) {
+			variants := strings.Join(ambiguity.Variants, ", ")
+			if variants == "" {
+				variants = "variant labels unavailable"
+			}
+			add("online model catalog", "INFO", fmt.Sprintf("USB PID matches %d published variants (%s); device variant is required before selecting settings.", ambiguity.Count, variants))
+		} else {
+			add("online model catalog", "UNAVAILABLE", "Model/variant lookup failed; model-filtered settings coverage cannot be established.")
+		}
 	} else {
 		add("online model catalog", "INFO", fmt.Sprintf("profile=%s; properties=%d; exact installed version=%t (metadata, not a hardware test)", safeFirmwareDiagnostic(capabilities.Firmware), len(capabilities.Properties), capabilities.DeviceFirmware != "" && capabilities.ExactFirmwareProfile))
 		if capabilities.FirmwareProtocolKnown {
@@ -122,6 +132,13 @@ func safeFirmwareDiagnostic(value string) string {
 
 func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capabilities, ready bool) []ipc.DiagnosticCheck {
 	checks := []ipc.DiagnosticCheck{}
+	if capabilities == nil && !ready && !device.isDongle {
+		return []ipc.DiagnosticCheck{{
+			Feature: "setting discovery",
+			State:   "BLOCKED",
+			Detail:  "Management transport and exact model variant are unavailable; individual settings were not probed.",
+		}}
+	}
 	covered := map[string]bool{}
 	seen := map[string]bool{}
 	failures := 0

@@ -69,6 +69,26 @@ func TestSetupAnswerDefaultsToYes(t *testing.T) {
 	}
 }
 
+func TestSetupRefreshesMissingRuleEvenWhenHidrawIsUsable(t *testing.T) {
+	for _, test := range []struct {
+		name                               string
+		ruleInstalled, hidFound, hidUsable bool
+		want                               bool
+	}{
+		{"missing rule with usable hidraw", false, true, true, true},
+		{"missing rule without device", false, false, false, true},
+		{"current rule with denied hidraw", true, true, false, true},
+		{"current rule with usable hidraw", true, true, true, false},
+		{"current rule without device", true, false, false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := setupNeedsDeviceAccessInstall(test.ruleInstalled, test.hidFound, test.hidUsable); got != test.want {
+				t.Fatalf("setup decision = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestUserServiceUsesInstalledBinaryAndBootHardening(t *testing.T) {
 	service, err := userServiceContents()
 	if err != nil {

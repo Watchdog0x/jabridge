@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Watchdog0x/jabridge/internal/firmware"
 	"golang.org/x/sys/unix"
 )
 
@@ -41,5 +42,19 @@ func TestMediaListenerDropsOrdinaryKeyboardAndRawEvents(t *testing.T) {
 	}
 	if got := mediaInputEvent(unix.EV_REL, 8, -1); got != "Volume wheel/dial: -1" {
 		t.Fatal(got)
+	}
+}
+
+func TestVendorControlCandidatesRequireBidirectionalVendorReports(t *testing.T) {
+	reports := []firmware.HIDReport{
+		{ID: 2, Kind: "input", Bytes: 33, Fields: []firmware.HIDField{{UsagePage: 0xff00}}},
+		{ID: 2, Kind: "output", Bytes: 33, Fields: []firmware.HIDField{{UsagePage: 0xff00}}},
+		{ID: 3, Kind: "input", Bytes: 3, Fields: []firmware.HIDField{{UsagePage: 0x000b}}},
+		{ID: 3, Kind: "output", Bytes: 3, Fields: []firmware.HIDField{{UsagePage: 0x0008}}},
+		{ID: 4, Kind: "input", Bytes: 3, Fields: []firmware.HIDField{{UsagePage: 0xff30}}},
+	}
+	got := vendorControlCandidates(reports)
+	if len(got) != 1 || !strings.Contains(got[0], "report 2") || !strings.Contains(got[0], "input=33") || !strings.Contains(got[0], "pages=ff00") {
+		t.Fatalf("candidates = %#v", got)
 	}
 }

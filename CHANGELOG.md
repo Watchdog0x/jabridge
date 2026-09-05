@@ -7,6 +7,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- Debug summaries for bidirectional vendor HID transports whose framing is not
+  implemented yet, and the exact public catalog variants behind an ambiguous
+  USB product ID.
 - Private, bounded local history for TUI actions/screens, selected devices,
   settings operations, service lifecycle and IPC failures. Debug exports it
   after a restart; `jabridge history` displays it and `history clear` removes it.
@@ -85,6 +88,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- Setup now refreshes a missing or outdated udev rule even when an existing
+  group/ACL already makes one hidraw node accessible. Debug distinguishes
+  button-event permission failures from management-interface failures.
+- When both the management transport and model variant are unknown, debug
+  reports one honest settings-discovery blocker instead of implying that every
+  generic headset setting applies to that model.
 - Renamed the project from jLink to Jabridge to avoid the SEGGER J-Link package
   collision.
 - Moved firmware status, download, verification, and experimental install into
