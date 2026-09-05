@@ -1,0 +1,19 @@
+Source: jabridge
+Section: utils
+Priority: optional
+Maintainer: Watchdog0x <watchdog0x@users.noreply.github.com>
+Build-Depends: debhelper (>= 12), golang-any
+Standards-Version: 4.6.2
+Homepage: https://github.com/Watchdog0x/jabridge
+Rules-Requires-Root: no
+
+Package: jabridge
+Architecture: any
+Depends: ${misc:Depends}
+Recommends: pipewire-bin
+Suggests: bash-completion
+Description: Native-Go Jabra device manager for Linux
+ Jabridge provides a terminal interface, daemon, and firmware inspection
+ tools for Jabra headsets and dongles without libjabra.so or CGo.
+ .
+ Hardware-write features remain experimental and disabled by default.

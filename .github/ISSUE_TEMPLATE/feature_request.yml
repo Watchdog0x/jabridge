@@ -1,0 +1,70 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for Jabridge
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement to Jabridge. Please describe your idea below.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What area does this feature relate to?
+      options:
+        - Device Management (discovery, pairing, connections)
+        - Battery Monitoring
+        - Bluetooth Management
+        - Dongle Settings
+        - Firmware Update
+        - Sound Control / PipeWire Integration
+        - TUI / User Interface
+        - Daemon / Background Service
+        - Packaging / Installation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you've considered.
+    validations:
+      required: false
+
+  - type: input
+    id: device
+    attributes:
+      label: Jabra Device(s)
+      description: If this feature is device-specific, which Jabra device(s)?
+      placeholder: "e.g., Jabra Evolve2 85, Jabra Link 380"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, mockups, or references for this feature request.
+    validations:
+      required: false

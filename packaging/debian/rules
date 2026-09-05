@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	mkdir -p dist/bin
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/Watchdog0x/jabridge/internal/buildinfo.Version=$$(dpkg-parsechangelog -SVersion | sed 's/-[^-]*$$//')" -o dist/bin/jabridge .
+
+override_dh_auto_install:
+	install -Dm755 dist/bin/jabridge debian/jabridge/usr/bin/jabridge
+	install -Dm644 internal/completion/jabridge.bash debian/jabridge/usr/share/bash-completion/completions/jabridge
+	install -Dm644 dist/jabridge.service debian/jabridge/usr/lib/systemd/user/jabridge.service
+	install -Dm644 dist/70-jabridge.rules debian/jabridge/usr/lib/udev/rules.d/70-jabridge.rules
+
+override_dh_auto_test:
+	CGO_ENABLED=0 go test ./...

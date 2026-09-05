@@ -1,0 +1,177 @@
+package firmware
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"sort"
+)
+
+// HIDReport describes sizes only; it contains no device input or identity.
+type HIDReport struct {
+	ID     byte
+	Kind   string
+	Bytes  int
+	Fields []HIDField
+}
+
+type HIDField struct {
+	OffsetBits uint64
+	SizeBits   uint32
+	Count      uint32
+	UsagePage  uint32
+	Usages     []uint32
+	UsageMin   uint32
+	UsageMax   uint32
+	Flags      uint32
+	LogicalMin int64
+	LogicalMax int64
+}
+
+func HIDDescriptorFingerprint(path string) (string, error) {
+	descriptor, err := readHidrawReportDescriptor(path)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(descriptor)), nil
+}
+
+func InspectHIDReports(path string) ([]HIDReport, error) {
+	descriptor, err := readHidrawReportDescriptor(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseHIDReports(descriptor)
+}
+
+func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
+	type globals struct {
+		id                     byte
+		size, count            uint32
+		page                   uint32
+		logicalMin, logicalMax int64
+	}
+	type key struct {
+		id   byte
+		kind string
+	}
+	state := globals{}
+	var stack []globals
+	bits := map[key]uint64{}
+	fields := map[key][]HIDField{}
+	var usages []uint32
+	var usageMin, usageMax uint32
+	for offset := 0; offset < len(descriptor); {
+		prefix := descriptor[offset]
+		offset++
+		if prefix == 0xfe {
+			if offset+2 > len(descriptor) {
+				return nil, fmt.Errorf("truncated long HID item")
+			}
+			length := int(descriptor[offset])
+			offset += 2
+			if offset+length > len(descriptor) {
+				return nil, fmt.Errorf("truncated long HID payload")
+			}
+			offset += length
+			continue
+		}
+		length := int(prefix & 3)
+		if length == 3 {
+			length = 4
+		}
+		if offset+length > len(descriptor) {
+			return nil, fmt.Errorf("truncated HID item")
+		}
+		var value uint32
+		for i := 0; i < length; i++ {
+			value |= uint32(descriptor[offset+i]) << (8 * i)
+		}
+		offset += length
+		kind, tag := (prefix>>2)&3, prefix>>4
+		if kind == 1 {
+			switch tag {
+			case 0:
+				state.page = value
+			case 1:
+				state.logicalMin = signedHIDItem(value, length)
+			case 2:
+				state.logicalMax = int64(value)
+				if state.logicalMin < 0 {
+					state.logicalMax = signedHIDItem(value, length)
+				}
+			case 7:
+				state.size = value
+			case 8:
+				if value == 0 || value > 255 {
+					return nil, fmt.Errorf("invalid HID report ID")
+				}
+				state.id = byte(value)
+			case 9:
+				state.count = value
+			case 10:
+				stack = append(stack, state)
+			case 11:
+				if len(stack) == 0 {
+					return nil, fmt.Errorf("unbalanced HID global pop")
+				}
+				state = stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+			}
+		} else if kind == 2 {
+			switch tag {
+			case 0:
+				usages = append(usages, value)
+			case 1:
+				usageMin = value
+			case 2:
+				usageMax = value
+			}
+		} else if kind == 0 {
+			name := map[byte]string{8: "input", 9: "output", 11: "feature"}[tag]
+			if name == "" {
+				usages = nil
+				usageMin = 0
+				usageMax = 0
+				continue
+			}
+			k := key{state.id, name}
+			count := uint64(state.size) * uint64(state.count)
+			if count > 65536 || bits[k]+count > 65536 {
+				return nil, fmt.Errorf("HID report exceeds supported size")
+			}
+			fields[k] = append(fields[k], HIDField{OffsetBits: bits[k], SizeBits: state.size, Count: state.count, UsagePage: state.page, Usages: append([]uint32(nil), usages...), UsageMin: usageMin, UsageMax: usageMax, Flags: value, LogicalMin: state.logicalMin, LogicalMax: state.logicalMax})
+			bits[k] += count
+			usages = nil
+			usageMin = 0
+			usageMax = 0
+		}
+	}
+	var reports []HIDReport
+	for k, count := range bits {
+		size := int((count + 7) / 8)
+		if k.id != 0 {
+			size++
+		}
+		reports = append(reports, HIDReport{ID: k.id, Kind: k.kind, Bytes: size, Fields: fields[k]})
+	}
+	sort.Slice(reports, func(i, j int) bool {
+		if reports[i].ID != reports[j].ID {
+			return reports[i].ID < reports[j].ID
+		}
+		return reports[i].Kind < reports[j].Kind
+	})
+	return reports, nil
+}
+
+func signedHIDItem(value uint32, length int) int64 {
+	switch length {
+	case 1:
+		return int64(int8(value))
+	case 2:
+		return int64(int16(value))
+	case 4:
+		return int64(int32(value))
+	default:
+		return 0
+	}
+}

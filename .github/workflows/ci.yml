@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  JABRIDGE_VERSION: 1.0.0
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          args: --timeout=5m
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            printf 'Unformatted files:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+        env:
+          CGO_ENABLED: 0
+
+      - name: Race tests
+        run: go test -race ./...
+
+      - name: Static tests
+        run: go test ./...
+        env:
+          CGO_ENABLED: 0
+
+      - name: Check Bash completion
+        run: bash -n internal/completion/jabridge.bash
+
+      - name: Build static binaries
+        run: |
+          mkdir -p dist/bin
+          go build -trimpath -ldflags="-s -w -X github.com/Watchdog0x/jabridge/internal/buildinfo.Version=${JABRIDGE_VERSION}" -o dist/bin/jabridge .
+          test "$(dist/bin/jabridge --version)" = "Jabridge ${JABRIDGE_VERSION}"
+        env:
+          CGO_ENABLED: 0
+
+      - name: Upload review binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: jabridge-linux-amd64-review
+          path: dist/bin/
+          retention-days: 7

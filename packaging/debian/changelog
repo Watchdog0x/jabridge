@@ -1,0 +1,7 @@
+jabridge (1.0.0-1) UNRELEASED; urgency=medium
+
+  * Native-Go rewrite preview.
+  * Rename the package to avoid the SEGGER jlink collision.
+  * Remove libjabra.so and CGo runtime dependencies.
+
+ -- Watchdog0x <watchdog0x@users.noreply.github.com>  Thu, 03 Sep 2026 00:00:00 +0000

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussion
+    url: https://github.com/Watchdog0x/jabridge/discussions
+    about: Ask questions and discuss ideas

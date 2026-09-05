@@ -1,0 +1,5 @@
+# Give the active desktop user access to supported Jabra HID control nodes.
+# This avoids running the full Jabridge application as root.
+SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="0b0e", MODE="0660", TAG+="uaccess"
+# Jabra media-button events, without granting access to other input devices.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="0b0e", MODE="0660", TAG+="uaccess"

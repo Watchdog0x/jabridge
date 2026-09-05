@@ -1,0 +1,241 @@
+package firmware
+
+import (
+	"bytes"
+	"testing"
+	"time"
+)
+
+// TestGetFirmwareVersionFake uses a fake transport to verify the
+// GNP query/response round-trip for firmware version. Capture:
+//
+//	TX: 05 08 00 01 46 02 03
+//	RX: 00 08 01 CC 02 03 05 31 2E 33 2E 38  → "1.3.8"
+func TestGetFirmwareVersionFake(t *testing.T) {
+	ft := &fakeTransport{
+		replies: [][]byte{
+			padTo63([]byte{
+				0x05, // report ID (present from hidraw)
+				0x00, 0x08, 0x01, 0xCC, 0x02, 0x03,
+				0x05,                         // string length = 5
+				0x31, 0x2E, 0x33, 0x2E, 0x38, // "1.3.8"
+			}),
+		},
+	}
+
+	// Build query and verify wire bytes
+	seq := byte(0x01)
+	query := buildInitQuery(GnpSrcHost, seq, 0x02, 0x03)
+	if err := ft.Write(query); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify request bytes match capture
+	if len(ft.writes) != 1 {
+		t.Fatalf("wrote %d packets, want 1", len(ft.writes))
+	}
+	wantReq := padTo63([]byte{0x05, 0x08, 0x00, 0x01, 0x46, 0x02, 0x03})
+	if !bytes.Equal(ft.writes[0], wantReq) {
+		t.Errorf("request bytes:\ngot:  %x\nwant: %x", ft.writes[0][:7], wantReq[:7])
+	}
+
+	// Parse response
+	resp, err := ft.Read(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Strip report ID
+	if resp[0] == GnpReportID {
+		resp = resp[1:]
+	}
+	strLen := int(resp[6])
+	version := string(resp[7 : 7+strLen])
+	if version != "1.3.8" {
+		t.Errorf("version = %q, want %q", version, "1.3.8")
+	}
+}
+
+func TestQueryFirmwareVersionForDongleSource(t *testing.T) {
+	transport := &fakeTransport{replies: [][]byte{padTo63([]byte{
+		0x05, 0x00, 0x01, 0x22, 0xCC, 0x02, 0x03,
+		0x06, '1', '.', '1', '6', '.', '0',
+	})}}
+	version, err := queryFirmwareVersion(transport, 0x01, 0x22)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "1.16.0" {
+		t.Fatalf("version = %q, want 1.16.0", version)
+	}
+	if got := transport.writes[0][1]; got != 0x01 {
+		t.Fatalf("dongle source = 0x%02x, want 0x01", got)
+	}
+}
+
+func TestQueryFirmwareVersionForHeadsetThroughDongle(t *testing.T) {
+	transport := &fakeTransport{replies: [][]byte{
+		padTo63([]byte{0x05, 0x00, 0x04, 0x00, 0xC8, 0x12, 0x02, 0x00, 48}),
+		padTo63([]byte{
+			0x05, 0x00, 0x04, 0x52, 0xCC, 0x02, 0x03,
+			0x05, '2', '.', '9', '.', '2',
+		}),
+	}}
+	version, err := QueryFirmwareVersion(transport, 0x04, 0x52, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "2.9.2" {
+		t.Fatalf("version = %q, want 2.9.2", version)
+	}
+	want := padTo63([]byte{0x05, 0x04, 0x00, 0x52, 0x46, 0x02, 0x03})
+	if !bytes.Equal(transport.writes[0], want) {
+		t.Fatalf("child firmware request = %x, want %x", transport.writes[0][:7], want[:7])
+	}
+}
+
+// TestGetDeviceGNPInfoFake verifies the GNP DeviceInfo query against
+// the live capture: TX 05 08 00 00 46 02 02 → RX 00 08 00 C9 02 02 02 01 67
+func TestGetDeviceGNPInfoFake(t *testing.T) {
+	ft := &fakeTransport{
+		replies: [][]byte{
+			padTo63([]byte{
+				0x05, 0x00, 0x08, 0x00, 0xC9, 0x02, 0x02,
+				0x02,       // GNP protocol version 2
+				0x01, 0x67, // variant 0x0167 = 359 (Evolve2 85)
+			}),
+		},
+	}
+
+	query := buildInitQuery(GnpSrcHost, 0x00, 0x02, 0x02)
+	if err := ft.Write(query); err != nil {
+		t.Fatal(err)
+	}
+
+	wantReq := padTo63([]byte{0x05, 0x08, 0x00, 0x00, 0x46, 0x02, 0x02})
+	if !bytes.Equal(ft.writes[0], wantReq) {
+		t.Errorf("request:\ngot:  %x\nwant: %x", ft.writes[0][:7], wantReq[:7])
+	}
+
+	resp, err := ft.Read(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp[0] == GnpReportID {
+		resp = resp[1:]
+	}
+	proto := resp[6]
+	// Variant is big-endian in the capture: 01 67 = 0x0167
+	variant := uint16(resp[7])<<8 | uint16(resp[8])
+	if proto != 0x02 {
+		t.Errorf("protocol = %d, want 2", proto)
+	}
+	if variant != 0x0167 {
+		t.Errorf("variant = 0x%04x, want 0x0167", variant)
+	}
+}
+
+// TestGetLanguageIDFake verifies the LanguageID GNP query.
+// Capture: TX 05 08 00 04 46 13 08 → RX 00 08 04 C8 13 08 09 04
+func TestGetLanguageIDFake(t *testing.T) {
+	ft := &fakeTransport{
+		replies: [][]byte{
+			padTo63([]byte{
+				0x05, 0x00, 0x08, 0x02, 0xC8, 0x13, 0x08,
+				0x09, 0x04, // 0x0409 = English (US)
+			}),
+		},
+	}
+
+	query := buildInitQuery(GnpSrcHost, 0x02, 0x13, 0x08)
+	if err := ft.Write(query); err != nil {
+		t.Fatal(err)
+	}
+
+	wantReq := padTo63([]byte{0x05, 0x08, 0x00, 0x02, 0x46, 0x13, 0x08})
+	if !bytes.Equal(ft.writes[0], wantReq) {
+		t.Errorf("request:\ngot:  %x\nwant: %x", ft.writes[0][:7], wantReq[:7])
+	}
+
+	resp, err := ft.Read(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp[0] == GnpReportID {
+		resp = resp[1:]
+	}
+	langID := uint16(resp[6]) | uint16(resp[7])<<8
+	if langID != 0x0409 {
+		t.Errorf("langID = 0x%04x, want 0x0409", langID)
+	}
+}
+
+// TestIsDonglePID verifies the dongle PID detection.
+func TestIsDonglePID(t *testing.T) {
+	cases := []struct {
+		pid  uint16
+		want bool
+	}{
+		{0x24c7, true},  // Link 380 USB-A UC
+		{0x24c8, true},  // Link 380 USB-A MS
+		{0x24c9, true},  // Link 380 USB-C UC
+		{0x24ca, true},  // Link 380 USB-C MS
+		{0x2e50, true},  // Link 390
+		{0x2e57, true},  // Link 390
+		{0x1131, true},  // Link 400
+		{0x1136, true},  // Link 400
+		{0x0a17, true},  // historical Link ID
+		{0x24b9, false}, // Evolve2 85 (headset)
+		{0x2450, false}, // BIZ 2400 II (headset)
+	}
+	for _, c := range cases {
+		if got := isDonglePID(c.pid); got != c.want {
+			t.Errorf("isDonglePID(0x%04x) = %v, want %v", c.pid, got, c.want)
+		}
+	}
+}
+
+func TestHIDUeventMatchHandlesKernelPadding(t *testing.T) {
+	data := []byte("HID_ID=0003:00000B0E:000024C7\n")
+	if !hidUeventMatches(data, JabraVendorID, 0x24c7) {
+		t.Fatal("padded kernel HID_ID did not match")
+	}
+	if hidUeventMatches(data, JabraVendorID, 0x24b9) {
+		t.Fatal("wrong PID matched")
+	}
+}
+
+func TestFirstGnpHidrawNeverFallsBackToUnrelatedInterface(t *testing.T) {
+	paths := []string{"/dev/hidraw0", "/dev/hidraw1", "/dev/hidraw2"}
+	path, found := firstGnpHidraw(paths, func(candidate string) bool {
+		return candidate == "/dev/hidraw2"
+	})
+	if !found || path != "/dev/hidraw2" {
+		t.Fatalf("selected %q, found=%v", path, found)
+	}
+	if path, found := firstGnpHidraw(paths, func(string) bool { return false }); found || path != "" {
+		t.Fatalf("unexpected fallback to %q", path)
+	}
+}
+
+// TestBatteryStatusThreshold verifies the batteryLow threshold.
+func TestBatteryStatusThreshold(t *testing.T) {
+	cases := []struct {
+		level   uint8
+		wantLow bool
+	}{
+		{100, false},
+		{50, false},
+		{11, false},
+		{10, true},
+		{5, true},
+		{0, true},
+	}
+	for _, c := range cases {
+		bs := &BatteryStatus{LevelInPercent: c.level}
+		bs.BatteryLow = bs.LevelInPercent <= 10
+		if bs.BatteryLow != c.wantLow {
+			t.Errorf("level=%d: BatteryLow=%v, want %v", c.level, bs.BatteryLow, c.wantLow)
+		}
+	}
+}

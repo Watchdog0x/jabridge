@@ -1,0 +1,99 @@
+firmware_protocol	representative_pid	device	version	file	bytes	sha256	archive_check	manifest_target	payload_types	result
+4	0b0e:0300	Jabra Evolve 20	4.3.1	Jabra_EVOLVE_20_30_4.3.1.zip	123684	641d4f895d7ef15ba013258cfa5253885603ca0bb11f27807a8b54870e5812e8	zip_ok	0x0304	hex	ok
+4	0b0e:0305	Jabra Evolve 40/80	4.1.0	Jabra_EVOLVE_LINK_4.1.0.zip	124606	5722982af4c8fb48d33e50a82c0b95df34d5cd37076e77fbb9c571aa37d9bdfa	zip_ok	0x0309	hex	ok
+1	0b0e:030b	Jabra Evolve 65 Stereo	2.97.0	Jabra_Evolve_65-v2.97.0-duo-vector.zip	1425431	2fbf6e020b3de7ef26935b5cd2de9df20cb5ef3f596eee9debb4548261d6407a	zip_ok	0x094E	dfu	ok
+1	0b0e:030d	Jabra Evolve 65 Mono	2.97.0	Jabra_Evolve_65-v2.97.0-mono-vector.zip	1424759	e5c77e5f682dd70552fb07dad1a129de6339b4bfe97968f7b5cc42ec601cbde9	zip_ok	0x0954	dfu	ok
+4	0b0e:0312	Jabra Evolve 30 II	3.4.4	Jabra_EVOLVE_30_II_3.4.4.zip	122551	3bb3e75391edf251bd4ddd4a4ec91cd29463583618f006f60b7aee274cd0692b	zip_ok	0x0316	hex	ok
+5	0b0e:0342	Jabra UC VOICE 150a MS Duo	1.26.0	Jabra_UC_VOICE_150a_MS_1_26_0.zip	9301	8449b0e31510871e3ba5a5173961fecc5ded286cf8bb5eace48aa6ada77ca52f	zip_ok	0x0342	ptc	ok
+5	0b0e:0343	Jabra UC VOICE 150a Duo	1.26.0	Jabra_UC_VOICE_150a_1_26_0.zip	9259	2a77c35a1a55a43e5e9967940138ab4a2e5341c8c8ecbeecfd831f5ec315ef1f	zip_ok	0x0343	ptc	ok
+5	0b0e:0344	Jabra UC VOICE 150a MS Mono	1.26.0	Jabra_UC_VOICE_150a_MS_mono_1_26_0.zip	9477	41a598dddec3f76fb58d098f45c193425d2caa1871f078e7e0a1473931d20301	zip_ok	0x0344	ptc	ok
+5	0b0e:0345	Jabra UC VOICE 150a Mono	1.26.0	Jabra_UC_VOICE_150a_mono_1_26_0.zip	9445	56390119e234406cb143e9c0530b4b91134ccff7df74041ac862bd6a99b41be9	zip_ok	0x0345	ptc	ok
+5	0b0e:0346	Jabra UC VOICE 250a MS	1.27.0	Jabra_UC_VOICE_250a_MS_1_27_0.zip	9467	ea0543bfeeccda2291d17682ae50eda8cf0f5c3ba855abca89509e529047fb0e	zip_ok	0x0346	ptc	ok
+5	0b0e:0347	Jabra UC VOICE 250a	1.27.0	Jabra_UC_VOICE_250a_1_27_0.zip	9424	ef364e727eff09f9ae10fac2d981ecefd9fa6435fe62dd20ea8495c8031272ae	zip_ok	0x0347	ptc	ok
+5	0b0e:0348	Jabra UC VOICE 550a MS Duo	1.26.0	Jabra_UC_VOICE_550a_MS_1_26_0.zip	9328	2c8e8747f8c283070a5fd920878c73092a60c38164d018582c52cd21fa12b0e9	zip_ok	0x0348	ptc	ok
+5	0b0e:0349	Jabra UC VOICE 550a Duo	1.26.0	Jabra_UC_VOICE_550a_1_26_0.zip	9280	50344dbc18dd039e471d8d0d2a90afd64539357b1c642be4ac06715e2621f2c2	zip_ok	0x0349	ptc	ok
+5	0b0e:034a	Jabra UC VOICE 550a MS Mono	1.26.0	Jabra_UC_VOICE_550a_MS_mono_1_26_0.zip	9506	566c6c087822e01a9f50c0bc2c6c1176a1046e804b03202a10d30da836931e9a	zip_ok	0x034A	ptc	ok
+5	0b0e:034b	Jabra UC VOICE 550a Mono	1.26.0	Jabra_UC_VOICE_550a_mono_1_26_0.zip	9477	16435b9d81ee7756f9d003593032d9d64e268bb49f261ba613707c4b993cdfc2	zip_ok	0x034B	ptc	ok
+5	0b0e:034c	Jabra UC VOICE 750a MS Duo	1.26.0	Jabra_UC_VOICE_750a_MS_1_26_0.zip	9367	732f7e0998969cb97eaa0cafa092d47b8e9ba3959eecbc6cbf68ee69432b6135	zip_ok	0x034C	ptc	ok
+5	0b0e:034d	Jabra UC VOICE 750a Duo	1.26.0	Jabra_UC_VOICE_750a_1_26_0.zip	9310	479eb35704bb2f500428159600bc24426a8176b96d965e3c004b78ed67b2fca4	zip_ok	0x034D	ptc	ok
+5	0b0e:034e	Jabra UC VOICE 750a MS Mono	1.26.0	Jabra_UC_VOICE_750a_MS_mono_1_26_0.zip	9534	fc1bf4b987c444d7fdb3435f6e22a53557a7c38ff9708a1d7368bd50cc31c63f	zip_ok	0x034E	ptc	ok
+5	0b0e:034f	Jabra UC VOICE 750a Mono	1.26.0	Jabra_UC_VOICE_750a_mono_1_26_0.zip	9499	9ba1ca73b0771ce2f3e7bb19b362a7aa6b0c2fc828035622d8f6e66b40a27993	zip_ok	0x034F	ptc	ok
+1	0b0e:0410	Jabra Speak 410	1.12.0	Jabra_SPEAK_410_USB-1-12-0.dfu	879660	cd9ee8a400bce8ad55f325bc7f1c2a6c830ca394694bad093926cc9ce7bfd682	not_zip			ok
+1	0b0e:0420	Jabra Speak 510	2.32.8	Jabra_SPEAK_510_USB-v2.32.8-vector.zip	1019643	1fdaed55bb374bde5808468840d3fc11a6be64757c06faff6d2ccf04e2af0721	zip_ok	0x0421	dfu	ok
+4	0b0e:0843	Jabra Link 43	1.5.0	Jabra_Link_43_1.5.0.zip	70491	5b5df5d632631934489cc87d5388a3c7c3a04a51579f3e4c0878f19e428b380c	zip_ok	0x0842	hex	ok
+4	0b0e:0852	Jabra Link 860	1.7.0	Jabra_LINK_860_1.7.0.zip	89223	56afb22e234cfdbdcbd659f9e26d4d25702494d88e8bd5a99676b15b58936068	zip_ok	0x0853	hex	ok
+1	0b0e:090a	Jabra BIZ 2400 USB Duo	1.45.0	Jabra_BIZ_2400_USB-1-45-0.dfu	790728	052af326981453416a584e10d235bec8696e0145b847771d9ae01f8238827f7e	not_zip			ok
+1	0b0e:0910	Jabra Link 280	1.43.0	Jabra_LINK_280_USB-1-43-0.dfu	787606	7e6a7d06e2303a924b039e9f91f35f5a1454dc7da36ec459614b8d40c6dfc836	not_zip			ok
+1	0b0e:0949	Jabra Speak 450 Cisco	1.2.0	Jabra_SPEAK_450_Cisco_USB-1-2-0.dfu	1013240	7a85092bce17822d0e5772a665d1992cc698e6a12888ceb4ae4e29195f0219e5	not_zip			ok
+4	0b0e:0e30	Jabra Evolve2 30	1.7.0	Jabra_Evolve2_30_1.7.0.zip	2179352	eb380719bdac2620aef233f57e3f1f7f61738e121cdd88340f8702a476ec5bec	zip_ok	0x0E34	hex	ok
+4	0b0e:0e36	Jabra Evolve2 30 SE	1.11.0	Jabra_Evolve2_30_SE_1.11.0.zip	2180843	f85fd55a6bcecdb078688e09a719f490ff89cf15ea34c7f932b5354645620ff8	zip_ok	0x0E3A	hex	ok
+4	0b0e:0e40	Jabra Evolve2 40	2.11.1	Jabra_Evolve2_40_2.11.1.zip	2218228	e61bf0c016d9e221c0d0f72a207b3e4aa4d29ab20bb463ecf7539216ea9c103d	zip_ok	0x0E44	hex	ok
+4	0b0e:1016	Jabra PRO 920 / 930	2.32.0	Jabra_920_930_2.32.0.zip	1234946	31bf2e6f8234fdbe295d9359ede22f2c98c4ea49e81073eaa1a70a27b462cdab	zip_ok	0x1015	hex,bin	ok
+4	0b0e:1021	Jabra PRO 9450	4.7.0	Jabra_PRO_9450_4.7.0.zip	777235	2176d7da130d8c6f1591550c2e20b8bc3473080b620230082b3821da047eec07	zip_ok	0x1020	hex	ok
+4	0b0e:1037	Jabra PRO 925 / 935	1.8.2	Jabra_PRO_925_935_1.8.2.zip	5665317	82738b69e0ace1652de91a9c0f155a73a6fb4e2d7dffb41802a3ed68a0592704	zip_ok	0x1036	bin,psr,xpv,xdv	ok
+4	0b0e:1041	Jabra PRO 9460 / 9465 / 9470	4.7.0	Jabra_PRO_9460_9465_9470_4.7.0.zip	5891134	0b6655ad43b38e33b0e051e27e7f2cbd9477ad4108d9a9d1cf1e26e9c475026d	zip_ok	0x1040	hex,xpv,xdv	ok
+4	0b0e:1110	Jabra Engage 75	5.20.1	Jabra_Engage_75_5.20.1.zip	11357726	210d0402470502aa28716a98a67a4343e6f29d98f0b7681b676e66a12d2c3a98	zip_ok	0x1111	hex,psr,xpv,xdv	ok
+12	0b0e:1116	Jabra Engage 55	5.19.3	Jabra_Engage_HS_5.19.3.zip	3498199	7f3945d975964fd88db3cdb5d7bce1a2919a175077af1a83d70b9613c8cb4ffc	zip_ok	0x1116	hex	ok
+4	0b0e:1118	Jabra Engage 65	5.19.3	Jabra_Engage_65_5.19.3.zip	7585375	a719b45baa08a13a34465d64079fce189f19c38ef8aa8c619333de58a8cf2dfa	zip_ok	0x1119	hex	ok
+4	0b0e:1126	Jabra Engage 45 SE	5.19.3	Jabra_Engage_45_se_5.19.3.zip	7562118	b9edc6180935bb91a821c4e1a35e1826b3721a2b3abee63bf4bc3d2205b5b207	zip_ok	0x1125	hex	ok
+4	0b0e:1131	Jabra Link 400	1.16.1	Jabra_Link_400_1.16.1.zip	2846407	9e00e02e2a8c5330b95f5094215b4b2c7636946c0913c2f0eb33686cc4942f97	zip_ok	0x1130	hex	ok
+4	0b0e:2301	Jabra BIZ 2300 USB	3.3.0	Jabra_BIZ_2300_3.3.0.zip	119022	a8b584c075071eed30c193e565d6a0d7cd2599db975ba6db430ee0891d38d69a	zip_ok	0x2300	hex	ok
+4	0b0e:2311	Jabra Link 265	1.10.0	Jabra_LINK_265_1.10.0.zip	110230	6485076ef562f4b6f55ed35786d3769352ae6a2b678256602de3c7451c3c5e3b	zip_ok	0x2310	hex	ok
+4	0b0e:2315	Jabra Link 230	1.5.0	Jabra_LINK_230_1.5.0.zip	101740	93dbc1f904b28112501ecf442bd52b7b0483b7bf9ad5e3eaca7d95cff9e6a0a0	zip_ok	0x2314	hex	ok
+4	0b0e:2319	Jabra Link 260	1.6.0	Jabra_LINK_260_1.6.0.zip	119454	da324e36f6b0d34ac1c8bc286c1f2a6c757967a5337fa7139e56a5c9f0661f28	zip_ok	0x2318	hex	ok
+4	0b0e:2321	Jabra BIZ 2400 II USB CC	2.2.0	Jabra_BIZ_2400_II_CC_2.2.0.zip	125297	714c72ff045024c923b137e06b000ea006eee1fc646b8468cf53c7c2d82550d5	zip_ok	0x2320	hex	ok
+4	0b0e:2326	Jabra BIZ 1500 USB	1.3.0	Jabra_BIZ_1500_1.3.0.zip	110618	97a2888c088e5e7a7d8f62c3642d144cc740c84086778a4e2c8bcdc2694314a1	zip_ok	0x2325	hex	ok
+4	0b0e:2329	Jabra BIZ 1100	1.3.0	Jabra_BIZ_1100_1.3.0.zip	110619	0c90371f452ee401d8580ee79425c24b3f7a29879087f4c1bc90785efd15148c	zip_ok	0x2328	hex	ok
+1	0b0e:2400	Jabra BIZ 2400 USB Mono	1.45.0	Jabra_BIZ_2400_Mono_USB-1-45-0.dfu	790106	744ec9963437dc16941a44edecdfb4ed6af4784b52df4a10f0c467c11e315670	not_zip			ok
+1	0b0e:2450	Jabra BIZ 2400 II USB BT Mono	1.14.0	Jabra_BIZ_2400_II-v1-14-0-US_EN-mono.dfu	1359510	1e79a242900373047f485d63f6ee1397750b02584993c921c5baf3786abd5374	not_zip			ok
+1	0b0e:2452	Jabra BIZ 2400 II USB BT Duo	1.14.0	Jabra_BIZ_2400_II-v1-14-0-US_EN-duo.dfu	1360730	0cabc4c0c419fcf4f716e0c874649e6068b3bbf82d596ef644fb4f448d7a473f	not_zip			ok
+1	0b0e:2454	Jabra Speak 810	1.9.0	Jabra_SPEAK_810-v1.9.0-default-vector.zip	987917	b3efdea32ff0aba8349c51c89d12e7b6304546e14743045b52eb5bb6477ef8fb	zip_ok	0x0971	dfu	ok
+1	0b0e:245d	Jabra Link 370	1.87.0	Jabra_Link_370-v1.87.0-link370-vector.zip	624173	c7e6d919fdc38943130f9be2732578b73bccd62a3be8f4677c36dd157bd2c534	zip_ok	0x0976	dfu	ok
+1	0b0e:2465	Jabra Evolve 75	2.38.0	Jabra_Evolve_75-v2.38.0-default-vector.zip	1362256	2f2c1d428697d2cec70201e7b8e2e4570e2b89ba141e0ba415e0cb1040870637	zip_ok	0x097a	dfu	ok
+1	0b0e:246c	Jabra Evolve 75e	2.31.0	Jabra_Evolve_75e-v2.31.0-evolve75e-vector.zip	1335924	6cfb3ebde40c027fa6696314cb8c5541605e75bdd66af6dbc7c785f34505b80c	zip_ok	0x097e	dfu	ok
+1	0b0e:2475	Jabra Speak 710	1.40.0	Jabra_Speak_710-v1.40.0-default-vector.zip	1264761	4b739ddc604c9945ec02de0541563c5796c1869cd1ff35794c74b009cc665623	zip_ok	0x0982	dfu	ok
+7	0b0e:248e	Jabra Evolve 65e	2.29.0	Jabra_Evolve_65e-v2.29.0-vector.zip	6220943	82b43673c791a60fd66700993a9a3312174f81e0dc0c4deb35d30f3ac60750c9	zip_ok	0x098a	gnv,dfu	ok
+7	0b0e:24a3	Jabra Evolve2 65 Stereo	2.9.2	Jabra_Evolve2_65-v2.9.2-ev265Duo-vector.zip	11574390	5e3bdb7d44ae3a3c14d68a56b40e87f43e4751b1e9e1dc2fe40d6b76e2c72810	zip_ok	0x24A3	gnv	ok
+1	0b0e:24ae	Jabra Link 370 Teams	1.87.0	Jabra_Link_370-v1.87.0-link370_teams-vector.zip	624219	6de0632fd2bfafbf51739e6860fe048c23ad65c6c4867f25b52593da334c4f29	zip_ok	0x0994	dfu	ok
+1	0b0e:24b0	Jabra Speak 750 Teams	2.45.0	Jabra_Speak_750-v2.45.0-spk750_teams-vector.zip	1269484	25e155167393cdbdce189a40fde20f91d3239f9a799cd58ba1626fab570c1439	zip_ok	0x0995	dfu	ok
+1	0b0e:24b1	Jabra Speak 750 UC	2.45.0	Jabra_Speak_750-v2.45.0-spk750_uc-vector.zip	1267926	20be96e2812e81c7d810a844b2b6f6aa73a98a682236f12860991765dbfeabeb	zip_ok	0x0997	dfu	ok
+7	0b0e:24b3	Jabra Evolve2 65 Mono	2.9.2	Jabra_Evolve2_65-v2.9.2-ev265Mono-vector.zip	11571702	e5f81ba488b8c34b5c2ce47d64f16c4b2c37c9c3bbdce7f4a17ff416431a052d	zip_ok	0x24B3	gnv	ok
+none	0b0e:24b9	Jabra Evolve2 85	1.5.7	Jabra_Evolve2_85-v1.5.7-ev285t-vector.zip	11650633	d255285c0600dd276645e9356b739608b258948325e2808d3fc961f756f3a5e6	zip_ok	0x24B9	gnv	ok
+7	0b0e:24c7	Jabra Link 380a	1.16.0	Jabra_Link_380-v1.16.0-l380a-vector.zip	979533	7bbf364207b76284dbb0dc7a0fa3135416b08394b4c0f43b41d305cb8db0051d	zip_ok	0x24C7	gnv	ok
+7	0b0e:24c9	Jabra Link 380c	1.16.0	Jabra_Link_380-v1.16.0-l380c-vector.zip	979533	0f38d23d12fe77947142bc8a48dd08899de832c4531feb5750a83b9e86ec937c	zip_ok	0x24C9	gnv	ok
+7	0b0e:24d9	Jabra Evolve2 75	1.13.1	Jabra_Evolve2_75-v1.13.1-ev275-vector.zip	14260513	3843f8a995a8b26975b4d38041a1eaa7f4a95b73b4f8cf5d8b8d5afe845bb60c	zip_ok	0x24D9	gnv	ok
+1	0b0e:24e8	Jabra Connect 4S	2.32.4	Jabra_Connect_4s-v2.32.4-leo_2_con4s-vector.zip	1003747	712a5a715c2fb97f76facd00edc208519374bb3883eb1a6734cbba87eb2915b2	zip_ok	0x0998	dfu	ok
+7	0b0e:24ef	Jabra Speak2 75	2.54.0	Jabra_Speak2_75-v2.54.0-s75a2-vector.zip	16073144	dc888bbe9758c019840f10b0da02f2f05c1098ffbf08265d9c9302080c0ef93e	zip_ok	0x24EF	gnv	ok
+7	0b0e:24f3	Jabra Evolve2 55 Stereo	1.6.3	Jabra_Evolve2_55-v1.6.3-willDuo-vector.zip	14292796	3fa08994539e1f7d8db54cf81a2726cde738312bdde6f5f0b3779c4c5f2944f1	zip_ok	0x24F3	gnv	ok
+7	0b0e:24f6	Jabra Evolve2 55 Mono	1.6.3	Jabra_Evolve2_55-v1.6.3-willMono-vector.zip	14124575	3a1002f547ff810fda391426d75b3fe9bab151786ebe7d8b9853ee238454141b	zip_ok	0x24F6	gnv	ok
+7	0b0e:24fc	Jabra Evolve 65 SE Stereo	1.1.2	Jabra_Evolve_65_SE-v1.1.2-skyfalle65Duo-vector.zip	1781019	7f767ab2168948efcefd54f3b59a46199845d7c72107eede289fa768ec0c8b6f	zip_ok	0x24FC	gnv	ok
+7	0b0e:24ff	Jabra Evolve 65 SE Mono	1.1.2	Jabra_Evolve_65_SE-v1.1.2-skyfalle65Mono-vector.zip	1780600	db8fbb97908f886b44a424ce13093c66a344294ebca97d606b6ca648c978b079	zip_ok	0x24FF	gnv	ok
+7	0b0e:2502	Jabra Evolve 75 SE	1.1.0	Jabra_Evolve_75_SE-v1.1.0-ev75-vector.zip	1883870	0729bbd242ebeca9dadd87fa4ec85adf459521a15fd04e2914afca2082ee476b	zip_ok	0x2502	gnv	ok
+7	0b0e:2505	Jabra Evolve2 50 Stereo	1.5.7	Jabra_Evolve2_50-v1.5.7-fellDuo-vector.zip	11973062	a8a4f3dd7345f42f7b15f763e1efac29ce37ab77d33f477be29bfb0b07ae7e02	zip_ok	0x2505	gnv	ok
+7	0b0e:2508	Jabra Evolve2 50 Mono	1.5.7	Jabra_Evolve2_50-v1.5.7-fellMono-vector.zip	11825791	da27cc128b3641559684f2754ceefd722f24eb364d116ed56f13a75fc6ea53bd	zip_ok	0x2508	gnv	ok
+7	0b0e:250b	Jabra Evolve2 Buds	1.2.5	Jabra_Evolve2_Buds-v1.2.5-ev2buds-vector.zip	14957209	9e1a26e41bd58df61961da386e5d0964b9dcf2b2481a62f305e73409d4ee6389	zip_ok	0x250B	gnv	ok
+7	0b0e:2517	Jabra Evolve2 65 Flex	1.6.2	Jabra_Evolve2_65_Flex-v1.6.2-cyp-vector.zip	14410961	56a3a62156b2a060bcd3011312f8a778247a5b301a769023fcf387969cc93861	zip_ok	0x2517	gnv	ok
+7	0b0e:2537	Jabra Evolve 65 TE Stereo	1.0.3	Jabra_Evolve_65_TE-v1.0.3-arecaDuo-vector.zip	1654657	4ef3ef33d274536a62f3c6be8e6d3429d735d8cd712685e60ae405b1f80d1b08	zip_ok	0x2537	gnv	ok
+7	0b0e:253a	Jabra Evolve 65 TE Mono	1.0.3	Jabra_Evolve_65_TE-v1.0.3-arecaMono-vector.zip	1654239	9c8bb17666078d8d58c14a3385cda80cb4047831d3a144a24730efd88e5f0649	zip_ok	0x253A	gnv	ok
+16	0b0e:253d	Jabra Evolve3 85	1.1.10	Jabra_Evolve3_85_v1.1.10_253D_vector.zip	22395214	d7b4a0a13e6370bac50ee58854a2c8f43fa852e01bac2de9738a34284a597b6a	zip_ok	0x253D	bin	ok
+16	0b0e:2546	Jabra Evolve3 75	1.1.10	Jabra_Evolve3_75_v1.1.10_2546_vector.zip	22370406	37807d5fd5c6b848635f491ba32e00ef6bb2e581a213adcbc7353fe71cca85c5	zip_ok	0x2546	bin	ok
+17	0b0e:2549	Jabra Evolve3 65 Stereo	1.0.1	Jabra_Evolve3_65_v1.0.1_2549_vector_Duo.zip	5296846	9d398c1b1e4e88e018c3cab79f586a201b6c969610aa04938c2a22c0f35b08fd	zip_ok	0x2549	bin	ok
+17	0b0e:254c	Jabra Evolve3 65 Mono	1.0.1	Jabra_Evolve3_65_v1.0.1_254C_vector_Mono.zip	5296640	6ae8cb8ecdfb54999766ebd53b53822cac81e2afb6c0c269d226336fe7bceeba	zip_ok	0x254C	bin	ok
+17	0b0e:254f	Jabra Evolve3 45 Stereo	1.0.1	Jabra_Evolve3_45_v1.0.1_254F_vector_Duo.zip	5257201	63c2382d4b25a69ca32d0cd95ea2a3c5030d22a4b712c0104c89dcc6de500fdf	zip_ok	0x254F	bin	ok
+17	0b0e:2552	Jabra Evolve3 45 Mono	1.0.1	Jabra_Evolve3_45_v1.0.1_2552_vector_Mono.zip	5257239	e494d0d5d2a509d7b5b69985cd52c68f6fbf590a72bd24539aa0fcfd09761b8b	zip_ok	0x2552	bin	ok
+16	0b0e:2555	Jabra Evolve3 65 Flex	1.0.1	Jabra_Evolve3_65_Flex_v1.0.1_2555_vector.zip	22391479	8d1408eb0a0ad5e7108c8716db37d9da51b6401a79f09d6b977ed774baab2b6e	zip_ok	0x2555	bin	ok
+4	0b0e:2e40	Jabra Evolve2 40 SE	1.12.1	Jabra_Evolve2_40_SE_1.12.1.zip	2205081	3a3d0aa8de48dbe7109fd473e464ba893d64f64907e121e87e8d167864e69800	zip_ok	0x2E44	hex	ok
+7	0b0e:2e50	Jabra Link 390	3.2.0	Jabra_Link_390_v3.2.0_2E50_vector.zip	1222367	c15d77e4e79515b3dce03779191dde20390c4ed2635e8e57ab1ae25336b4e3cf	zip_ok	0x2E50	bin	ok
+10	0b0e:3009	Jabra PanaCast 50	9.3.6	Jabra_PanaCast_50_9.3.6.zip	160037051	c124357e06e7905a77012f1e4d1df18c3682c8909cea3168d30d22dccf2f5906	zip_ok	0x3010	zip	ok
+11	0b0e:3020	Jabra PanaCast 20	4.2.9	Jabra_PanaCast_20_4.2.9.zip	19064560	eb87c2c8aa83923234c2f696bb9a8ced36f5c82f6514c01c6e40e07c61572580	zip_ok	0x3020	mvcmd	ok
+18	0b0e:3081	Jabra PanaCast P40	4.2.0.21	panacast40vbs-user-4.2.0-21-fwu.zip	1867687068	d9b575c5a7b04401d94294a9ff3de571a968a8f08b841e84205dc764b2bab8c0	zip_ok	0x3080	pb,bin,zip,txt,no-extension	ok
+18	0b0e:3092	Jabra PanaCast U30	4.2.0.20	panacastu30-user-4.2.0-20-fwu.zip	1330806503	8c88de46334ac10fa277465db5a4d0c289f8996687185da9cb9217ff7875a281	zip_ok	0x3093	pb,bin,zip,txt,no-extension	ok
+4	0b0e:4001	Jabra Engage 50	4.1.3	Jabra_Engage_50_4.1.3.zip	671035	ba10337e51e1f8e12c8e480e374d3a5e906a05a93d00e0436875c1076a8677f2	zip_ok	0x4000	hex	ok
+4	0b0e:4040	Jabra Link 950	2.7.0	Jabra_Link_950_2.7.0.zip	260996	fd94c5a486ab3dca97e0bc70224a09e39a389d652143c6d211f0dcc93d31c4ab	zip_ok	0x4041	hex	ok
+4	0b0e:4051	Jabra Engage 50 II	4.1.3	Jabra_Engage_50_II_4.1.3.zip	831695	f4cb7913d46b1c8c52451369322a0d490fcd0418840b87e881f698ee97e396a5	zip_ok	0x4050	hex	ok
+4	0b0e:4061	Jabra Engage 40	4.1.3	Jabra_Engage_40_4.1.3.zip	827036	e10b79fc5640c34ebfab49c3f1fe5ef197b6ffebe22c79c64025fcea5fef827f	zip_ok	0x4060	hex	ok
+1	0b0e:a345	Jabra Link 360	2.47.0	Jabra_LINK_360-v2.47.0-vector.zip	606413	9cf49423f0b5b41b9dd204a58b0c6e72f7ef4a0245e9513f25ade280c56e1e8c	zip_ok	0xA347	dfu	ok
+7	0b0e:ae6a	Jabra Speak2 55	1.6.4	JABRA_SPEAK2 55_OTA_V1.6.4.zip	21016692	1669bf5bce81c38f50cab0626e0d8050ef1660b8cc3d7ac73c14b376c61365f8	zip_ok	0xAE6C	gnv	ok
+7	0b0e:ae6b	Jabra Speak2 40	1.2.8	JABRA_SPEAK2 40_OTA_V1.2.8.zip	20959096	fb82164ede5d8d39d51908cd0ea32cc40005d9a37587c0b38da5b51ad0d25922	zip_ok	0xAE6D	gnv	ok
+7	0b0e:ae70	Jabra Speak2 55 CN	2.0.4	JABRA_KILI_OTA_V2.0.4A.zip	21085548	783bb23ffb497f98b722f61cc51f14c5e6ba54a5ecc73d4a11a9a25c8d4afec5	zip_ok	0xAE70	gnv	ok
+4	0b0e:c0dd	Jabra Evolve2 Deskstand	1.10.0	Jabra_Evolve2_Deskstand_1.10.0.zip	68363	83c3eaf7d851a1d4a7aeaa9fd4bbaab75ae48a8ce0471d359edb3e6d9987a6e4	zip_ok	0xC0DE	hex	ok

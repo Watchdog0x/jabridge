@@ -1,4 +1,11 @@
-lib/
-.vscode/
-_obj/
-jLink
+/.vscode/
+/_obj/
+/dist/bin/
+/firmware/
+/jabridge
+/jfwu
+/lib/
+*.AppImage
+*.dfu
+*.gnv
+*.log
