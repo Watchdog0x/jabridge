@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/Watchdog0x/jabridge/internal/history"
 	"sort"
 )
 
@@ -39,7 +40,10 @@ func switchableDevices() []switchDeviceItem {
 	return items
 }
 
-func selectRegistryDevice(registryID int) (string, error) {
+func selectRegistryDevice(registryID int) (result string, actionErr error) {
+	device, _ := deviceAt(registryID)
+	finish := history.Begin(historyDeviceEvent(device, "select"))
+	defer history.EndDeferred(finish, &actionErr)
 	name, audioTarget, switchAudio, err := selectRegistryDeviceState(registryID)
 	if err != nil {
 		return "", err

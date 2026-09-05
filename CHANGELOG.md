@@ -7,6 +7,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- Private, bounded local history for TUI actions/screens, selected devices,
+  settings operations, service lifecycle and IPC failures. Debug exports it
+  after a restart; `jabridge history` displays it and `history clear` removes it.
+- Seven-day/size retention, cross-process locking, incomplete-record handling,
+  and field allowlists that exclude raw messages, names and device payloads.
+
 - Integrated button observation with `debug --buttons`, advertised media-key
   capabilities, container context and evidence-based troubleshooting steps.
 - Debug checks for published firmware, official checksums and matching cached

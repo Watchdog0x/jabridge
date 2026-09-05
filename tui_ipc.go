@@ -11,6 +11,7 @@ import (
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
 type tuiIPCBackend struct {
@@ -63,7 +64,7 @@ func (backend *tuiIPCBackend) close() {
 
 func connectTUIService() (*tuiIPCBackend, error) {
 	socket := ipcSocketPath()
-	if client, version, err := dialServiceVersion(socket, 700*time.Millisecond); err == nil && version == buildinfo.Version {
+	if client, version, err := dialServiceVersion(socket, 700*time.Millisecond); err == nil && version == buildinfo.Version && !serviceHistoryNeedsSetup(client) {
 		return &tuiIPCBackend{client: client, socket: socket}, nil
 	} else if client != nil {
 		_ = client.Close()
@@ -86,6 +87,18 @@ func connectTUIService() (*tuiIPCBackend, error) {
 		return nil, fmt.Errorf("service version %s does not match app version %s", version, buildinfo.Version)
 	}
 	return &tuiIPCBackend{client: client, socket: socket}, nil
+}
+
+func serviceHistoryNeedsSetup(client *ipc.Client) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var status history.RecordingStatus
+	if err := client.Call(ctx, "history.status", nil, &status); err != nil {
+		return false
+	}
+	// An app update from RC14 can leave the old read-only home sandbox in
+	// place. Normal TUI startup refreshes the managed user unit in that case.
+	return status.Enabled && status.Error == "read-only-filesystem"
 }
 
 func dialServiceVersion(socket string, timeout time.Duration) (*ipc.Client, string, error) {
@@ -134,6 +147,7 @@ func initialTUIServiceSync(backend *tuiIPCBackend) error {
 }
 
 func runTUIServiceSync(ctx context.Context, backend *tuiIPCBackend) {
+	defer history.CapturePanic(history.Event{Component: "tui", Action: "connect"})
 	for {
 		client := backend.clientSnapshot()
 		if client == nil {
@@ -184,13 +198,18 @@ func runTUIServiceSync(ctx context.Context, backend *tuiIPCBackend) {
 }
 
 func reconnectTUIService(ctx context.Context, backend *tuiIPCBackend) bool {
+	finish := history.Begin(history.Event{Component: "tui", Action: "reconnect"})
+	var reconnectErr error
+	defer history.EndDeferred(finish, &reconnectErr)
 	setStatus("Service disconnected. Reconnecting...", true)
 	client, err := ipc.DialWithRetry(ctx, backend.socket)
 	if err != nil {
+		reconnectErr = err
 		return false
 	}
 	backend.replaceClient(client)
 	if err := syncTUIState(client); err != nil {
+		reconnectErr = err
 		_ = client.Close()
 		return false
 	}

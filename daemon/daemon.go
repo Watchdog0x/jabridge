@@ -22,6 +22,7 @@ import (
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/daemon/pipewire"
+	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
 // Config holds daemon startup parameters.
@@ -71,7 +72,11 @@ func Start(cfg Config, pollFunc func(context.Context), api ipc.API) error {
 
 // Run creates the PID file and Unix socket, then serves until ctx is canceled.
 // It is the programmatic entry point used by tests and service managers.
-func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ipc.API) error {
+func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ipc.API) (runErr error) {
+	entry := history.Event{Component: "service", Action: "run"}
+	defer history.CapturePanic(entry)
+	finish := history.Begin(entry)
+	defer history.EndDeferred(finish, &runErr)
 	if cfg.MaxConnections <= 0 {
 		cfg.MaxConnections = 32
 	}
@@ -115,7 +120,10 @@ func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ip
 	}
 
 	// Start device polling
-	go pollFunc(pollContext)
+	go func() {
+		defer history.CapturePanic(history.Event{Component: "service", Action: "run"})
+		pollFunc(pollContext)
+	}()
 
 	// Start PipeWire monitor for meeting detection + busylight
 	d.busylight = NewBusylightController(cfg.BusylightSender)
@@ -136,6 +144,7 @@ func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ip
 
 	// Accept connections
 	go d.acceptLoop()
+	history.Record(history.Event{Component: "service", Action: "start", Phase: "ok"})
 
 	fmt.Fprintf(os.Stderr, "[jabridge] daemon started (pid=%d socket=%s)\n", os.Getpid(), cfg.SocketPath)
 
@@ -149,6 +158,7 @@ func Run(ctx context.Context, cfg Config, pollFunc func(context.Context), api ip
 // Stop performs graceful shutdown: close listener, stop polling, clean up files.
 func (d *Daemon) Stop() {
 	d.stopOnce.Do(func() {
+		history.Record(history.Event{Component: "service", Action: "stop", Phase: "observed"})
 		if d.listener != nil {
 			_ = d.listener.Close()
 		}
@@ -193,6 +203,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 }
 
 func (d *Daemon) watchState(ctx context.Context) {
+	defer history.CapturePanic(history.Event{Component: "service", Action: "run"})
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	previousDevices := indexDevices(d.api.ListDevices())
@@ -207,6 +218,7 @@ func (d *Daemon) watchState(ctx context.Context) {
 			previousDevices = currentDevices
 			currentPairing := d.api.GetPairingList()
 			if !reflect.DeepEqual(previousPairing, currentPairing) {
+				history.Record(history.Event{Component: "device", Action: "pairing", Phase: "observed"})
 				d.events.Publish("device.pairing.update", currentPairing)
 				previousPairing = append([]ipc.PairedDeviceInfo(nil), currentPairing...)
 			}
@@ -226,15 +238,18 @@ func publishDeviceChanges(bus *ipc.EventBus, previous, current map[uint16]ipc.De
 	for id, device := range current {
 		old, existed := previous[id]
 		if !existed {
+			history.Record(history.Event{Component: "device", Action: "attach", Phase: "observed", USBProduct: device.PID, Connection: device.Connection})
 			bus.Publish("device.attached", device)
 			continue
 		}
 		if !reflect.DeepEqual(old.Battery, device.Battery) {
+			history.Record(history.Event{Component: "device", Action: "battery", Phase: "observed", USBProduct: device.PID, Connection: device.Connection})
 			bus.Publish("device.battery.update", device)
 		}
 	}
 	for id, device := range previous {
 		if _, exists := current[id]; !exists {
+			history.Record(history.Event{Component: "device", Action: "detach", Phase: "observed", USBProduct: device.PID, Connection: device.Connection})
 			bus.Publish("device.detached", device)
 		}
 	}

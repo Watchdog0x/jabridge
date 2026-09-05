@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
 // DeviceInfo is the JSON-serializable device representation for IPC.
@@ -124,6 +125,7 @@ func HandleConnectionWithTimeout(conn net.Conn, api API, idleTimeout time.Durati
 }
 
 func HandleConnectionWithBus(conn net.Conn, api API, bus *EventBus, idleTimeout time.Duration) {
+	defer history.CapturePanic(history.Event{Component: "ipc-server", Action: "request"})
 	defer func() { _ = conn.Close() }()
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)
@@ -157,6 +159,7 @@ func HandleConnectionWithBus(conn net.Conn, api API, bus *EventBus, idleTimeout 
 
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
+			history.Record(history.Event{Component: "ipc-server", Action: "malformed", Phase: "error", Error: "malformed"})
 			if err := writeResponse(ErrorResponse(nil, ErrCodeParse, "parse error")); err != nil {
 				return
 			}
@@ -237,8 +240,36 @@ func decodeParams(raw json.RawMessage, target any) error {
 	return nil
 }
 
-func dispatch(req Request, api API) Response {
+func dispatch(req Request, api API) (response Response) {
+	started := time.Now()
+	entry := history.Event{Component: "ipc-server", Action: "request", Method: req.Method, Operation: history.NextOperation()}
+	trace := history.TraceMethod(req.Method)
+	if trace {
+		entry.Phase = "start"
+		history.Record(entry)
+	}
+	defer func() {
+		if value := recover(); value != nil {
+			entry.Phase = "panic"
+			entry.Error = "panic"
+			history.Record(entry)
+			panic(value)
+		}
+		if !trace && response.Error == nil {
+			return
+		}
+		entry.Phase = "ok"
+		entry.DurationMS = time.Since(started).Milliseconds()
+		if response.Error != nil {
+			entry.Phase = "error"
+			entry.RPCCode = response.Error.Code
+			entry.Error = history.Classify(errors.New(response.Error.Message))
+		}
+		history.Record(entry)
+	}()
 	switch req.Method {
+	case "history.status":
+		return SuccessResponse(req.ID, history.LiveStatus())
 	case "diagnostics.device":
 		var params struct {
 			ID *uint16 `json:"id"`

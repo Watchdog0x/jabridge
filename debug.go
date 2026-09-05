@@ -21,6 +21,7 @@ import (
 	"github.com/Watchdog0x/jabridge/daemon/pipewire"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	"github.com/Watchdog0x/jabridge/internal/firmware"
+	"github.com/Watchdog0x/jabridge/internal/history"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
@@ -146,6 +147,7 @@ func writeDebugReport(destination io.Writer) error {
 	}
 	fmt.Fprintln(out, serviceDiagnosticSummary())
 	writeRecentServiceFailures(out)
+	writeHistoryReport(out)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	client, err := ipc.Dial(ctx, ipcSocketPath())
@@ -233,6 +235,13 @@ func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) (pids []uint16
 		return
 	}
 	fmt.Fprintf(out, "Service matches app version: %t\n", version.Version == buildinfo.Version)
+	var historyStatus history.RecordingStatus
+	if err := client.Call(ctx, "history.status", nil, &historyStatus); err == nil {
+		fmt.Fprintf(out, "Service history: enabled=%t missed=%d error=%s\n", historyStatus.Enabled, historyStatus.Missed, historyStatus.Error)
+		if historyStatus.Error == "read-only-filesystem" {
+			fmt.Fprintln(out, "Run jabridge service restart to install the updated history-capable service unit.")
+		}
+	}
 	if err := client.Subscribe(ctx); err != nil {
 		fmt.Fprintln(out, "IPC event subscription: BLOCKED:", ipcDiagnosticFailure(err))
 	} else {

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
 type Client struct {
@@ -85,7 +87,36 @@ func newClient(conn net.Conn) *Client {
 	return client
 }
 
-func (client *Client) Call(ctx context.Context, method string, params, result any) error {
+func (client *Client) Call(ctx context.Context, method string, params, result any) (callErr error) {
+	started := time.Now()
+	entry := history.Event{Component: "ipc-client", Action: "request", Method: method, Operation: history.NextOperation()}
+	trace := history.TraceMethod(method)
+	if trace {
+		entry.Phase = "start"
+		history.Record(entry)
+	}
+	defer func() {
+		if value := recover(); value != nil {
+			entry.Phase = "panic"
+			entry.Error = "panic"
+			history.Record(entry)
+			panic(value)
+		}
+		if !trace && callErr == nil {
+			return
+		}
+		entry.Phase = "ok"
+		entry.Error = history.Classify(callErr)
+		entry.DurationMS = time.Since(started).Milliseconds()
+		if callErr != nil {
+			entry.Phase = "error"
+		}
+		var remote *RemoteError
+		if errors.As(callErr, &remote) {
+			entry.RPCCode = remote.Code
+		}
+		history.Record(entry)
+	}()
 	if client == nil || client.conn == nil {
 		return errors.New("IPC client is not connected")
 	}
@@ -176,19 +207,21 @@ func (client *Client) Close() error {
 	}
 	var closeErr error
 	client.closeOnce.Do(func() {
-		closeErr = client.conn.Close()
 		close(client.done)
+		closeErr = client.conn.Close()
 		client.failPending()
 	})
 	return closeErr
 }
 
 func (client *Client) readLoop() {
+	defer history.CapturePanic(history.Event{Component: "ipc-client", Action: "request"})
 	scanner := bufio.NewScanner(client.conn)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)
 	for scanner.Scan() {
 		var message clientWireMessage
 		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
+			history.Record(history.Event{Component: "ipc-client", Action: "malformed", Phase: "error", Error: "malformed"})
 			continue
 		}
 		if message.Method != "" && len(message.ID) == 0 {
@@ -217,6 +250,17 @@ func (client *Client) readLoop() {
 		if responseChannel != nil {
 			responseChannel <- clientResponse{Result: message.Result, Error: message.Error}
 		}
+	}
+	select {
+	case <-client.done:
+	default:
+		reason := "transport-closed"
+		phase := "observed"
+		if scanner.Err() != nil {
+			reason = history.Classify(scanner.Err())
+			phase = "error"
+		}
+		history.Record(history.Event{Component: "ipc-client", Action: "close", Phase: phase, Error: reason})
 	}
 	client.closeOnce.Do(func() {
 		_ = client.conn.Close()

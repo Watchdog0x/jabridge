@@ -10,19 +10,38 @@ import (
 	"github.com/Watchdog0x/jabridge/daemon"
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
 func main() {
+	configureHistory()
+	command := "tui"
+	if len(os.Args) > 1 {
+		command = os.Args[1]
+	}
+	event := history.Event{Component: "app", Action: "run", Command: command}
+	if len(os.Args) > 2 {
+		event.Subcommand = os.Args[2]
+	}
+	defer history.CapturePanic(event)
+	finish := history.Begin(event)
+	err := runApp()
+	finish(err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runApp() error {
 	if len(os.Args) == 1 {
 		if err := offerDeviceAccessSetup(); err != nil {
-			fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		if err := runTUI(); err != nil {
-			fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-		return
+		return nil
 	}
 
 	var err error
@@ -30,8 +49,7 @@ func main() {
 	if commandNeedsDirectHardware(os.Args[1]) {
 		resumeService, err = pauseUserServiceForDirectCommand()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 	}
 	switch os.Args[1] {
@@ -47,6 +65,8 @@ func main() {
 		err = runDiagnose()
 	case "debug":
 		err = runDebug(os.Args[2:])
+	case "history":
+		err = runHistory(os.Args[2:])
 	case "buttons":
 		err = runButtons(os.Args[2:])
 	case "--daemon", "-d", "daemon":
@@ -79,10 +99,7 @@ func main() {
 	if resumeErr := resumeService(); err == nil && resumeErr != nil {
 		err = fmt.Errorf("restart background service: %w", resumeErr)
 	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
-		os.Exit(1)
-	}
+	return err
 }
 
 func printUsage() {
@@ -94,6 +111,7 @@ Usage:
   jabridge battery     show headset battery from 0 to 100 percent
   jabridge diagnose    check USB and control-interface discovery
   jabridge debug       create a shareable device and service report
+  jabridge history     show recent local actions and failures
   jabridge buttons     listen to headset media buttons and volume wheels
   jabridge update      update the app
   jabridge firmware    check or download device firmware

@@ -113,6 +113,42 @@ service start without saving a serial number or Bluetooth address.
 
 ## Help with problems
 
+Jabridge keeps a small private history of TUI actions, device connections,
+operation results and service/IPC failures. A later debug report includes
+recent history even after you close or restart the app. No special debug mode
+is needed before reproducing a problem.
+
+```bash
+./jabridge history
+./jabridge debug --output jabridge-debug.txt
+```
+
+History includes timestamps, app version, screen/action, selected USB model
+and connection, setting names, durations and error categories. It does not
+record custom headset names, setting values, serials, Bluetooth addresses,
+raw error text or device payloads. Raw keystrokes are not recorded; only TUI
+navigation/actions are recorded, and repeated navigation is sampled.
+
+Logs use private files under the user's state directory, normally
+`~/.local/state/jabridge/history`. Up to seven UTC calendar days are retained,
+with two capped files per day and under 2 MiB of log data. Old files are
+removed on the next recorded event. The debug report includes the latest 200
+events. Recording is best effort if storage is unavailable or busy; it never
+waits for another process's history lock. Missed entries are reported when
+possible. A missing finish event may mean an operation is still running,
+the app was interrupted, or older entries rotated out; it is not proof of a
+specific crash cause.
+
+`./jabridge history clear` removes retained events; new actions are still
+recorded. `JABRIDGE_HISTORY=off ./jabridge` disables recording for that process.
+To disable it for the background service too, set `JABRIDGE_HISTORY=off` in
+its service environment and restart it. No history is uploaded automatically.
+
+History starts with RC15; earlier TUI activity cannot be recovered.
+After updating from an older preview, `./jabridge service restart` installs
+the updated user-service unit. Normal TUI startup also refreshes the unit if
+the old sandbox is blocking history writes.
+
 If setup or device controls fail, run:
 
 ```bash

@@ -17,6 +17,7 @@ import (
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	firmwaretool "github.com/Watchdog0x/jabridge/internal/firmware"
+	"github.com/Watchdog0x/jabridge/internal/history"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
@@ -260,6 +261,22 @@ func basicKeyEvent(b byte) keyEvent {
 }
 
 func handleKeyEvent(event keyEvent, results chan<- actionResult) bool {
+	before := menuState
+	entry := tuiHistoryEvent("key")
+	entry.Input = map[keyEvent]string{keyUp: "up", keyDown: "down", keyEnter: "enter", keyBack: "back", keyAction1: "action-1", keyAction2: "action-2", keyAction3: "action-3", keyAction4: "action-4"}[event]
+	entry.Phase = "observed"
+	// Navigation is sampled; action keys are always retained.
+	if event != keyUp && event != keyDown || time.Since(lastHistoryNavigation) > 250*time.Millisecond {
+		history.Record(entry)
+		lastHistoryNavigation = time.Now()
+	}
+	defer func() {
+		if menuState != before {
+			next := tuiHistoryEvent("screen")
+			next.Phase = "observed"
+			history.Record(next)
+		}
+	}()
 	switch event {
 	case keyUp:
 		handleUpKey()
@@ -630,7 +647,10 @@ func startSettingsLoad(results chan<- actionResult, scope settingScope) {
 		headsetSettingsLoading = true
 	}
 	requestUIRedraw()
+	entry := tuiHistoryEvent("load-settings")
+	finish := history.Begin(entry)
 	go func() {
+		defer history.CapturePanic(entry)
 		var (
 			lines  []menuItem
 			values []deviceSettingValue
@@ -641,6 +661,7 @@ func startSettingsLoad(results chan<- actionResult, scope settingScope) {
 		} else {
 			lines, values, err = loadHeadsetSettings()
 		}
+		finish(err)
 		results <- actionResult{
 			err: err,
 			settingsLoad: &settingsLoadResult{
@@ -651,12 +672,16 @@ func startSettingsLoad(results chan<- actionResult, scope settingScope) {
 }
 
 func runUIAction(results chan<- actionResult, successMessage string, action func() error, options ...actionOption) {
+	entry := tuiHistoryEvent("action")
+	finish := history.Begin(entry)
 	go func() {
+		defer history.CapturePanic(entry)
 		result := actionResult{message: successMessage}
 		for _, option := range options {
 			option(&result)
 		}
 		result.err = action()
+		finish(result.err)
 
 		results <- result
 	}()
@@ -1662,6 +1687,9 @@ func renderStatus() {
 }
 
 func setStatus(message string, isError bool) {
+	if isError {
+		history.Record(history.Event{Component: "tui", Action: "message", Phase: "error", Error: history.Classify(errors.New(message))})
+	}
 	statusMu.Lock()
 	statusMessage = message
 	statusIsError = isError

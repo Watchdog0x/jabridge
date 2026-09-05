@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/Watchdog0x/jabridge/internal/history"
 	"strings"
 )
 
@@ -108,7 +109,11 @@ func setDeviceSettingFromText(device *jabra_DeviceInfo, selector string, setting
 	return nil
 }
 
-func applyDeviceSettingFromText(device *jabra_DeviceInfo, setting deviceSettingValue, textValue string) (string, bool, error) {
+func applyDeviceSettingFromText(device *jabra_DeviceInfo, setting deviceSettingValue, textValue string) (result string, changed bool, actionErr error) {
+	entry := historyDeviceEvent(device, "settings")
+	entry.Setting = setting.key()
+	finish := history.Begin(entry)
+	defer history.EndDeferred(finish, &actionErr)
 	if !setting.editable() {
 		return "", false, fmt.Errorf("setting %s is read-only", setting.key())
 	}
