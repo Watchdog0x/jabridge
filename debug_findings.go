@@ -197,6 +197,27 @@ func writeButtonCapabilities(out *bytes.Buffer) {
 			continue
 		}
 		fmt.Fprintf(out, "  %s advertised media/call controls: %s\n", filepath.Base(path), strings.Join(inputCapabilityNames(string(key)), ", "))
+		fmt.Fprintln(out, "    source:", diagnosticInputLabel(path))
+		fmt.Fprintf(out, "    advertised EV_KEY codes: %v (capabilities only; no key presses or physical-button count)\n", inputCapabilityCodes(string(key)))
+		if relative, err := os.ReadFile(filepath.Join("/sys/class/input", filepath.Base(path), "device/capabilities/rel")); err == nil {
+			fmt.Fprintf(out, "    advertised EV_REL codes: %v\n", inputCapabilityCodes(string(relative)))
+		}
 	}
 	fmt.Fprintln(out, "Capability bits advertise events; use debug --buttons to record what the device actually emits.")
+}
+
+func inputCapabilityCodes(data string) []string {
+	words := strings.Fields(data)
+	var codes []string
+	for code := 0; code < 768; code++ {
+		index := len(words) - 1 - code/nativeWordBits
+		if index < 0 {
+			break
+		}
+		value, err := parseCapabilityWord(words[index])
+		if err == nil && value&(uint64(1)<<uint(code%nativeWordBits)) != 0 {
+			codes = append(codes, fmt.Sprintf("%04x", code))
+		}
+	}
+	return codes
 }

@@ -162,19 +162,41 @@ For a report with a 20-second button and volume-wheel check:
 ```
 
 In an interactive terminal this observation is included by default. Follow
-the prompt and press one device control at a time. Use `--buttons=false` to
+the prompt and use any physical controls you want to test. Devices without
+controls can stay idle. Use `--buttons=false` to
 skip it. Non-interactive runs only observe buttons when `--buttons` is given.
 Passive HID observations contain report IDs and changed bit positions, not
-raw input values. Unknown vendor events remain marked as unmapped.
+raw input values. They include timing, source device, HID usage codes and
+Linux event codes. Unknown vendor events remain marked as unmapped.
+
+For a guided check, choose only the buttons, wheel or microphone movements
+your device has:
+
+```bash
+./jabridge debug --guided --output jabridge-controls.txt
+```
+
+Press Enter at the selection prompt to skip physical controls. The guide
+also supports raising/lowering a microphone arm and sliding it in/out.
+Choose "Another control" for extra buttons or sensors and say what you tested
+in your issue. The report marks each requested action and captures HID,
+Linux and service events during it. A requested step does not prove the
+tester performed it or that every change was caused by that action.
 
 The report also checks published firmware and an existing matching file in
 `./firmware`, and ends with specific next steps. It does not download or flash
 firmware. It detects container context to help compare host and Distrobox
 reports without assuming the container caused a failure.
 
-All model-profile settings are included with IDs, valid choices, type and
-available access/restart metadata. Current native read results are separate;
-fields absent from the profile remain unknown. See the
+For every detected Jabra model, debug collects candidate public profiles for
+all matching variants, even if native control or the service is unavailable.
+These include published setting IDs, choices/ranges, commands, attributes and
+events. Known native query definitions and missing mappings are listed too.
+Each candidate uses its latest non-revoked firmware profile; the actual
+device variant and current values still require native reads. Collection is
+limited to 32 profiles and 25 seconds; failed or omitted profiles and new
+uninspected schema sections are shown explicitly. Nothing from a candidate
+profile is applied to the device. See the
 [PR #27 settings comparison](docs/SETTINGS_PARITY.md) for the remaining ports.
 
 Attach that file to your issue. It checks device access, HID report sizes,
@@ -187,7 +209,9 @@ Each result is marked PASS, FAIL, BLOCKED, UNAVAILABLE or NOT TESTED. Catalog
 properties with no diagnostic reader are marked NOT COVERED. A catalog match
 does not count as a successful device read. If the service cannot start, the
 report still collects access and catalog information and marks native tests
-BLOCKED. Native checks may take up to about two minutes.
+BLOCKED. HID metadata also covers Jabra system-Bluetooth nodes when Linux
+exposes them; system-Bluetooth management is still unimplemented. Native
+checks and profile collection may take a few minutes.
 
 The report cannot prove everything automatically. Audio quality, button
 behavior, meeting-app control, reconnects, settings writes and firmware

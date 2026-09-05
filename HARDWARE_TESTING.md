@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC16.
+Thank you for testing Jabridge 1.0.0 RC17.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,19 +17,25 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC16
+## Download RC17
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.16 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.16).
+[v1.0.0-rc.17 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.17).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.16_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.16_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.16_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.17_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.17_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.17_linux_amd64
 ./jabridge --version
 ```
 
 The main report command is `./jabridge debug --output report.txt`.
+This works for any detected Jabra model. RC17 also collects candidate
+settings and event profiles when the hardware variant cannot be read.
+For buttons, wheels or microphone-arm movements, use
+`./jabridge debug --guided --output controls.txt` and select only the actions
+your device supports. Press Enter to skip devices without physical controls.
+Use one device at a time; describe any extra controls in your issue.
 RC15 and newer automatically save a private action/error history. If something
 happens in the TUI, run debug afterward, even after closing/restarting the app. The
 report includes recent events, not just the current device state. Previous

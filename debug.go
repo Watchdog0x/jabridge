@@ -29,7 +29,7 @@ import (
 // Debug reports are assembled from selected fields, never raw logs or packets.
 func runDebug(args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Println("Usage: jabridge debug [--buttons] [--output FILE]\nChecks native reads, firmware metadata/cached files, HID access and service health.\nInteractive terminals include a 20-second button/wheel observation; --buttons=false skips it.\nUse --buttons to include observation in scripts. Normal controls still act.\nThe report omits serial numbers, Bluetooth addresses, usernames and raw logs.")
+		fmt.Println("Usage: jabridge debug [--buttons | --guided] [--output FILE]\nCollects device/report layouts, model settings/events/commands, native reads and service history.\nInteractive terminals include a 20-second passive observation; --buttons=false skips it.\n--guided lets you choose the physical controls to test, including no buttons/wheel.\nNormal device controls still act. Private identities, typed text and raw device payloads are omitted.")
 		return nil
 	}
 	var output io.Writer = os.Stdout
@@ -37,11 +37,23 @@ func runDebug(args []string) error {
 	flags.SetOutput(io.Discard)
 	path := flags.String("output", "", "save report")
 	buttons := flags.Bool("buttons", term.IsTerminal(int(os.Stdin.Fd())), "observe button events")
+	guided := flags.Bool("guided", false, "guided button mapping")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("usage: jabridge debug [--buttons] [--output FILE]")
+	}
+	steps := []buttonStep{{"free", "For 20 seconds, use any physical controls you want to test; if there are none, leave the device idle", 20 * time.Second}}
+	if *guided {
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			return errors.New("guided selection needs a terminal; use --buttons for a timed observation")
+		}
+		var err error
+		steps, err = selectGuidedControls(os.Stdin, os.Stderr)
+		if err != nil {
+			return err
+		}
 	}
 	if *path != "" {
 		file, err := os.OpenFile(*path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -56,24 +68,13 @@ func runDebug(args []string) error {
 	if err := writeDebugReport(&report); err != nil {
 		return err
 	}
-	if *buttons {
-		fmt.Fprintln(os.Stderr, "Press device media/call buttons and turn its wheel for 20 seconds. Normal controls still act; Ctrl+C ends observation.")
+	if *buttons || *guided {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		hidResult := make(chan string, 1)
-		go func() { hidResult <- observeHIDActivity(ctx) }()
-		fmt.Fprintln(&report, "\nObserved Linux media/button events:")
-		count := 0
-		err := collectButtonEvents(ctx, jabraInputPaths(), func(label string) { fmt.Fprintln(&report, label); fmt.Fprintln(os.Stderr, label); count++ })
-		// Vendor-only devices may have no evdev nodes. Still observe their HID
-		// input for the full window instead of canceling immediately.
-		fmt.Fprint(&report, <-hidResult)
-		cancel()
+		observationErr := writeButtonObservation(ctx, &report, os.Stderr, steps)
 		stop()
-		if err != nil {
-			fmt.Fprintf(&report, "BLOCKED observation: %s\n", err)
+		if observationErr != nil {
+			return observationErr
 		}
-		fmt.Fprintf(&report, "INFO observations: %d. Zero events does not prove unsupported buttons; the device may need vendor event support.\n", count)
 	}
 	n, err := output.Write(report.Bytes())
 	if err != nil {
@@ -120,24 +121,28 @@ func writeDebugReport(destination io.Writer) error {
 	if err != nil {
 		fmt.Fprintf(out, "USB enumeration: %s\n", diagnosticError(err))
 	}
-	for _, device := range devices {
-		fmt.Fprintf(out, "\nUSB %04x:%04x\n", device.vendorID, device.productID)
-		paths := findHidrawPathsForPID(device.vendorID, device.productID)
-		fmt.Fprintf(out, "HID interfaces: %d\n", len(paths))
-		for _, path := range paths {
-			fmt.Fprintln(out, describeHIDAccess(path))
-			reports, inspectErr := firmware.InspectHIDReports(path)
-			if inspectErr == nil {
-				for _, report := range reports {
-					fmt.Fprintf(out, "    report %d %s: %d bytes\n", report.ID, report.Kind, report.Bytes)
-					for _, field := range report.Fields {
-						fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x usages=%x range=%x..%x flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.Usages, field.UsageMin, field.UsageMax, field.Flags)
-					}
-				}
-				for _, candidate := range vendorControlCandidates(reports) {
-					fmt.Fprintln(out, "    candidate control transport:", candidate)
+	nodes := diagnosticHIDNodes()
+	fmt.Fprintf(out, "\nDetected Jabra USB devices: %d; Jabra HID nodes: %d\n", len(devices), len(nodes))
+	for _, node := range nodes {
+		path := node.Path
+		fmt.Fprintln(out, "\nHID source:", node.label())
+		fmt.Fprintln(out, describeHIDAccess(path))
+		if fingerprint, err := firmware.HIDDescriptorFingerprint(path); err == nil {
+			fmt.Fprintln(out, "    descriptor-sha256:", fingerprint)
+		}
+		reports, inspectErr := firmware.InspectHIDReports(path)
+		if inspectErr == nil {
+			for _, report := range reports {
+				fmt.Fprintf(out, "    report %d %s: %d bytes\n", report.ID, report.Kind, report.Bytes)
+				for _, field := range report.Fields {
+					fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x usages=%x range=%x..%x logical=%d..%d flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.Usages, field.UsageMin, field.UsageMax, field.LogicalMin, field.LogicalMax, field.Flags)
 				}
 			}
+			for _, candidate := range vendorControlCandidates(reports) {
+				fmt.Fprintln(out, "    candidate control transport:", candidate)
+			}
+		} else {
+			fmt.Fprintln(out, "    Descriptor parsing:", diagnosticError(inspectErr))
 		}
 	}
 	fmt.Fprintln(out, "\nService:")
@@ -163,24 +168,15 @@ func writeDebugReport(destination io.Writer) error {
 	for _, device := range devices {
 		pids = append(pids, device.productID)
 	}
+	for _, node := range nodes {
+		pids = append(pids, node.PID)
+	}
 	if err == nil {
 		pids = append(pids, writeNativeDiagnostic(out, client)...)
 	} else {
 		fmt.Fprintln(out, "Native device tests: BLOCKED (service unavailable). Run setup and repeat; access checks above still apply.")
-		for _, device := range devices {
-			catalogContext, stop := context.WithTimeout(context.Background(), 6*time.Second)
-			capabilities, catalogErr := deviceModelClient.Lookup(catalogContext, device.productID, "", "")
-			stop()
-			if catalogErr != nil {
-				fmt.Fprintf(out, "Catalog %04x:%04x: UNAVAILABLE (network/model/variant lookup); hardware support undetermined\n", device.vendorID, device.productID)
-				continue
-			}
-			fmt.Fprintf(out, "Catalog %04x:%04x: INFO profile %s, %d properties; no device reads were performed\n", device.vendorID, device.productID, safeFirmwareDiagnostic(capabilities.Firmware), len(capabilities.Properties))
-			for _, check := range catalogCoverageChecks(capabilities, nil) {
-				fmt.Fprintf(out, "  %s: %s\n", check.Feature, check.Detail)
-			}
-		}
 	}
+	writeProfileEvidence(out, pids)
 	writeAudioDiagnostic(out)
 	writeButtonCapabilities(out)
 	writeFirmwareDiagnostic(out, pids)
@@ -254,7 +250,11 @@ func vendorControlCandidates(reports []firmware.HIDReport) []string {
 		for _, page := range pages {
 			labels = append(labels, fmt.Sprintf("%04x", page))
 		}
-		result = append(result, fmt.Sprintf("report %d vendor input=%d bytes output=%d bytes pages=%s (not probed; framing unknown)", id, entry.input, entry.output, strings.Join(labels, ",")))
+		status := "framing unknown; no probe sent"
+		if id == 5 && (entry.input == 63 || entry.input == 64) && (entry.output == 63 || entry.output == 64) && entry.pages[0xff00] {
+			status = "GNP layout recognized; see native service read results"
+		}
+		result = append(result, fmt.Sprintf("report %d vendor input=%d bytes output=%d bytes pages=%s (%s)", id, entry.input, entry.output, strings.Join(labels, ","), status))
 	}
 	return result
 }
@@ -327,6 +327,7 @@ func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) (pids []uint16
 			connection = fmt.Sprintf("through dongle device %d", device.ParentID)
 		}
 		fmt.Fprintln(out, "Connection:", connection)
+		fmt.Fprintln(out, "Variant reported by service:", diagnosticDeviceVariant(device.Variant))
 		if index >= 8 || ctx.Err() != nil {
 			fmt.Fprintln(out, "NOT TESTED: diagnostic device/time budget reached")
 			continue
@@ -362,6 +363,18 @@ drainEvents:
 		fmt.Fprintf(out, "IPC observed event counts: %v\n", events)
 	}
 	return pids
+}
+
+func diagnosticDeviceVariant(value string) string {
+	if value == "" || len(value) > 32 {
+		return "unavailable"
+	}
+	for _, char := range value {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') && char != '-' {
+			return "unrecognized format"
+		}
+	}
+	return value
 }
 
 func writeAudioDiagnostic(out *bytes.Buffer) {

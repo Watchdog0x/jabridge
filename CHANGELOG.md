@@ -7,6 +7,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- Model-independent debug profile collection for every detected PID and its
+  candidate variants, including settings, commands, attributes, events,
+  numeric limits and missing native mappings. Collection limits are explicit.
+- Guided physical-control checks selected by the tester: buttons, wheels,
+  movable/retractable microphones and additional controls, or no controls.
+- Device/timing/event-code evidence during control checks, HID usage mapping,
+  descriptor fingerprints and signed ranges, and system-Bluetooth HID inventory.
 - Debug summaries for bidirectional vendor HID transports whose framing is not
   implemented yet, and the exact public catalog variants behind an ambiguous
   USB product ID.

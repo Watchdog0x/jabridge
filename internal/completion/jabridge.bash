@@ -16,7 +16,7 @@ _jabridge_completion() {
             if [[ "${COMP_WORDS[COMP_CWORD-1]}" == "--output" ]]; then
                 mapfile -t COMPREPLY < <(compgen -f -- "$current")
             else
-                mapfile -t COMPREPLY < <(compgen -W '--output --buttons --help' -- "$current")
+                mapfile -t COMPREPLY < <(compgen -W '--output --buttons --guided --help' -- "$current")
             fi
             ;;
         buttons)

@@ -1,6 +1,7 @@
 package firmware
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sort"
 )
@@ -22,6 +23,16 @@ type HIDField struct {
 	UsageMin   uint32
 	UsageMax   uint32
 	Flags      uint32
+	LogicalMin int64
+	LogicalMax int64
+}
+
+func HIDDescriptorFingerprint(path string) (string, error) {
+	descriptor, err := readHidrawReportDescriptor(path)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(descriptor)), nil
 }
 
 func InspectHIDReports(path string) ([]HIDReport, error) {
@@ -34,9 +45,10 @@ func InspectHIDReports(path string) ([]HIDReport, error) {
 
 func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 	type globals struct {
-		id          byte
-		size, count uint32
-		page        uint32
+		id                     byte
+		size, count            uint32
+		page                   uint32
+		logicalMin, logicalMax int64
 	}
 	type key struct {
 		id   byte
@@ -80,6 +92,13 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 			switch tag {
 			case 0:
 				state.page = value
+			case 1:
+				state.logicalMin = signedHIDItem(value, length)
+			case 2:
+				state.logicalMax = int64(value)
+				if state.logicalMin < 0 {
+					state.logicalMax = signedHIDItem(value, length)
+				}
 			case 7:
 				state.size = value
 			case 8:
@@ -120,7 +139,7 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 			if count > 65536 || bits[k]+count > 65536 {
 				return nil, fmt.Errorf("HID report exceeds supported size")
 			}
-			fields[k] = append(fields[k], HIDField{OffsetBits: bits[k], SizeBits: state.size, Count: state.count, UsagePage: state.page, Usages: append([]uint32(nil), usages...), UsageMin: usageMin, UsageMax: usageMax, Flags: value})
+			fields[k] = append(fields[k], HIDField{OffsetBits: bits[k], SizeBits: state.size, Count: state.count, UsagePage: state.page, Usages: append([]uint32(nil), usages...), UsageMin: usageMin, UsageMax: usageMax, Flags: value, LogicalMin: state.logicalMin, LogicalMax: state.logicalMax})
 			bits[k] += count
 			usages = nil
 			usageMin = 0
@@ -142,4 +161,17 @@ func parseHIDReports(descriptor []byte) ([]HIDReport, error) {
 		return reports[i].Kind < reports[j].Kind
 	})
 	return reports, nil
+}
+
+func signedHIDItem(value uint32, length int) int64 {
+	switch length {
+	case 1:
+		return int64(int8(value))
+	case 2:
+		return int64(int16(value))
+	case 4:
+		return int64(int32(value))
+	default:
+		return 0
+	}
 }

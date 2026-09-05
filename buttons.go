@@ -45,7 +45,16 @@ func runButtons(args []string) error {
 }
 
 func collectButtonEvents(ctx context.Context, paths []string, emit func(string)) error {
+	return observeButtonEvents(ctx, paths, func(_ string, kind, code uint16, value int32) {
+		if label := mediaInputEvent(kind, code, value); label != "" {
+			emit(label)
+		}
+	}, emit)
+}
+
+func observeButtonEvents(ctx context.Context, paths []string, emit func(string, uint16, uint16, int32), diagnostic func(string)) error {
 	var fds []unix.PollFd
+	labels := map[int32]string{}
 	defer func() {
 		for _, fd := range fds {
 			_ = unix.Close(int(fd.Fd))
@@ -54,10 +63,11 @@ func collectButtonEvents(ctx context.Context, paths []string, emit func(string))
 	for _, path := range paths {
 		fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 		if err != nil {
-			emit(fmt.Sprintf("%s: %s", filepath.Base(path), diagnosticError(err)))
+			diagnostic(fmt.Sprintf("%s: %s", filepath.Base(path), diagnosticError(err)))
 			continue
 		}
 		fds = append(fds, unix.PollFd{Fd: int32(fd), Events: unix.POLLIN})
+		labels[int32(fd)] = path
 	}
 	if len(fds) == 0 {
 		return errors.New("no accessible Jabra input events; run jabridge setup, reconnect USB, then jabridge debug")
@@ -93,10 +103,7 @@ func collectButtonEvents(ctx context.Context, paths []string, emit func(string))
 				if binary.NativeEndian.Uint16(event) == unix.EV_SYN && binary.NativeEndian.Uint16(event[2:]) == 3 {
 					return errors.New("input event queue overflowed; run the button check again")
 				}
-				label := mediaInputEvent(binary.NativeEndian.Uint16(event), binary.NativeEndian.Uint16(event[2:]), int32(binary.NativeEndian.Uint32(event[4:])))
-				if label != "" {
-					emit(label)
-				}
+				emit(labels[fd.Fd], binary.NativeEndian.Uint16(event), binary.NativeEndian.Uint16(event[2:]), int32(binary.NativeEndian.Uint32(event[4:])))
 			}
 		}
 	}
@@ -127,7 +134,7 @@ var mediaKeyNames = map[uint16]string{
 
 func mediaInputEvent(kind, code uint16, value int32) string {
 	// Stable Linux UAPI values from linux/input-event-codes.h.
-	if kind == unix.EV_REL && (code == 0x08 || code == 0x06 || code == 0x07) {
+	if kind == unix.EV_REL && (code == 0x08 || code == 0x06 || code == 0x07 || code == 0x0b || code == 0x0c) {
 		return fmt.Sprintf("Volume wheel/dial: %+d", value)
 	}
 	if kind != unix.EV_KEY {

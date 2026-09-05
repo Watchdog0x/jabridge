@@ -24,6 +24,7 @@ func TestExplicitCatalogReadOnlyCannotEnableSettingsWrites(t *testing.T) {
 
 func TestHIDActivityOmitsValuesAndGNPSerialReplies(t *testing.T) {
 	activity := newHIDActivity()
+	activity.gnp = true
 	reports := map[byte]int{1: 3, 5: 64}
 	activity.observe([]byte{1, 0, 0}, reports)
 	activity.observe([]byte{1, 4, 0}, reports)
