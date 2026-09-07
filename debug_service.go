@@ -35,6 +35,8 @@ func serviceFailureCategories(data string) []string {
 	counts := map[string]int{}
 	for _, line := range strings.Split(strings.ToLower(data), "\n") {
 		switch {
+		case strings.Contains(line, "capabilit") && (strings.Contains(line, "fail") || strings.Contains(line, "218")):
+			counts["service capability setup failure"]++
 		case strings.Contains(line, "namespace") && (strings.Contains(line, "fail") || strings.Contains(line, "denied")):
 			counts["namespace setup failure"]++
 		case strings.Contains(line, "permission denied"):
@@ -57,6 +59,13 @@ func serviceFailureCategories(data string) []string {
 	}
 	sort.Strings(categories)
 	return categories
+}
+
+func serviceReadinessError(cause error, summary string) error {
+	if strings.Contains(summary, "ExecMainStatus=218") {
+		return fmt.Errorf("service failed before Jabridge started (218/CAPABILITIES)\n%s\nUpdate Jabridge and run jabridge service restart as your normal user", summary)
+	}
+	return fmt.Errorf("service did not become ready: %w\n%s\nRun jabridge debug --output jabridge-debug.txt and share that file", cause, summary)
 }
 
 func ipcDiagnosticFailure(err error) string {

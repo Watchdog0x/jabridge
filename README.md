@@ -113,6 +113,18 @@ service start without saving a serial number or Bluetooth address.
 
 ## Help with problems
 
+If an older preview fails with `ExecMainStatus=218` or `218/CAPABILITIES`,
+update to RC20 or newer, then run:
+
+```bash
+./jabridge service restart
+```
+
+RC19 included service restrictions that can stop it before Jabridge starts.
+RC20 fixes those restrictions. This failure is not a headset permission
+problem. Do not run the app as root or turn off system security settings.
+Run the restart command even if the old updater reports a service error.
+
 To repair device permissions again, run:
 
 ```bash

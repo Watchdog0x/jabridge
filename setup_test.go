@@ -116,14 +116,20 @@ func TestUserServiceUsesInstalledBinaryAndBootHardening(t *testing.T) {
 	}
 	for _, want := range [][]byte{
 		[]byte("ExecStart=%h/.local/bin/jabridge --daemon"),
-		[]byte("ReadWritePaths=%t"),
-		[]byte("ReadWritePaths=-%h/.config/jabridge"),
+		[]byte("NoNewPrivileges=yes"),
+		[]byte("UMask=0077"),
+		[]byte("RestrictSUIDSGID=yes"),
 		[]byte("StateDirectory=jabridge"),
 		[]byte("StateDirectoryMode=0700"),
 		[]byte("WantedBy=default.target"),
 	} {
 		if !bytes.Contains(service, want) {
 			t.Fatalf("user service is missing %q", want)
+		}
+	}
+	for _, key := range []string{"CapabilityBoundingSet=", "AmbientCapabilities=", "ProtectKernelModules=", "ProtectKernelTunables=", "ProtectControlGroups=", "PrivateUsers=", "PrivateTmp=", "ProtectSystem=", "ProtectHome=", "ReadWritePaths=", "DevicePolicy="} {
+		if bytes.Contains(service, []byte("\n"+key)) {
+			t.Fatalf("user unit reintroduced privilege/namespace-dependent setting %s", key)
 		}
 	}
 }

@@ -5,6 +5,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [1.0.0] - Unreleased
 
+### Fixed
+
+- RC20 removes capability/mount-namespace restrictions from the user service
+  that caused `218/CAPABILITIES` before startup on restricted hosts. The
+  service stays unprivileged with no-new-privileges and private state files.
+- Debug, startup errors and retained history explain capability setup failures
+  separately from device permissions. Effective service restrictions are
+  included without exporting private override paths or environment values.
+- App updates restart through the newly installed binary so its bundled
+  service unit is refreshed. When updating from RC19, run `service restart`
+  once using the new binary.
+
 ### Added
 
 - `setup --force` explicitly uses sudo to reinstall and reload device-access

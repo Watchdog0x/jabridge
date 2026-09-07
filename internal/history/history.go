@@ -222,6 +222,8 @@ func Classify(err error) string {
 	}
 	text := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(text, "218/capabilities"):
+		return "service-capabilities"
 	case strings.Contains(text, "timeout"), strings.Contains(text, "timed out"):
 		return "timeout"
 	case strings.Contains(text, "permission denied"):
@@ -261,7 +263,7 @@ func sanitize(event Event) Event {
 	event.Screen = allowed(event.Screen, "home search remembered dongle-settings headset-settings devices firmware")
 	event.Connection = allowed(event.Connection, "usb dongle")
 	event.Method = allowed(event.Method, "service.ping service.shutdown history.status version devices.list device.select settings.list settings.set device.battery device.firmware device.features device.reset device.busylight bt.list bt.search bt.search.list bt.search.connect bt.connect bt.disconnect bt.forget bt.pair bt.autopair subscribe diagnostics.device")
-	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed")
+	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed service-capabilities")
 	if _, ok := settings.Load(event.Setting); !ok {
 		event.Setting = ""
 	}

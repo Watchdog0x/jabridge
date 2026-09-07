@@ -8,7 +8,7 @@ Source implementation and real-device confirmation are separate steps.
 | --- | --- | --- |
 | [#3](https://github.com/Watchdog0x/jabridge/issues/3) Speak 510 | Tester confirms USB/TUI detection, permissions and volume events. RC18 adds descriptor-based management, settings writes and corrected variant/ACK parsing. | Confirm actual variant, installed firmware and reversible settings on Speak 510. Protocol-1 firmware updater remains unimplemented. |
 | [#4](https://github.com/Watchdog0x/jabridge/issues/4) System Bluetooth | HID evidence collection exists; USB/Link support is separate. | BlueZ/device control implementation and physical testing. |
-| [#5](https://github.com/Watchdog0x/jabridge/issues/5) Engage 50 II | Generic descriptor-based transport applies where management usage is exposed. | New controller/headset reports and actual settings/call-control confirmation. |
+| [#5](https://github.com/Watchdog0x/jabridge/issues/5) Engage 50 II | RC19 reports confirm HID/input access but show pre-exec `218/CAPABILITIES`. RC20 corrects the bundled user unit and explains the failure. [Screenshot/settings comparison](ENGAGE_SETTINGS.md) records remaining controls. | Confirm RC20 startup on the affected Ubuntu host, then actual native reads/settings and call control with/without the controller. |
 | [#9](https://github.com/Watchdog0x/jabridge/issues/9) Desktop applet | Service subscriptions are available. | Applet implementation. |
 | [#17](https://github.com/Watchdog0x/jabridge/issues/17) Evolve 75e | Generic discovery and debug paths exist. | Current hardware report. |
 | [#25](https://github.com/Watchdog0x/jabridge/issues/25) Evolve2 30 SE | USB-only discovery exists; no dongle requirement. | Current hardware confirmation. |

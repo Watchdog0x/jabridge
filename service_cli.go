@@ -217,20 +217,23 @@ func pauseUserServiceForDirectCommand() (func() error, error) {
 }
 
 func restartUserServiceAfterUpdate() error {
-	if systemdUserAvailable() {
-		if err := systemctlUser("restart", "jabridge.service"); err != nil {
-			return err
-		}
-		return waitForService(5 * time.Second)
-	}
-	if err := stopPortableService(); err != nil {
-		return err
-	}
 	executable, err := installedUserExecutable()
 	if err != nil {
 		return err
 	}
-	return startPortableService(executable)
+	return restartUsingUpdatedBinary(executable)
+}
+
+func restartUsingUpdatedBinary(executable string) error {
+	// The process running update still contains the OLD embedded unit. Let
+	// the verified NEW executable install its unit before restarting it.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, executable, "service", "restart").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("updated service restart: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func commandNeedsDirectHardware(command string) bool {
@@ -247,7 +250,7 @@ func waitForService(timeout time.Duration) error {
 	defer cancel()
 	client, err := ipc.DialWithRetry(ctx, ipcSocketPath())
 	if err != nil {
-		return fmt.Errorf("service did not become ready: %w\n%s\nRun jabridge debug --output jabridge-debug.txt and share that file", err, serviceDiagnosticSummary())
+		return serviceReadinessError(err, serviceDiagnosticSummary())
 	}
 	defer func() { _ = client.Close() }()
 	pingContext, stop := context.WithTimeout(ctx, 2*time.Second)

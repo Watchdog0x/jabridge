@@ -174,7 +174,7 @@ func writeDebugReport(destination io.Writer) error {
 	if err == nil {
 		pids = append(pids, writeNativeDiagnostic(out, client)...)
 	} else {
-		fmt.Fprintln(out, "Native device tests: BLOCKED (service unavailable). Run setup and repeat; access checks above still apply.")
+		fmt.Fprintln(out, "Native device tests: BLOCKED (service unavailable). Follow the service findings below; device-access checks above are separate.")
 	}
 	writeProfileEvidence(out, pids)
 	writeAudioDiagnostic(out)
@@ -413,7 +413,7 @@ func serviceDiagnosticSummary() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	data, err := exec.CommandContext(ctx, "systemctl", "--user", "show", "jabridge.service",
-		"--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus", "--no-pager").Output()
+		"--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,NoNewPrivileges,PrivateUsers,PrivateTmp,ProtectSystem,ProtectHome,ProtectKernelModules,ProtectKernelTunables,ProtectControlGroups,CapabilityBoundingSet,AmbientCapabilities,DevicePolicy,DropInPaths", "--no-pager").Output()
 	if err != nil {
 		return "User service manager: unavailable; check jabridge service status"
 	}
@@ -421,11 +421,15 @@ func serviceDiagnosticSummary() string {
 }
 
 func formatServiceDiagnostic(data []byte) string {
-	allowed := map[string]bool{"LoadState": true, "ActiveState": true, "SubState": true, "Result": true, "ExecMainCode": true, "ExecMainStatus": true}
+	allowed := map[string]bool{"LoadState": true, "ActiveState": true, "SubState": true, "Result": true, "ExecMainCode": true, "ExecMainStatus": true, "NoNewPrivileges": true, "PrivateUsers": true, "PrivateTmp": true, "ProtectSystem": true, "ProtectHome": true, "ProtectKernelModules": true, "ProtectKernelTunables": true, "ProtectControlGroups": true, "CapabilityBoundingSet": true, "AmbientCapabilities": true, "DevicePolicy": true}
 	var lines []string
 	for _, line := range strings.Split(string(data), "\n") {
 		key, value, ok := strings.Cut(line, "=")
-		if !ok || !allowed[key] || strings.ContainsAny(value, " /\\\t\r\x1b") {
+		if ok && key == "DropInPaths" {
+			lines = append(lines, fmt.Sprintf("UnitOverridesPresent=%t", strings.TrimSpace(value) != ""))
+			continue
+		}
+		if !ok || !allowed[key] || !safeServiceProperty(value) {
 			continue
 		}
 		lines = append(lines, key+"="+value)
@@ -435,8 +439,22 @@ func formatServiceDiagnostic(data []byte) string {
 				lines = append(lines, "Service sandbox could not start (namespace setup failed).")
 			case "203":
 				lines = append(lines, "Service executable could not start. Run jabridge setup again.")
+			case "218":
+				lines = append(lines, "Service failed before Jabridge started: 218/CAPABILITIES. Refresh the corrected user unit with jabridge service restart after updating. Device permissions are a separate check.")
 			}
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func safeServiceProperty(value string) bool {
+	if len(value) > 2048 {
+		return false
+	}
+	for _, char := range value {
+		if char != ' ' && char != '_' && char != '-' && (char < '0' || char > '9') && (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') {
+			return false
+		}
+	}
+	return true
 }

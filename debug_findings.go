@@ -107,6 +107,12 @@ func reportNextSteps(body string) []string {
 	if strings.Contains(body, "ExecMainStatus=226") {
 		add("The service failed during namespace setup: investigate the service sandbox and host namespace/AppArmor policy. Running the app as root is not the fix.")
 	}
+	if strings.Contains(body, "ExecMainStatus=218") {
+		add("The user service failed applying capabilities before Jabridge started (218/CAPABILITIES). Update the app and run jabridge service restart to install the corrected user unit. Repeating sudo/udev setup will not fix this stage.")
+		if strings.Contains(body, "UnitOverridesPresent=true") {
+			add("Custom unit overrides are present. Inspect their capability/namespace restrictions if startup still fails after refreshing the bundled user unit.")
+		}
+	}
 	if strings.Contains(body, "ExecMainStatus=203") {
 		add("The service executable could not start: run jabridge setup on the host and inspect its executable access.")
 	}

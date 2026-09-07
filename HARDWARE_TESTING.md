@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC19.
+Thank you for testing Jabridge 1.0.0 RC20.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,19 +17,24 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC19
+## Download RC20
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.19 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.19).
+[v1.0.0-rc.20 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.20).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.19_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.19_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.19_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.20_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.20_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.20_linux_amd64
 ./jabridge --version
 ```
 
 The main report command is `./jabridge debug --output report.txt`.
+If RC19 failed with `ExecMainStatus=218`, run `./jabridge service restart`
+using RC20 first, even if the old updater reports a service error. This
+refreshes the corrected user unit without sudo. The failure was in service
+startup, not headset permissions. Keep host security settings enabled.
+
 For a forced permission refresh, run `./jabridge setup --force` as your normal
 user. It explicitly uses sudo to reinstall/reload the access rules, then
 starts your user service. Continue with debug if setup fails.
@@ -60,7 +65,11 @@ inside Distrobox with another filename. For Evolve3, test direct USB and the
 Link route separately. Native flashing for protocols 1, 16 and 17 is not
 implemented; a firmware download or matching checksum does not qualify it.
 
-For Engage 50 II, please run `./jabridge setup` once as your normal user.
+For Engage 50 II, the RC19 reports confirm HID/input access, but the service
+exited before native reads. Please retest RC20 startup and reads with and
+without the controller. The [settings comparison](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/ENGAGE_SETTINGS.md)
+records the screenshots and remaining gaps, not confirmed device values.
+For a first installation, run `./jabridge setup` once as your normal user.
 Only the access-rule step asks for administrator permission. If setup fails,
 continue with `./jabridge debug --output engage-with-link.txt` and share that
 file. Repeat without the Link controller using `engage-headset-only.txt`.

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/Watchdog0x/jabridge/internal/firmware"
+	"github.com/Watchdog0x/jabridge/internal/history"
 	"golang.org/x/sys/unix"
 )
 
@@ -25,6 +27,25 @@ func TestServiceDiagnosticWhitelistsFieldsAndExplainsNamespaceFailure(t *testing
 	got := formatServiceDiagnostic([]byte("ActiveState=failed\nExecMainStatus=226\nEnvironment=SECRET=value\nExecStart=/home/person/jabridge\nResult=exit-code\n"))
 	if !strings.Contains(got, "namespace setup failed") || strings.Contains(got, "SECRET") || strings.Contains(got, "/home") {
 		t.Fatal(got)
+	}
+}
+
+func TestCapabilityStartupFailureIsNotReportedAsDevicePermissionOrTimeout(t *testing.T) {
+	state := formatServiceDiagnostic([]byte("ActiveState=activating\nSubState=auto-restart\nExecMainStatus=218\nProtectKernelModules=yes\nCapabilityBoundingSet=cap_chown cap_net_raw\nDropInPaths=/home/PRIVATE_NAME/secret.conf\nEnvironment=PRIVATE_TOKEN\n"))
+	if !strings.Contains(state, "218/CAPABILITIES") || !strings.Contains(state, "before Jabridge started") || !strings.Contains(state, "UnitOverridesPresent=true") || strings.Contains(state, "PRIVATE") {
+		t.Fatal(state)
+	}
+	err := serviceReadinessError(context.DeadlineExceeded, state)
+	if history.Classify(err) != "service-capabilities" || strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatal(err)
+	}
+	steps := strings.Join(reportNextSteps("hidraw4: read/write access ready\nJabra input event7: ready\n"+state), "\n")
+	if !strings.Contains(steps, "corrected user unit") || strings.Contains(steps, "Device control access is denied") || strings.Contains(steps, "run jabridge setup on the host") {
+		t.Fatal(steps)
+	}
+	categories := strings.Join(serviceFailureCategories("Failed to drop capabilities: Operation not permitted\nstatus=218/CAPABILITIES"), "\n")
+	if !strings.Contains(categories, "service capability setup failure") {
+		t.Fatal(categories)
 	}
 }
 
