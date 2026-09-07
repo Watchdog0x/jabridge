@@ -22,14 +22,14 @@ are accepted. Screenshot order alone does not prove numeric wire values.
 | Controls in Jabra Direct | Jabridge coverage and remaining work |
 | --- | --- |
 | Call equalizer: Normal, Bass, Treble; audio protection: PeakStop, IntelliTone, G.616 | Definitions exist. Actual reads and reversible writes need testing. |
-| IntelliTone level: 85, 82, 79 dB, available with IntelliTone protection | Level mapping and the dependent control are missing. |
+| IntelliTone level: 85, 82, 79 dB, available with IntelliTone protection | RC22 adds the native mapping and model-filtered choices, with a dependency note. Actual reads/writes and automatic dependency handling still need testing/work. |
 | Sidetone on/off and +6, +3, 0, -3, -6, -9 dB | Definitions exist. Actual reads and reversible writes need testing. |
 | Headset busylight, button sounds, mute reminder, left/right boom arm, music optimization | Definitions exist; some labels differ. Left/right uses the reverse-stereo setting. Confirm behavior, not only read-back. |
 | Full mute control, including outside calls | Not mapped. Determine the required device/app behavior before implementing it. |
 | Mute, hook, status and three-dot controller buttons; each offers Busylight, Call handling, Mute, Push-to-talk, Speed dial, No function | All four button definitions exist. Physical event/call-app behavior still needs testing; changing a setting does not prove integration. |
 | Controller smart ringer; Ring, Happy, Melody; volume Off, Low, Mid, High | Definitions exist. Generic ringtone labels need a verified match to the named tones. |
-| Headset name, controller name, two speed-dial numbers | First speed-dial definition exists. These two name properties and the second speed-dial property are missing. Text editing is CLI-only. |
-| Ringtone in headset; call control with softphone | Headset ringtone definition exists. Softphone integration is currently dongle-scoped and must also support this headset/controller profile. |
+| Headset name, controller name, two speed-dial numbers | RC22 adds the two name properties and second speed-dial definition, with length-prefixed text encoding. Text editing is CLI-only; hardware tests are still needed. |
+| Ringtone in headset; call control with softphone | RC22 adds headset-scoped softphone integration with its required configuration mode. Actual setting behavior and call integration still need testing. |
 
 The public profile also lists a forced-busy-state property without a native
 mapping. The current UI does not yet reproduce Jabra Direct's headset,

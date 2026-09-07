@@ -41,12 +41,15 @@ _jabridge_completion() {
                 if [[ "${COMP_WORDS[3]}" == "dongle" ]]; then
                     mapfile -t COMPREPLY < <(compgen -W 'auto-pairing prioritize-computer-audio dedicated-call bluetooth-radio softphone-integration' -- "$current")
                 else
-                    mapfile -t COMPREPLY < <(compgen -W 'noise-control hearthrough-level answer-on-undock wind-noise-reduction spatial-call-audio spatial-media-audio sidetone in-call-busylight on-head-detection music-mode auto-answer-on-head auto-pause-music reverse-stereo smart-ringer boom-arm-answer auto-reject-call button-sounds firmware-upgrade-lock prioritize-computer-audio headset-ringer headset-name bluetooth-name speed-dial sidetone-level voice-prompts controller-ringer-volume controller-ringtone boom-arm-action boom-arm-guidance audio-protection auto-sleep mute-reminder sound-mode call-button mute-button three-dot-button four-dot-button' -- "$current")
+                    mapfile -t COMPREPLY < <(compgen -W 'noise-control hearthrough-level answer-on-undock wind-noise-reduction spatial-call-audio spatial-media-audio sidetone in-call-busylight on-head-detection music-mode auto-answer-on-head auto-pause-music reverse-stereo smart-ringer boom-arm-answer auto-reject-call button-sounds firmware-upgrade-lock prioritize-computer-audio headset-ringer headset-name device-name controller-name bluetooth-name speed-dial speed-dial-2 softphone-integration intellitone-level sidetone-level voice-prompts controller-ringer-volume controller-ringtone boom-arm-action boom-arm-guidance audio-protection auto-sleep mute-reminder sound-mode call-button mute-button three-dot-button four-dot-button' -- "$current")
                 fi
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 5 ]]; then
                 case "${COMP_WORDS[4]}" in
+                    intellitone-level)
+                        mapfile -t COMPREPLY < <(compgen -W '79-db 82-db 85-db 88-db 91-db' -- "$current")
+                        ;;
                     sidetone-level)
                         mapfile -t COMPREPLY < <(compgen -W '-9-db -6-db -3-db 0-db 3-db 6-db' -- "$current")
                         ;;
@@ -57,7 +60,7 @@ _jabridge_completion() {
                         mapfile -t COMPREPLY < <(compgen -W 'level-1 level-2 level-3' -- "$current")
                         ;;
                     voice-prompts)
-                        mapfile -t COMPREPLY < <(compgen -W 'tones voice off' -- "$current")
+                        mapfile -t COMPREPLY < <(compgen -W 'tones voice on off' -- "$current")
                         ;;
                     controller-ringer-volume)
                         mapfile -t COMPREPLY < <(compgen -W 'off low medium high' -- "$current")
@@ -83,7 +86,7 @@ _jabridge_completion() {
                     sound-mode)
                         mapfile -t COMPREPLY < <(compgen -W 'normal bass treble' -- "$current")
                         ;;
-                    headset-name|bluetooth-name|speed-dial)
+                    headset-name|device-name|controller-name|bluetooth-name|speed-dial|speed-dial-2)
                         COMPREPLY=()
                         ;;
                     call-button|mute-button|three-dot-button|four-dot-button)
@@ -108,11 +111,14 @@ _jabridge_completion() {
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 3 ]]; then
-                mapfile -t COMPREPLY < <(compgen -W 'dongle.auto-pairing dongle.prioritize-computer-audio dongle.dedicated-call dongle.bluetooth-radio dongle.softphone-integration headset.noise-control headset.hearthrough-level headset.answer-on-undock headset.wind-noise-reduction headset.spatial-call-audio headset.spatial-media-audio headset.sidetone headset.in-call-busylight headset.on-head-detection headset.music-mode headset.auto-answer-on-head headset.auto-pause-music headset.reverse-stereo headset.smart-ringer headset.boom-arm-answer headset.auto-reject-call headset.button-sounds headset.firmware-upgrade-lock headset.prioritize-computer-audio headset.headset-ringer headset.headset-name headset.bluetooth-name headset.speed-dial headset.sidetone-level headset.voice-prompts headset.controller-ringer-volume headset.controller-ringtone headset.boom-arm-action headset.boom-arm-guidance headset.audio-protection headset.auto-sleep headset.mute-reminder headset.sound-mode headset.call-button headset.mute-button headset.three-dot-button headset.four-dot-button' -- "$current")
+                mapfile -t COMPREPLY < <(compgen -W 'dongle.auto-pairing dongle.prioritize-computer-audio dongle.dedicated-call dongle.bluetooth-radio dongle.softphone-integration headset.noise-control headset.hearthrough-level headset.answer-on-undock headset.wind-noise-reduction headset.spatial-call-audio headset.spatial-media-audio headset.sidetone headset.in-call-busylight headset.on-head-detection headset.music-mode headset.auto-answer-on-head headset.auto-pause-music headset.reverse-stereo headset.smart-ringer headset.boom-arm-answer headset.auto-reject-call headset.button-sounds headset.firmware-upgrade-lock headset.prioritize-computer-audio headset.headset-ringer headset.headset-name headset.device-name headset.controller-name headset.bluetooth-name headset.speed-dial headset.speed-dial-2 headset.softphone-integration headset.intellitone-level headset.sidetone-level headset.voice-prompts headset.controller-ringer-volume headset.controller-ringtone headset.boom-arm-action headset.boom-arm-guidance headset.audio-protection headset.auto-sleep headset.mute-reminder headset.sound-mode headset.call-button headset.mute-button headset.three-dot-button headset.four-dot-button' -- "$current")
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 4 ]]; then
                 case "${COMP_WORDS[3]}" in
+                    headset.intellitone-level)
+                        mapfile -t COMPREPLY < <(compgen -W '79-db 82-db 85-db 88-db 91-db' -- "$current")
+                        ;;
                     headset.sidetone-level)
                         mapfile -t COMPREPLY < <(compgen -W '-9-db -6-db -3-db 0-db 3-db 6-db' -- "$current")
                         ;;
@@ -123,7 +129,7 @@ _jabridge_completion() {
                         mapfile -t COMPREPLY < <(compgen -W 'level-1 level-2 level-3' -- "$current")
                         ;;
                     headset.voice-prompts)
-                        mapfile -t COMPREPLY < <(compgen -W 'tones voice off' -- "$current")
+                        mapfile -t COMPREPLY < <(compgen -W 'tones voice on off' -- "$current")
                         ;;
                     headset.controller-ringer-volume)
                         mapfile -t COMPREPLY < <(compgen -W 'off low medium high' -- "$current")
@@ -149,7 +155,7 @@ _jabridge_completion() {
                     headset.sound-mode)
                         mapfile -t COMPREPLY < <(compgen -W 'normal bass treble' -- "$current")
                         ;;
-                    headset.headset-name|headset.bluetooth-name|headset.speed-dial)
+                    headset.headset-name|headset.device-name|headset.controller-name|headset.bluetooth-name|headset.speed-dial|headset.speed-dial-2)
                         COMPREPLY=()
                         ;;
                     headset.call-button|headset.mute-button|headset.three-dot-button|headset.four-dot-button)

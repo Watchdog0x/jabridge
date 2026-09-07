@@ -48,6 +48,28 @@ func rowText(f *frame, row int) string {
 	return b.String()
 }
 
+// The help row is reserved for the whole list so selection does not move it.
+func TestSettingHelpKeepsListRowsStableAndScrollReachable(t *testing.T) {
+	withMenuState(t)
+	values := make([]deviceSettingValue, 25)
+	for index := range values {
+		values[index] = deviceSettingValue{Remote: &remoteSettingValue{Key: fmt.Sprintf("test%d", index), Label: fmt.Sprintf("Setting %d", index), Value: "On", Editable: true, Choices: []string{"Off", "On"}}}
+	}
+	values[0].Remote.Help = "Off uses tones. Some voice prompts may remain."
+	for _, selected := range []int{0, 1, 24} {
+		target := newRenderTarget(t, 100, 30)
+		currentSelection = selected
+		renderDeviceSettings([]menuItem{{label: "Device: Test"}}, values)
+		_, _, bottom := panelBounds()
+		if selected == 0 && !strings.Contains(rowText(target, bottom-1), "Some voice prompts") {
+			t.Fatal("selected-setting help was not shown")
+		}
+		if selected == 24 && !strings.Contains(rowText(target, bottom-2), "Setting 24") {
+			t.Fatal("last setting is not reachable above help row")
+		}
+	}
+}
+
 // textColumn returns the 1-based column where label starts on a frame row.
 func textColumn(t *testing.T, f *frame, row int, label string) int {
 	t.Helper()

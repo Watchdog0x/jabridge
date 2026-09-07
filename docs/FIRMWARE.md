@@ -29,7 +29,7 @@ The full latest-file check is recorded in the
 
 ## Install
 
-RC21 also supports a [native USB DFU preview](USB_DFU.md) for Speak 410,
+RC22 also supports a [native USB DFU preview](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/USB_DFU.md) for Speak 410,
 510, 710 and 810. It accepts the matching raw or wrapped CSR DFU image and
 uses the same CLI commands below. Setup installs access for normal and
 update USB modes. Actual flashing/recovery on these models still needs testing.

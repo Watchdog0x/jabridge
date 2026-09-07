@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type settingChoice struct {
 type choiceSettingDefinition struct {
 	Key                 string
 	Label               string
+	Help                string
 	Scope               settingScope
 	Class               byte
 	Op                  byte
@@ -137,6 +139,18 @@ var headsetChoiceSettingDefinitions = []choiceSettingDefinition{
 			{Name: "Level 4", Raw: 4, CatalogValue: "level4"},
 			{Name: "G616", Raw: 5, CatalogValue: "g616"},
 		}, CatalogProperties: []string{"intellitoneLevel"}, Writable: true,
+	},
+	{
+		Key: "intellitone-level", Label: "IntelliTone level", Scope: settingScopeHeadset,
+		Help:  "Applies when IntelliTone audio protection is enabled.",
+		Class: gnpClassConfig, Op: 0x26, Writable: true,
+		CatalogProperties: []string{"intellitoneSoundLevel"}, Choices: []settingChoice{
+			{Name: "79 dB", Raw: 79, CatalogValue: "level79"},
+			{Name: "82 dB", Raw: 82, CatalogValue: "level82"},
+			{Name: "85 dB", Raw: 85, CatalogValue: "level85"},
+			{Name: "88 dB", Raw: 88, CatalogValue: "level88"},
+			{Name: "91 dB", Raw: 91, CatalogValue: "level91"},
+		},
 	},
 	{
 		Key: "auto-sleep", Label: "Auto sleep", Scope: settingScopeHeadset,
@@ -298,16 +312,20 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 			return fmt.Errorf("setting %s: %w", definition.Key, err)
 		}
 	}
-	if err := writeSettingPacket(device, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
+	op := startSettingWriteEvidence(device, definition.Key)
+	if err := writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
 		return fmt.Errorf("write %s: %w", definition.Key, err)
 	}
 	readBack, err := readChoiceSettingWithRetry(device, definition)
 	if err != nil {
+		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
 		return fmt.Errorf("verify %s: %w", definition.Key, err)
 	}
 	if readBack.Raw != definition.Choices[choiceIndex].Raw {
+		recordSettingEvidence(device, definition.Key, op, "setting-readback", errors.New("setting readback mismatch"))
 		return fmt.Errorf("verify %s: value did not match", definition.Key)
 	}
+	recordSettingEvidence(device, definition.Key, op, "setting-readback", nil)
 	return nil
 }
 
@@ -351,6 +369,7 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 				continue
 			}
 			definition.Choices = choices
+			definition = presentVoiceGuidance(device, definition)
 			definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
 		} else if definition.ProbeWithoutCatalog {
 			// A current device-model profile is needed before Jabridge can
@@ -411,11 +430,40 @@ func findChoiceIndex(definition choiceSettingDefinition, name string) (int, bool
 	wanted := strings.ToLower(strings.TrimSpace(name))
 	wantedToken := choiceValueToken(name)
 	for index, choice := range definition.Choices {
-		if strings.ToLower(choice.Name) == wanted || choiceValueToken(choice.Name) == wantedToken {
+		if strings.ToLower(choice.Name) == wanted || choiceValueToken(choice.Name) == wantedToken ||
+			(choice.CatalogValue != "" && strings.EqualFold(choice.CatalogValue, wanted)) {
 			return index, true
 		}
 	}
 	return 0, false
+}
+
+// Speak 510 calls the two-choice property "Voice guidance". Tones is its
+// off position; this must never send raw value 2, which its profile excludes.
+func presentVoiceGuidance(device *jabra_DeviceInfo, definition choiceSettingDefinition) choiceSettingDefinition {
+	if device == nil || (device.productID != 0x0420 && device.productID != 0x0422) ||
+		definition.Key != "voice-prompts" || len(definition.Choices) != 2 {
+		return definition
+	}
+	tones, voice := false, false
+	for _, choice := range definition.Choices {
+		tones = tones || choice.CatalogValue == "tones" && choice.Raw == 0
+		voice = voice || choice.CatalogValue == "voice" && choice.Raw == 1
+	}
+	if !tones || !voice {
+		return definition
+	}
+	definition.Choices = append([]settingChoice(nil), definition.Choices...)
+	for index := range definition.Choices {
+		if definition.Choices[index].CatalogValue == "tones" {
+			definition.Choices[index].Name = "Off"
+		} else {
+			definition.Choices[index].Name = "On"
+		}
+	}
+	definition.Label = "Voice guidance"
+	definition.Help = "Off uses tones. Some voice prompts may remain."
+	return definition
 }
 
 func choiceValueToken(name string) string {

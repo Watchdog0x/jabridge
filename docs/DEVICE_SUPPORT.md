@@ -43,7 +43,7 @@ today. The only hardware-qualified device is currently one Link 380 USB-A
 | Family | What is possible now | What is still needed |
 | --- | --- | --- |
 | Link 380 | USB detection, model and firmware reads, saved-headset reads, and five dongle settings work on `0b0e:24c7` | Test USB-C and other variants; finish new-headset scan events |
-| Speak 410, 510, 710, 810 USB DFU | RC21 has shared native file validation, transfer and recovery code with explicit per-model USB identities | Actual installation/recovery tests; see [USB DFU preview](USB_DFU.md) |
+| Speak 410, 510, 710, 810 USB DFU | RC22 has shared native file validation, transfer and recovery code with explicit per-model USB identities | Actual installation/recovery tests; see [USB DFU preview](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/USB_DFU.md) |
 | Link 390 | Catalogued and eligible for safe discovery | Real hardware tests before pairing or settings writes |
 | Link 400 | Catalogued, but it is a DECT dongle rather than the Link 380 Bluetooth path | A separate tested DECT pairing implementation |
 | Evolve, Evolve2, Engage, Speak, Speak2, Perform | USB identity and exact online model profiles can be used; common read operations are candidates | Test each protocol family and model before enabling writes |
@@ -83,7 +83,7 @@ Speak 510 (`0420`/`0422`) uses firmware protocol 1 and has multiple catalog
 variants. Jabridge must read the variant before choosing a settings profile.
 The RC19 report confirms variant 08-01, firmware/battery/setting reads and
 volume/IPC battery events. Voice setting writes read back, but audible
-Bluetooth guidance remains unchanged in the tester's report. RC21 adds a
+Bluetooth guidance remains unchanged in the tester's report. RC22 adds a
 native USB DFU preview, not a completed hardware firmware qualification.
 Direct USB detection, installed firmware reads, controls and UI reconnects
 are separate test items in [issue #3](https://github.com/Watchdog0x/jabridge/issues/3).

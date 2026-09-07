@@ -74,6 +74,7 @@ type SettingInfo struct {
 	Value    string   `json:"value"`
 	Editable bool     `json:"editable"`
 	Choices  []string `json:"choices,omitempty"`
+	Help     string   `json:"help,omitempty"`
 }
 
 // DiagnosticCheck records evidence, not a blanket compatibility verdict.

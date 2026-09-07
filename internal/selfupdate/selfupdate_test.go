@@ -46,6 +46,27 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
+func TestActualReleaseArchive(t *testing.T) {
+	path := os.Getenv("JABRIDGE_TEST_RELEASE_ARCHIVE")
+	if path == "" {
+		t.Skip("no packaged release supplied")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := extractBinaries(data)
+	if err != nil {
+		t.Fatal("packaged release is incompatible with self-update:", err)
+	}
+	if len(files["jabridge"]) == 0 {
+		t.Fatal("packaged release has no binary")
+	}
+	if err := validateELF(files["jabridge"], runtime.GOARCH); err != nil {
+		t.Fatal("packaged binary validation:", err)
+	}
+}
+
 func TestCheckChoosesNewestPublishedRelease(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/repos/owner/repo/releases" {
@@ -184,6 +205,16 @@ func TestExtractBinariesAllowsIPCGuide(t *testing.T) {
 	}
 	if string(files["jabridge"]) != "binary" {
 		t.Fatalf("extracted binary = %q", files["jabridge"])
+	}
+}
+
+func TestReleaseLayoutRejectsUnannouncedExtraDocuments(t *testing.T) {
+	archive := makeArchive(t, map[string][]byte{
+		"jabridge_1.0.0_linux_amd64/jabridge":               []byte("binary"),
+		"jabridge_1.0.0_linux_amd64/docs/DEVICE_SUPPORT.md": []byte("guide"),
+	})
+	if _, err := extractBinaries(archive); err == nil {
+		t.Fatal("unexpected release entries bypassed the existing updater allowlist")
 	}
 }
 

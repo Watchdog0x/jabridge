@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC21.
+Thank you for testing Jabridge 1.0.0 RC22.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,15 +17,15 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC21
+## Download RC22
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.21 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.21).
+[v1.0.0-rc.22 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.22).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.21_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.21_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.21_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.22_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.22_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.22_linux_amd64
 ./jabridge --version
 ```
 
@@ -62,9 +62,9 @@ and sanitized service/IPC failures. Unknown fields remain unknown.
 
 For Speak 510, collect the report on the host; optionally collect a second
 inside Distrobox with another filename. For Evolve3, test direct USB and the
-Link route separately. RC21 implements the USB DFU transfer for the listed
+Link route separately. RC22 implements the USB DFU transfer for the listed
 Speak 410/510/710/810 profiles; actual flashes are not yet qualified. Separate
-voluntary installation tests use [the USB DFU guide](docs/USB_DFU.md), not this
+voluntary installation tests use [the USB DFU guide](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/USB_DFU.md), not this
 read-only checklist. Other protocol-1 models and protocols 16/17 still need
 their own implementation. A matching download does not prove flashing works.
 

@@ -1415,18 +1415,30 @@ func renderDeviceSettings(lines []menuItem, values []deviceSettingValue) int {
 		return row + 2
 	}
 	row++
-	visibleRows := panelBottom - row
+	listBottom := panelBottom
+	for _, setting := range values {
+		if setting.help() != "" {
+			listBottom--
+			break
+		}
+	}
+	visibleRows := listBottom - row
 	start := 0
 	if visibleRows > 0 && currentSelection >= visibleRows {
 		start = currentSelection - visibleRows + 1
 	}
 	for i := start; i < len(values); i++ {
 		setting := values[i]
-		if row >= panelBottom {
+		if row >= listBottom {
 			break
 		}
 		drawListItem(row, left+4, formatDeviceSetting(setting), i == currentSelection)
 		row++
+	}
+	if listBottom < panelBottom {
+		if selected, ok := selectedDeviceSettingForValues(values); ok && selected.help() != "" {
+			drawListItem(listBottom, left+4, selected.help(), false)
+		}
 	}
 	return row
 }

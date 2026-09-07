@@ -222,6 +222,8 @@ func Classify(err error) string {
 	}
 	text := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(text, "setting readback mismatch"):
+		return "readback-mismatch"
 	case strings.Contains(text, "218/capabilities"):
 		return "service-capabilities"
 	case strings.Contains(text, "timeout"), strings.Contains(text, "timed out"):
@@ -258,12 +260,12 @@ func sanitize(event Event) Event {
 	event.Command = allowed(event.Command, "tui status battery diagnose debug buttons daemon --daemon -d update firmware fw settings model models sound audio use setup ipc service completion history --version -v version --help -h help")
 	event.Subcommand = allowed(event.Subcommand, "start status stop restart install download verify set list output volume mute usb dongle ping watch devices battery settings select bash clear")
 	event.Input = allowed(event.Input, "up down enter back action-1 action-2 action-3 action-4")
-	event.Action = allowed(event.Action, "run key navigation screen action load-settings message connect reconnect request malformed close attach detach battery pairing select settings start stop panic debug history dfu-enter dfu-runtime dfu-transfer dfu-verify")
+	event.Action = allowed(event.Action, "run key navigation screen action load-settings message connect reconnect request malformed close attach detach battery pairing select settings start stop panic debug history dfu-enter dfu-runtime dfu-transfer dfu-verify setting-request setting-ack setting-readback")
 	event.Phase = allowed(event.Phase, "start ok error cancelled observed panic")
 	event.Screen = allowed(event.Screen, "home search remembered dongle-settings headset-settings devices firmware")
 	event.Connection = allowed(event.Connection, "usb dongle")
 	event.Method = allowed(event.Method, "service.ping service.shutdown history.status version devices.list device.select settings.list settings.set device.battery device.firmware device.features device.reset device.busylight bt.list bt.search bt.search.list bt.search.connect bt.connect bt.disconnect bt.forget bt.pair bt.autopair subscribe diagnostics.device")
-	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed service-capabilities")
+	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed service-capabilities readback-mismatch")
 	if _, ok := settings.Load(event.Setting); !ok {
 		event.Setting = ""
 	}

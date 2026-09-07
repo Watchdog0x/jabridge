@@ -174,7 +174,7 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 				check.Detail = protocolDiagnosticError(err)
 			} else {
 				check.State = "PASS"
-				check.Detail = value + " (read only; writes not tested)"
+				check.Detail = value + " (current device read; no write sent by this report)"
 			}
 		}
 		checks = append(checks, check)
@@ -192,11 +192,16 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 			if property, ok := firstCatalogProperty(capabilities, definition.CatalogProperties); ok {
 				definition.Choices = choicesAllowedByCatalog(definition.Choices, property.PossibleValues)
 			}
+			definition = presentVoiceGuidance(device, definition)
 			value, err := readChoiceSetting(device, definition)
 			if err == nil && value.ChoiceIndex < 0 {
 				return "", fmt.Errorf("invalid choice value")
 			}
-			return choiceSettingName(value), err
+			name := choiceSettingName(value)
+			if definition.Help != "" {
+				name += "; " + definition.Help
+			}
+			return name, err
 		})
 		annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 	}

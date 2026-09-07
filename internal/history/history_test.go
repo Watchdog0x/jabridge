@@ -62,6 +62,17 @@ func TestFirmwareStageHistoryOmitsPrivateValues(t *testing.T) {
 	}
 }
 
+func TestSettingStageHistoryRetainsOnlyEvidence(t *testing.T) {
+	RegisterSettings("voice-prompts")
+	event := sanitize(Event{Component: "device", Action: "setting-readback", Phase: "error", Operation: 42, Setting: "voice-prompts", Error: "readback-mismatch", Input: "PRIVATE_VALUE"})
+	if event.Action != "setting-readback" || event.Setting != "voice-prompts" || event.Operation != 42 || event.Error != "readback-mismatch" || event.Input != "other" {
+		t.Fatal(event)
+	}
+	if Classify(errors.New("setting readback mismatch")) != "readback-mismatch" {
+		t.Fatal("readback mismatch was not classified")
+	}
+}
+
 func TestRotationAndAgeRetentionAreBounded(t *testing.T) {
 	r, now := testRecorder(t)
 	r.limit = 512

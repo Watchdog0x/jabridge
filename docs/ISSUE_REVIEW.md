@@ -6,7 +6,7 @@ Source implementation and real-device confirmation are separate steps.
 
 | Issue | Current result | Remaining work |
 | --- | --- | --- |
-| [#3](https://github.com/Watchdog0x/jabridge/issues/3) Speak 510 | RC19 tester confirms variant 08-01, firmware 2.32.0, battery/charging, four setting reads, volume events and an IPC battery event. Voice setting writes read back. RC21 adds the shared USB DFU preview. | Bluetooth announcement still stays spoken with Tones selected. Confirm persistence/physical behavior and actual firmware installation/recovery. |
+| [#3](https://github.com/Watchdog0x/jabridge/issues/3) Speak 510 | RC19 tester confirms variant 08-01, firmware 2.32.0, battery/charging, four setting reads, volume events and an IPC battery event. Voice setting writes read back. RC22 adds the shared USB DFU preview. | Bluetooth announcement still stays spoken with Tones selected. Confirm persistence/physical behavior and actual firmware installation/recovery. |
 | [#4](https://github.com/Watchdog0x/jabridge/issues/4) System Bluetooth | HID evidence collection exists; USB/Link support is separate. | BlueZ/device control implementation and physical testing. |
 | [#5](https://github.com/Watchdog0x/jabridge/issues/5) Engage 50 II | RC19 reports confirm HID/input access but show pre-exec `218/CAPABILITIES`. RC20 corrects the bundled user unit and explains the failure. [Screenshot/settings comparison](ENGAGE_SETTINGS.md) records remaining controls. | Confirm RC20 startup on the affected Ubuntu host, then actual native reads/settings and call control with/without the controller. |
 | [#9](https://github.com/Watchdog0x/jabridge/issues/9) Desktop applet | Service subscriptions are available. | Applet implementation. |

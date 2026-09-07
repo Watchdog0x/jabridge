@@ -7,6 +7,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- RC22 restores the release file layout accepted by existing updaters. The
+  RC21 archive was withdrawn after its added documentation files were rejected.
+  Release CI now checks the actual packaged archive before signing/publishing.
+- Speak 510 now displays Voice guidance as On/Off while preserving the
+  Tones/Voice command aliases and actual device values. Help explains that
+  some voice prompts may remain. Other models retain their own choices.
+- Setting writes record device ACK and matching readback as separate evidence.
+  Debug does not infer power-cycle persistence or physical behavior from them.
+
 - RC20 removes capability/mount-namespace restrictions from the user service
   that caused `218/CAPABILITIES` before startup on restricted hosts. The
   service stays unprivileged with no-new-privileges and private state files.
@@ -19,7 +28,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
-- RC21 adds a shared native USB DFU engine with initial Speak 410/510/710/810
+- RC22 adds model-filtered native definitions for device/controller names,
+  second speed dial, IntelliTone level and headset softphone integration.
+  They require matching model properties and successful reads; headset
+  hardware testing remains separate from these mapping/codec tests.
+
+- RC22 adds a shared native USB DFU engine with initial Speak 410/510/710/810
   profiles, raw/wrapped CSR image validation, exact USB-port targeting,
   official checksum checks, recovery replay and final firmware-version reads.
   Real hardware installation/recovery on these models remains unqualified.

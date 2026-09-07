@@ -30,6 +30,13 @@ restart hints and runtime protection-state handling. The native TUI currently
 cycles choices. It respects explicit read-only catalog access, but runtime
 protection discovery is not complete.
 
+RC22 carries per-setting help through IPC into the CLI and TUI. It also
+records device ACK and matching readback separately, without saving private
+setting values. The legacy dynamic interface additionally describes validation,
+dependencies, groups, restart requirements and live protection state. These
+must be mapped for each model; a successful setting read does not supply all
+of that metadata or prove the audible behavior.
+
 The debug report lists every exposed model property, its setting ID, choices,
 type, access and restart metadata. Unknown fields remain unknown. Native read
 results are shown separately; undocumented settings cannot be discovered by

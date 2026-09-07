@@ -1,6 +1,6 @@
 # USB DFU firmware preview
 
-RC21 adds a shared native USB DFU updater. It does not need a vendor program,
+RC22 adds a shared native USB DFU updater. It does not need a vendor program,
 shared library or dfu-util. The existing Link 380 updater remains separate.
 
 The first model profiles are Speak 410, 510, 710 and 810. The same transfer

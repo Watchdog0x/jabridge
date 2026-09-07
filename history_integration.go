@@ -88,6 +88,7 @@ func writeHistoryReport(out *bytes.Buffer) {
 	for _, event := range events {
 		fmt.Fprintln(out, history.Describe(event))
 	}
+	writeSettingEvidenceSummary(out, events)
 	if skipped > 0 {
 		fmt.Fprintf(out, "Incomplete/unsafe history entries skipped: %d\n", skipped)
 	}

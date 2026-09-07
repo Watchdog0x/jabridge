@@ -376,6 +376,7 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 			Device: setting.Device, Key: setting.Key, Label: label,
 			Value: setting.Value, Editable: editable,
 			Choices: append([]string(nil), setting.Choices...),
+			Help:    setting.Help,
 		}
 		values = append(values, deviceSettingValue{Remote: remote})
 	}

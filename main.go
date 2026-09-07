@@ -410,6 +410,7 @@ func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingIn
 	info := ipc.SettingInfo{
 		Device: deviceName, Key: setting.key(), Label: setting.label(),
 		Value: setting.valueName(), Editable: setting.editable(),
+		Help: setting.help(),
 	}
 	if setting.Boolean != nil {
 		info.Choices = []string{"Off", "On"}

@@ -62,7 +62,10 @@ func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 		if err := client.Call(ctx, "settings.set", map[string]string{"device": settingScopeName(scope), "key": key, "value": args[3]}, &setting); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s = %s (verified by service)\n", args[2], setting.Value)
+		fmt.Fprintf(out, "%s = %s (read back from device)\n", args[2], setting.Value)
+		if setting.Help != "" {
+			fmt.Fprintln(out, setting.Help)
+		}
 		return nil
 	}
 	if len(args) > 1 && (args[0] != "settings" || len(args) != 2 || args[1] != "list") {
@@ -147,6 +150,9 @@ func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 					fmt.Fprintf(out, "; choices: %s", strings.Join(s.Choices, ", "))
 				}
 				fmt.Fprintln(out, ")")
+				if s.Help != "" {
+					fmt.Fprintln(out, "    "+s.Help)
+				}
 			}
 		}
 		if !found {

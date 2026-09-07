@@ -62,7 +62,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           package="jabridge_${VERSION}_linux_amd64"
-          mkdir -p "release/$package/completions" "release/$package/system" "release/$package/docs"
+          mkdir -p "release/$package/completions" "release/$package/system"
           CGO_ENABLED=0 go build -trimpath \
             -ldflags="-s -w -X github.com/Watchdog0x/jabridge/internal/buildinfo.Version=${VERSION}" \
             -o "release/$package/jabridge" .
@@ -70,11 +70,12 @@ jobs:
           install -m 0644 README.md HARDWARE_TESTING.md CHANGELOG.md LICENSE "release/$package/"
           install -m 0644 internal/completion/jabridge.bash "release/$package/completions/"
           install -m 0644 dist/jabridge.service dist/70-jabridge.rules "release/$package/system/"
-          install -m 0644 docs/*.md docs/*.tsv "release/$package/docs/"
           tar --sort=name --owner=0 --group=0 --numeric-owner \
             --mtime="@$(git show -s --format=%ct HEAD)" \
             -C release -cf - "$package" | gzip -n > "release/$package.tar.gz"
           (cd release && sha256sum "$package.tar.gz" > "$package.tar.gz.sha256")
+          JABRIDGE_TEST_RELEASE_ARCHIVE="$PWD/release/$package.tar.gz" \
+            go test ./internal/selfupdate -run '^TestActualReleaseArchive$' -count=1
           echo "package=$package" >> "$GITHUB_ENV"
 
       - name: Sign and verify archive

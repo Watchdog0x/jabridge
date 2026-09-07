@@ -153,6 +153,15 @@ operation results and service/IPC failures. A later debug report includes
 recent history even after you close or restart the app. No special debug mode
 is needed before reproducing a problem.
 
+RC22 also records whether the device acknowledged each setting write and
+whether the value read back matched. Debug summarizes these separately.
+It does not claim that a restart or audible behavior was tested. Text values
+and raw device packets are still omitted.
+
+On Speak 510, Voice guidance Off means Tones and On means Voice. The old
+Tones/Voice commands still work. Jabra's manual notes that some spoken
+messages remain enabled even when voice guidance is off.
+
 ```bash
 ./jabridge history
 ./jabridge debug --output jabridge-debug.txt
@@ -370,9 +379,10 @@ An independent Speak 510 report on RC19 confirms direct USB detection,
 variant 08-01, firmware 2.32.0, battery/charging, four setting reads, volume
 events and a battery update over IPC. Voice setting writes read back, but the
 tester still hears the Bluetooth voice announcement with Tones selected.
-That audible behavior is not confirmed fixed.
+The setting also survives a power cycle. Jabra's manual says some prompts
+remain enabled when voice guidance is off, so this alone does not show a fault.
 
-RC21 adds a [shared native USB DFU preview](docs/USB_DFU.md) for Speak 410,
+RC22 adds a [shared native USB DFU preview](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/USB_DFU.md) for Speak 410,
 510, 710 and 810. Official file checks and simulated transfers pass. Actual
 firmware installation and recovery on those models still need testing.
 

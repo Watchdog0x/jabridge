@@ -105,7 +105,10 @@ func setDeviceSettingFromText(device *jabra_DeviceInfo, selector string, setting
 		fmt.Printf("%s is already %s. No change made.\n", selector, value)
 		return nil
 	}
-	fmt.Printf("%s changed to %s and verified.\n", selector, value)
+	fmt.Printf("%s changed to %s and read back from device.\n", selector, value)
+	if setting.help() != "" {
+		fmt.Println(setting.help())
+	}
 	return nil
 }
 

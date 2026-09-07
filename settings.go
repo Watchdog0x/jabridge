@@ -81,6 +81,7 @@ type remoteSettingValue struct {
 	Value    string
 	Editable bool
 	Choices  []string
+	Help     string
 }
 
 func (setting deviceSettingValue) key() string {
@@ -129,6 +130,16 @@ func (setting deviceSettingValue) valueName() string {
 		return setting.Remote.Value
 	}
 	return "Unknown"
+}
+
+func (setting deviceSettingValue) help() string {
+	if setting.Choice != nil {
+		return setting.Choice.Definition.Help
+	}
+	if setting.Remote != nil {
+		return setting.Remote.Help
+	}
+	return ""
 }
 
 func (setting deviceSettingValue) editable() bool {
@@ -321,6 +332,11 @@ var headsetBoolSettingDefinitions = []boolSettingDefinition{
 		WritePrefix: []byte{0}, Writable: true,
 		CatalogProperties: []string{"ringer"},
 	},
+	{
+		Key: "softphone-integration", Label: "Softphone integration", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x4c, Writable: true, NeedsConfigMode: true,
+		CatalogProperties: []string{"softphoneIntegrationEnabled"},
+	},
 }
 
 var headsetTextSettingDefinitions = []textSettingDefinition{
@@ -335,6 +351,18 @@ var headsetTextSettingDefinitions = []textSettingDefinition{
 	{
 		Key: "headset-name", Label: "Headset name", Class: gnpClassConfig, Op: 0x56,
 		CatalogProperties: []string{"bluetoothName"}, Writable: true, MaxBytes: 32,
+	},
+	{
+		Key: "device-name", Label: "Device name", Class: gnpClassConfig, Op: 0x5b,
+		CatalogProperties: []string{"deviceName"}, Writable: true, MaxBytes: 32, LengthPrefixed: true,
+	},
+	{
+		Key: "controller-name", Label: "Controller name", Class: gnpClassConfig, Op: 0x5b, Destination: 3,
+		CatalogProperties: []string{"controllerName"}, Writable: true, MaxBytes: 32, LengthPrefixed: true,
+	},
+	{
+		Key: "speed-dial-2", Label: "Second speed dial number", Class: gnpClassConfig, Op: 0x8b,
+		CatalogProperties: []string{"speedDialNumber2"}, Writable: true, MaxBytes: 32, LengthPrefixed: true, AllowEmpty: true,
 	},
 }
 
@@ -507,17 +535,21 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 			return fmt.Errorf("setting %s: %w", definition.Key, err)
 		}
 	}
-	if err := writeSettingPacket(device, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
+	op := startSettingWriteEvidence(device, definition.Key)
+	if err := writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
 		return fmt.Errorf("write %s: %w", definition.Key, err)
 	}
 
 	readBack, err := readBoolSettingWithRetry(device, definition)
 	if err != nil {
+		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
 		return fmt.Errorf("verify %s: %w", definition.Key, err)
 	}
 	if readBack != value {
+		recordSettingEvidence(device, definition.Key, op, "setting-readback", errors.New("setting readback mismatch"))
 		return fmt.Errorf("verify %s: wrote %s but read %s", definition.Key, onOff(value), onOff(readBack))
 	}
+	recordSettingEvidence(device, definition.Key, op, "setting-readback", nil)
 	return nil
 }
 
@@ -534,7 +566,7 @@ func mergeSettingPayload(current []byte, index int, mask, raw byte) ([]byte, err
 	return result, nil
 }
 
-func writeSettingPacket(device *jabra_DeviceInfo, overrideDestination, class, op byte, payload []byte, needsConfigMode bool) error {
+func writeSettingPacket(device *jabra_DeviceInfo, key string, operation uint64, overrideDestination, class, op byte, payload []byte, needsConfigMode bool) error {
 	h, defaultDestination, err := settingTransport(device)
 	if err != nil {
 		return err
@@ -550,6 +582,7 @@ func writeSettingPacket(device *jabra_DeviceInfo, overrideDestination, class, op
 		}
 	}
 	writeErr := gnpCommand(h, destination, nextSeq(), class, op, payload)
+	recordSettingEvidence(device, key, operation, "setting-ack", writeErr)
 	var endErr error
 	if needsConfigMode {
 		endErr = endConfigMode(h, defaultDestination)
@@ -783,16 +816,20 @@ func writeTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition
 	if err != nil {
 		return err
 	}
-	if err := writeSettingPacket(device, definition.Destination, definition.Class, definition.Op, payload, false); err != nil {
+	op := startSettingWriteEvidence(device, definition.Key)
+	if err := writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, false); err != nil {
 		return fmt.Errorf("write %s: %w", definition.Key, err)
 	}
 	readBack, err := readTextSetting(device, definition)
 	if err != nil {
+		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
 		return fmt.Errorf("verify %s: %w", definition.Key, err)
 	}
 	if readBack != value {
+		recordSettingEvidence(device, definition.Key, op, "setting-readback", errors.New("setting readback mismatch"))
 		return fmt.Errorf("verify %s: wrote %q but read %q", definition.Key, value, readBack)
 	}
+	recordSettingEvidence(device, definition.Key, op, "setting-readback", nil)
 	return nil
 }
 
