@@ -240,7 +240,16 @@ func decodeParams(raw json.RawMessage, target any) error {
 	return nil
 }
 
+var mutationMu sync.Mutex
+
 func dispatch(req Request, api API) (response Response) {
+	// Serialize entire mutation/read-back transactions across clients. The
+	// transport lock alone only protects one packet exchange at a time.
+	switch req.Method {
+	case "settings.set", "device.select", "device.reset", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.connect":
+		mutationMu.Lock()
+		defer mutationMu.Unlock()
+	}
 	started := time.Now()
 	entry := history.Event{Component: "ipc-server", Action: "request", Method: req.Method, Operation: history.NextOperation()}
 	trace := history.TraceMethod(req.Method)
@@ -330,15 +339,15 @@ func dispatch(req Request, api API) (response Response) {
 
 	case "settings.set":
 		var params struct {
-			Device string `json:"device"`
-			Key    string `json:"key"`
-			Value  string `json:"value"`
+			Device string  `json:"device"`
+			Key    string  `json:"key"`
+			Value  *string `json:"value"`
 		}
 		if err := decodeParams(req.Params, &params); err != nil ||
-			(params.Device != "dongle" && params.Device != "headset") || params.Key == "" || params.Value == "" {
+			(params.Device != "dongle" && params.Device != "headset") || params.Key == "" || params.Value == nil {
 			return ErrorResponse(req.ID, ErrCodeInvalidP, "settings.set requires device, key, and value")
 		}
-		setting, err := api.SetSetting(params.Device, params.Key, params.Value)
+		setting, err := api.SetSetting(params.Device, params.Key, *params.Value)
 		if err != nil {
 			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
 		}

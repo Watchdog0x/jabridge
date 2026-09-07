@@ -64,6 +64,8 @@ type textSettingDefinition struct {
 	CatalogProperties []string
 	Writable          bool
 	MaxBytes          int
+	LengthPrefixed    bool
+	AllowEmpty        bool
 }
 
 type textSettingValue struct {
@@ -322,6 +324,14 @@ var headsetBoolSettingDefinitions = []boolSettingDefinition{
 }
 
 var headsetTextSettingDefinitions = []textSettingDefinition{
+	{
+		Key: "bluetooth-name", Label: "Bluetooth name", Class: gnpClassDevInfo, Op: 0x17,
+		CatalogProperties: []string{"bluetoothName2"}, Writable: true, MaxBytes: 32,
+	},
+	{
+		Key: "speed-dial", Label: "Speed dial number", Class: gnpClassConfig, Op: 0x2a,
+		CatalogProperties: []string{"speedDialNumber"}, Writable: true, MaxBytes: 32, LengthPrefixed: true, AllowEmpty: true,
+	},
 	{
 		Key: "headset-name", Label: "Headset name", Class: gnpClassConfig, Op: 0x56,
 		CatalogProperties: []string{"bluetoothName"}, Writable: true, MaxBytes: 32,
@@ -746,11 +756,20 @@ func readTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition)
 	if err != nil {
 		return "", err
 	}
-	if index := strings.IndexByte(string(payload), 0); index >= 0 {
+	return decodeSettingText(definition, payload)
+}
+
+func decodeSettingText(definition textSettingDefinition, payload []byte) (string, error) {
+	if definition.LengthPrefixed {
+		if len(payload) == 0 || int(payload[0]) > len(payload)-1 {
+			return "", errors.New("invalid length-prefixed setting text")
+		}
+		payload = payload[1 : 1+int(payload[0])]
+	} else if index := strings.IndexByte(string(payload), 0); index >= 0 {
 		payload = payload[:index]
 	}
-	if len(payload) == 0 || !utf8.Valid(payload) {
-		return "", errors.New("headset name is empty or invalid UTF-8")
+	if len(payload) == 0 && !definition.AllowEmpty || !utf8.Valid(payload) {
+		return "", errors.New("setting text is empty or invalid UTF-8")
 	}
 	return string(payload), nil
 }
@@ -760,10 +779,10 @@ func writeTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition
 	if !definition.Writable {
 		return fmt.Errorf("setting %s is read-only", definition.Key)
 	}
-	if err := validateSettingText(value, definition.MaxBytes); err != nil {
+	payload, err := encodeSettingText(definition, value)
+	if err != nil {
 		return err
 	}
-	payload := append([]byte(value), 0)
 	if err := writeSettingPacket(device, definition.Destination, definition.Class, definition.Op, payload, false); err != nil {
 		return fmt.Errorf("write %s: %w", definition.Key, err)
 	}
@@ -775,6 +794,18 @@ func writeTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition
 		return fmt.Errorf("verify %s: wrote %q but read %q", definition.Key, value, readBack)
 	}
 	return nil
+}
+
+func encodeSettingText(definition textSettingDefinition, value string) ([]byte, error) {
+	if !definition.AllowEmpty || value != "" {
+		if err := validateSettingText(value, definition.MaxBytes); err != nil {
+			return nil, err
+		}
+	}
+	if definition.LengthPrefixed {
+		return append([]byte{byte(len(value))}, []byte(value)...), nil
+	}
+	return append([]byte(value), 0), nil
 }
 
 func validateSettingText(value string, maximum int) error {

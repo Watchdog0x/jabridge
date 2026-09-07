@@ -46,6 +46,9 @@ func runApp() error {
 	}
 
 	var err error
+	if handled, err := tryServiceCLI(os.Args[1:]); handled {
+		return err
+	}
 	resumeService := func() error { return nil }
 	if commandNeedsDirectHardware(os.Args[1]) {
 		resumeService, err = pauseUserServiceForDirectCommand()

@@ -251,7 +251,7 @@ func vendorControlCandidates(reports []firmware.HIDReport) []string {
 			labels = append(labels, fmt.Sprintf("%04x", page))
 		}
 		status := "framing unknown; no probe sent"
-		if id == 5 && (entry.input == 63 || entry.input == 64) && (entry.output == 63 || entry.output == 64) && entry.pages[0xff00] {
+		if layout, err := firmware.SelectControlLayout(reports); err == nil && int(layout.OutputID) == id {
 			status = "GNP layout recognized; see native service read results"
 		}
 		result = append(result, fmt.Sprintf("report %d vendor input=%d bytes output=%d bytes pages=%s (%s)", id, entry.input, entry.output, strings.Join(labels, ","), status))
@@ -396,14 +396,17 @@ func describeHIDAccess(path string) string {
 		return fmt.Sprintf("  %s: %s", label, diagnosticError(err))
 	}
 	_ = file.Close()
-	size, err := firmware.GnpOutputReportSize(path)
+	layout, err := firmware.InspectControlLayout(path)
 	if err != nil {
 		if errors.Is(err, os.ErrPermission) {
 			return fmt.Sprintf("  %s: descriptor access denied", label)
 		}
-		return fmt.Sprintf("  %s: read/write access ready; GNP descriptor unsupported or unreadable", label)
+		if _, inspectErr := firmware.InspectHIDReports(path); inspectErr != nil {
+			return fmt.Sprintf("  %s: read/write access ready; descriptor unreadable: %s", label, diagnosticError(inspectErr))
+		}
+		return fmt.Sprintf("  %s: read/write access ready; no supported management usage FF00:0001", label)
 	}
-	return fmt.Sprintf("  %s: read/write access ready; GNP output report: %d bytes", label, size)
+	return fmt.Sprintf("  %s: read/write access ready; GNP input report=%d bytes=%d; output report=%d bytes=%d", label, layout.InputID, layout.InputBytes, layout.OutputID, layout.OutputBytes)
 }
 
 func serviceDiagnosticSummary() string {

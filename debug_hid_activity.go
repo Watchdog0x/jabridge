@@ -20,13 +20,21 @@ type hidActivity struct {
 	gnpEvents        map[string]int
 	layouts          map[byte]firmware.HIDReport
 	gnp              bool
+	controlID        byte
+	assembler        *firmware.ControlPacketAssembler
 	started          time.Time
 	samples          []string
 	omitted, invalid int
+	shapes           map[hidObservedShape]int
+}
+
+type hidObservedShape struct {
+	ID            byte
+	Got, Expected int
 }
 
 func newHIDActivity() *hidActivity {
-	return &hidActivity{previous: map[byte][]byte{}, counts: map[byte]int{}, changes: map[byte]map[int]bool{}, gnpEvents: map[string]int{}, layouts: map[byte]firmware.HIDReport{}, started: time.Now()}
+	return &hidActivity{previous: map[byte][]byte{}, counts: map[byte]int{}, changes: map[byte]map[int]bool{}, gnpEvents: map[string]int{}, layouts: map[byte]firmware.HIDReport{}, started: time.Now(), shapes: map[hidObservedShape]int{}}
 }
 
 func hidActivityForReports(reports []firmware.HIDReport) *hidActivity {
@@ -53,6 +61,10 @@ func hidActivityForReports(reports []firmware.HIDReport) *hidActivity {
 		}
 	}
 	a.gnp = input && output
+	if layout, err := firmware.SelectControlLayout(reports); err == nil {
+		a.controlID = layout.InputID
+		a.assembler = firmware.NewControlPacketAssembler(layout)
+	}
 	return a
 }
 
@@ -74,10 +86,38 @@ func (a *hidActivity) observe(packet []byte, reports map[byte]int) {
 		id = 0
 		prefix = 0
 	}
-	if expected, ok := reports[id]; !ok || len(packet) != expected {
+	expected, known := reports[id]
+	shape := hidObservedShape{ID: id, Got: len(packet), Expected: expected}
+	if len(a.shapes) < 64 || a.shapes[shape] > 0 {
+		a.shapes[shape]++
+	} else {
+		a.omitted++
+	}
+	if a.assembler != nil && id == a.controlID {
+		assembled, err := a.assembler.Push(packet)
+		if err != nil {
+			a.invalid++
+			return
+		}
+		if len(assembled) >= 7 && assembled[4]&0xc0 == 0 {
+			key := fmt.Sprintf("destination=%02x source=%02x class=%02x op=%02x", assembled[1], assembled[2], assembled[5], assembled[6])
+			if len(a.gnpEvents) < 64 || a.gnpEvents[key] > 0 {
+				a.gnpEvents[key]++
+			} else {
+				a.omitted++
+			}
+			a.sample("GNP event " + key)
+		}
+		return
+	}
+	if !known || len(packet) < expected {
 		a.invalid++
 		return
 	}
+	// Hidraw preserves device reports even when they exceed the descriptor.
+	// For passive observation, compare only declared bytes; never infer a
+	// command layout from padding or print undeclared payload bytes.
+	packet = packet[:expected]
 	if id == 5 && a.gnp {
 		// Record only event headers, never GNP reply payloads or serial reads.
 		if len(packet) >= 7 && packet[4]&0xc0 == 0 {
@@ -129,12 +169,13 @@ func describeHIDChanges(report firmware.HIDReport, bits []int) string {
 			if bit < 0 || uint64(bit) < field.OffsetBits || uint64(bit) >= field.OffsetBits+uint64(field.SizeBits)*uint64(field.Count) || field.SizeBits == 0 {
 				continue
 			}
+			constant := ""
 			if field.Flags&1 != 0 {
-				break
-			} // Constant/padding fields are not controls.
+				constant = ",declared-constant"
+			}
 			index := (uint64(bit) - field.OffsetBits) / uint64(field.SizeBits)
 			if field.Flags&2 == 0 {
-				result = append(result, fmt.Sprintf("bit%d:page=%04x,array-range=%x..%x", bit, field.UsagePage, field.UsageMin, field.UsageMax))
+				result = append(result, fmt.Sprintf("bit%d:page=%04x,array-range=%x..%x%s", bit, field.UsagePage, field.UsageMin, field.UsageMax, constant))
 			} else {
 				usage := uint32(0)
 				if index < uint64(len(field.Usages)) {
@@ -148,7 +189,7 @@ func describeHIDChanges(report firmware.HIDReport, bits []int) string {
 				if usage > 0xffff {
 					page, usage = usage>>16, usage&0xffff
 				}
-				result = append(result, fmt.Sprintf("bit%d:page=%04x,usage=%04x", bit, page, usage))
+				result = append(result, fmt.Sprintf("bit%d:page=%04x,usage=%04x%s", bit, page, usage, constant))
 			}
 			break
 		}
@@ -239,6 +280,27 @@ observation:
 
 func (a *hidActivity) summary(node string) string {
 	var out bytes.Buffer
+	var shapes []hidObservedShape
+	for shape := range a.shapes {
+		shapes = append(shapes, shape)
+	}
+	sort.Slice(shapes, func(i, j int) bool {
+		if shapes[i].ID != shapes[j].ID {
+			return shapes[i].ID < shapes[j].ID
+		}
+		return shapes[i].Got < shapes[j].Got
+	})
+	for _, shape := range shapes {
+		status := "declared-size"
+		if shape.Expected == 0 {
+			status = "unknown-report"
+		} else if shape.Got < shape.Expected {
+			status = "short-report; not decoded"
+		} else if shape.Got > shape.Expected {
+			status = "trailing-bytes omitted; declared fields only"
+		}
+		fmt.Fprintf(&out, "  %s report=%d received-bytes=%d declared-bytes=%d packets=%d %s\n", node, shape.ID, shape.Got, shape.Expected, a.shapes[shape], status)
+	}
 	for _, sample := range a.samples {
 		fmt.Fprintf(&out, "  %s %s\n", node, sample)
 	}

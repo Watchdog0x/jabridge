@@ -169,10 +169,12 @@ func TestFirstCatalogPropertySupportsModelSpecificAliases(t *testing.T) {
 }
 
 func TestHeadsetNameDefinitionAndValidation(t *testing.T) {
-	if len(headsetTextSettingDefinitions) != 1 {
-		t.Fatalf("text settings = %#v", headsetTextSettingDefinitions)
+	var definition textSettingDefinition
+	for _, candidate := range headsetTextSettingDefinitions {
+		if candidate.Key == "headset-name" {
+			definition = candidate
+		}
 	}
-	definition := headsetTextSettingDefinitions[0]
 	if definition.Key != "headset-name" || definition.Class != gnpClassConfig || definition.Op != 0x56 || definition.MaxBytes != 32 {
 		t.Fatalf("headset name definition = %#v", definition)
 	}

@@ -179,7 +179,7 @@ func readSysfsInt(path string) (int, error) {
 //
 // Response format: byte[6] = string length, byte[7..] = ASCII chars.
 func GetFirmwareVersion(dev *JabraDevice) (string, error) {
-	tr, err := OpenHidraw(dev.HidrawPath)
+	tr, err := OpenControlHidraw(dev.HidrawPath)
 	if err != nil {
 		return "", err
 	}
@@ -410,7 +410,7 @@ func findHidrawForDevice(dev *JabraDevice) (string, error) {
 			candidates = append(candidates, filepath.Join("/dev", entry.Name()))
 		}
 	}
-	if path, found := firstGnpHidraw(candidates, HasGnpOutputReport); found {
+	if path, found := firstGnpHidraw(candidates, HasControlLayout); found {
 		return path, nil
 	}
 	return "", fmt.Errorf("no GNP hidraw interface for VID:PID %04X:%04X", dev.VendorID, dev.ProductID)

@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC17.
+Thank you for testing Jabridge 1.0.0 RC18.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,19 +17,24 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC17
+## Download RC18
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.17 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.17).
+[v1.0.0-rc.18 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.18).
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.17_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.17_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.17_linux_amd64
+sha256sum -c jabridge_1.0.0-rc.18_linux_amd64.tar.gz.sha256
+tar -xzf jabridge_1.0.0-rc.18_linux_amd64.tar.gz
+cd jabridge_1.0.0-rc.18_linux_amd64
 ./jabridge --version
 ```
 
 The main report command is `./jabridge debug --output report.txt`.
+RC18 recognizes the management usage regardless of HID report number and
+reassembles replies split across short reports. For Speak 510, please check
+whether the installed firmware, exact variant and settings now appear.
+This first report remains read-only. Separate reversible-setting tests are
+tracked in issue #36; record the original value and restore it afterward.
 This works for any detected Jabra model. RC17 also collects candidate
 settings and event profiles when the hardware variant cannot be read.
 For buttons, wheels or microphone-arm movements, use

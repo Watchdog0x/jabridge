@@ -36,7 +36,7 @@ func TestHIDActivityOmitsValuesAndGNPSerialReplies(t *testing.T) {
 	copy(serial[7:], "PRIVATE_SERIAL")
 	activity.observe(serial, reports)
 	summary := activity.summary("hidraw-test")
-	if !strings.Contains(summary, "changed-bits=[2]") || strings.Contains(summary, "PRIVATE") || strings.Contains(summary, "report=5") {
+	if !strings.Contains(summary, "changed-bits=[2]") || strings.Contains(summary, "PRIVATE") || strings.Contains(summary, "GNP event") {
 		t.Fatal(summary)
 	}
 }

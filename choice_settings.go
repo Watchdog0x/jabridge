@@ -52,6 +52,17 @@ var commonButtonFunctions = []settingChoice{
 
 var headsetChoiceSettingDefinitions = []choiceSettingDefinition{
 	{
+		Key: "call-button", Label: "Call button action", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x27, Request: []byte{0, 0}, WritePrefix: []byte{0, 0}, ResponseIndex: 2,
+		CatalogProperties: []string{"button1Tap"}, Writable: true,
+		Choices: []settingChoice{
+			{Name: "None", Raw: 0, CatalogValue: "noFunction"}, {Name: "Call handling", Raw: 1, CatalogValue: "answerOrEndCall"},
+			{Name: "Mute", Raw: 2, CatalogValue: "muteMicrophone"}, {Name: "Speed dial", Raw: 12, CatalogValue: "speedDial"},
+			{Name: "Push to talk", Raw: 16, CatalogValue: "pushToTalk"}, {Name: "Busylight", Raw: 17, CatalogValue: "toggleBusyState"},
+			{Name: "Cortana", Raw: 19, CatalogValue: "cortana"}, {Name: "Music", Raw: 20, CatalogValue: "playOrPause"},
+		},
+	},
+	{
 		Key: "noise-control", Label: "Noise control", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0xbe, Request: []byte{1}, WritePrefix: []byte{1}, Writable: true,
 		CatalogProperties: []string{"ancAmbienceMode"}, Choices: []settingChoice{
@@ -231,6 +242,9 @@ func readChoiceSetting(device *jabra_DeviceInfo, definition choiceSettingDefinit
 	}
 	if definition.ResponseIndex < 0 || definition.ResponseIndex >= len(payload) {
 		return choiceSettingValue{}, fmt.Errorf("setting %s returned %d bytes", definition.Key, len(payload))
+	}
+	if definition.Op == 0x27 && definition.Class == gnpClassConfig && (len(payload) != 3 || payload[0] != 0 || payload[1] != 0) {
+		return choiceSettingValue{}, fmt.Errorf("invalid button/action reply")
 	}
 	raw := payload[definition.ResponseIndex]
 	if definition.BitMask != 0 {

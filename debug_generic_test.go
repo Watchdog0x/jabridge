@@ -104,3 +104,37 @@ func TestControlIPCObservationOmitsPrivateIdentityFields(t *testing.T) {
 		t.Fatal(text)
 	}
 }
+
+func TestSpeakReportPaddingIsObservedWithoutExportingTail(t *testing.T) {
+	activity := hidActivityForReports([]firmware.HIDReport{{ID: 1, Kind: "input", Bytes: 2, Fields: []firmware.HIDField{{SizeBits: 1, Count: 8, UsagePage: 0x0c, Usages: []uint32{0xea, 0xe9}, Flags: 2}}}})
+	activity.observe([]byte{1, 0, 0xaa}, map[byte]int{1: 2})
+	activity.observe([]byte{1, 1, 0xbb}, map[byte]int{1: 2})
+	activity.observe([]byte{1}, map[byte]int{1: 2})
+	text := activity.summary("test")
+	if activity.counts[1] != 2 || activity.invalid != 1 || !strings.Contains(text, "received-bytes=3 declared-bytes=2") || !strings.Contains(text, "usage=00ea") || strings.Contains(text, "aabb") {
+		t.Fatal(text)
+	}
+}
+
+func TestChangingConstantFieldRetainsDeclaredUsage(t *testing.T) {
+	report := firmware.HIDReport{Fields: []firmware.HIDField{{SizeBits: 1, Count: 4, UsagePage: 0x0b, Usages: []uint32{0x20, 0x97, 0x2b, 0x2a}, Flags: 0x23}}}
+	text := describeHIDChanges(report, []int{0})
+	if !strings.Contains(text, "page=000b,usage=0020,declared-constant") {
+		t.Fatal(text)
+	}
+}
+
+func TestReportTwoManagementRepliesAreNeverDecodedAsButtonPayloads(t *testing.T) {
+	field := firmware.HIDField{SizeBits: 8, Count: 32, UsagePage: 0xff00, Usages: []uint32{1}, Flags: 0x102}
+	a := hidActivityForReports([]firmware.HIDReport{{ID: 2, Kind: "input", Bytes: 33, Fields: []firmware.HIDField{field}}, {ID: 2, Kind: "output", Bytes: 33, Fields: []firmware.HIDField{field}}})
+	frame := make([]byte, 33)
+	copy(frame, []byte{2, 0, 8, 1, 0xcc, 2, 1})
+	copy(frame[7:], "PRIVATE")
+	a.observe(frame, map[byte]int{2: 33})
+	frame[7] = 'Z'
+	a.observe(frame, map[byte]int{2: 33})
+	text := a.summary("test")
+	if strings.Contains(text, "PRIVATE") || strings.Contains(text, "changed-bits") || strings.Contains(text, "GNP event") {
+		t.Fatal(text)
+	}
+}

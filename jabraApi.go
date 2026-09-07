@@ -268,25 +268,26 @@ func experimentalDeviceWritesEnabled() bool {
 // ── Hidraw transport (minimal, for GNP queries) ──────────────────────
 
 type hidrawConn struct {
+	control    *firmwaretool.ControlHidraw
 	f          *os.File
 	path       string
 	reportSize int
 }
 
 func openHidraw(path string) (*hidrawConn, error) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	control, err := firmwaretool.OpenControlHidraw(path)
 	if err != nil {
 		return nil, err
 	}
-	size, err := firmwaretool.GnpOutputReportSize(path)
-	if err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	return &hidrawConn{f: f, path: path, reportSize: size}, nil
+	return &hidrawConn{control: control, path: path, reportSize: control.Layout.OutputBytes}, nil
 }
 
 func (h *hidrawConn) close() {
+	if h.control != nil {
+		_ = h.control.Close()
+		h.control = nil
+		return
+	}
 	if h.f != nil {
 		_ = h.f.Close()
 		h.f = nil
@@ -294,6 +295,9 @@ func (h *hidrawConn) close() {
 }
 
 func (h *hidrawConn) write(report []byte) error {
+	if h.control != nil {
+		return h.control.Write(report)
+	}
 	if h.reportSize > 0 && len(report) != h.reportSize {
 		if len(report) > h.reportSize {
 			return fmt.Errorf("GNP report exceeds device output size")
@@ -313,6 +317,9 @@ func (h *hidrawConn) write(report []byte) error {
 }
 
 func (h *hidrawConn) read(timeout time.Duration) ([]byte, error) {
+	if h.control != nil {
+		return h.control.Read(timeout)
+	}
 	fd := int(h.f.Fd())
 	deadline := time.Now().Add(timeout)
 	buf := make([]byte, 256)
@@ -487,20 +494,30 @@ func gnpCommand(h *hidrawConn, src, seq, class, op byte, payload []byte) error {
 		if len(resp) > 0 && resp[0] == gnpReportID {
 			resp = resp[1:]
 		}
-		if len(resp) >= 5 && resp[2] == seq && resp[3] == 0xca && resp[4] == 0xff {
-			return nil // ACK received
-		}
-		// Check for NAK
-		if len(resp) >= 5 && (resp[3]&0xc0) == 0xc0 && resp[4] == 0xFE {
-			errCode := byte(0)
-			if len(resp) > 5 {
-				errCode = resp[5]
-			}
-			return fmt.Errorf("GNP NAK: 0x%02x", errCode)
+		matched, replyErr := matchGNPWriteReply(resp, src, seq)
+		if matched {
+			return replyErr
 		}
 		// Keep reading (might get events before ACK)
 	}
 	return fmt.Errorf("ACK timeout")
+}
+
+func matchGNPWriteReply(resp []byte, source, seq byte) (bool, error) {
+	if len(resp) < 5 || resp[0] != 0 || resp[1] != source || resp[2] != seq || resp[3]&0xc0 != 0xc0 {
+		return false, nil
+	}
+	length := int(resp[3] & 0x3f)
+	if length < 5 || length > len(resp) {
+		return false, nil
+	}
+	if resp[4] == 0xff {
+		return true, nil
+	}
+	if resp[4] == 0xfe && length >= 6 {
+		return true, fmt.Errorf("GNP NAK: 0x%02x", resp[5])
+	}
+	return false, nil
 }
 
 // openDeviceHidraw opens a GNP hidraw connection for the given device.
@@ -856,7 +873,7 @@ func discoverGNPControlEndpoint(device *jabra_DeviceInfo) (string, byte, bool) {
 		return "", 0, false
 	}
 	allPaths := findHidrawPathsForPID(device.vendorID, device.productID)
-	paths := filterGNPManagementPaths(allPaths, firmwaretool.HasGnpOutputReport)
+	paths := filterGNPManagementPaths(allPaths, firmwaretool.HasControlLayout)
 	if len(paths) == 0 {
 		device.controlDiagnostic = "No supported management report. Run jabridge debug to check permissions and descriptors."
 		return "", 0, false
@@ -1929,10 +1946,14 @@ func decodeFirmwareVersionPayload(payload []byte) (string, error) {
 }
 
 func decodeDeviceVariant(payload []byte) (string, bool) {
-	if len(payload) < 3 {
+	if len(payload) < 3 || payload[0] < 2 || payload[0] > 8 || int(payload[0])+1 != len(payload) {
 		return "", false
 	}
-	return fmt.Sprintf("%02X-%02X", payload[1], payload[2]), true
+	parts := make([]string, 0, int(payload[0]))
+	for _, value := range payload[1:] {
+		parts = append(parts, fmt.Sprintf("%02X", value))
+	}
+	return strings.Join(parts, "-"), true
 }
 
 // ── Busylight GNP control ────────────────────────────────────────────

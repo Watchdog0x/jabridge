@@ -57,6 +57,9 @@ func TestButtonFunctionDefinitions(t *testing.T) {
 		"four-dot-button":  19,
 	}
 	for _, definition := range headsetChoiceSettingDefinitions {
+		if definition.Op == 0x27 {
+			continue
+		} // Separate model-filtered BUTTON_FUNCTION command.
 		want, exists := wantIDs[definition.Key]
 		if !exists {
 			continue

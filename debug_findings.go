@@ -116,7 +116,7 @@ func reportNextSteps(body string) []string {
 	if strings.Contains(body, "IPC: missing") || strings.Contains(body, "IPC: failed") || strings.Contains(body, "IPC: timed out") {
 		add("The app cannot reach its service: check the service state and whether the app and service run on the same host/session.")
 	}
-	if strings.Contains(body, "GNP descriptor unsupported") {
+	if strings.Contains(body, "GNP descriptor unsupported") || strings.Contains(body, "no supported management usage") {
 		add("An accessible HID interface lacks the currently supported management report: extend transport support from the descriptor evidence; do not assume permissions are the cause.")
 	}
 	if strings.Contains(body, "reply timed out") || strings.Contains(body, "IDENT/") && strings.Contains(body, "timeout") {

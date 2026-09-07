@@ -7,6 +7,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- Descriptor-selected native management transport with report fragmentation,
+  query/reply handling and settings writes, including 33-byte report layouts.
+- Model-filtered Speak 510 call-button action, Bluetooth name and speed-dial
+  settings, with allowed-value checks and read-back verification.
 - Model-independent debug profile collection for every detected PID and its
   candidate variants, including settings, commands, attributes, events,
   numeric limits and missing native mappings. Collection limits are explicit.
@@ -95,6 +99,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- Status, battery, settings, model and diagnostic CLI calls use the running
+  service instead of interrupting it; standalone fallback remains available.
+- Write transactions are serialized across IPC clients. ACK/NAK matching now
+  checks source, sequence and packet length, including five-byte ACKs.
+- Variant parsing honors the length prefix and retains configuration bytes.
+- Passive HID diagnostics report actual/declared packet lengths and preserve
+  usage information when devices change fields marked constant. Extra bytes
+  are omitted and only declared fields are interpreted.
 - Setup now refreshes a missing or outdated udev rule even when an existing
   group/ACL already makes one hidraw node accessible. Debug distinguishes
   button-event permission failures from management-interface failures.

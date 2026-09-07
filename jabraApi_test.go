@@ -153,7 +153,7 @@ func TestDecodeFirmwareVersionPayload(t *testing.T) {
 }
 
 func TestDecodeDeviceVariant(t *testing.T) {
-	if got, ok := decodeDeviceVariant([]byte{1, 0x04, 0x0b}); !ok || got != "04-0B" {
+	if got, ok := decodeDeviceVariant([]byte{2, 0x04, 0x0b}); !ok || got != "04-0B" {
 		t.Fatalf("variant = %q, %v", got, ok)
 	}
 	if _, ok := decodeDeviceVariant([]byte{1, 2}); ok {

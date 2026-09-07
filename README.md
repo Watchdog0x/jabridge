@@ -113,6 +113,17 @@ service start without saving a serial number or Bluetooth address.
 
 ## Help with problems
 
+RC18 adds management reads and settings writes for descriptor-defined
+`FF00:0001` reports, including the 33-byte layout reported by Speak 510.
+The available setting list still depends on a successful device read and an
+exact model profile. Settings writes check the allowed value and read it back.
+Speak 510 adds `headset.call-button`, `headset.bluetooth-name` and
+`headset.speed-dial` where the device profile exposes them. Text values can
+be changed with `jabridge settings set DEVICE.SETTING VALUE`.
+
+When the service is running, `status`, `battery`, `settings`, `diagnose` and
+`model` use it without stopping the TUI or changing the selected device.
+
 Jabridge keeps a small private history of TUI actions, device connections,
 operation results and service/IPC failures. A later debug report includes
 recent history even after you close or restart the app. No special debug mode
@@ -250,6 +261,10 @@ Jabridge verifies the release signature and checksum before replacing itself.
 This updates only the app. It never updates headset or dongle firmware.
 
 ## Firmware
+
+Management/settings transport support does not implement a device's firmware
+updater. Firmware protocols 1, 16 and 17 still require separate implementation
+and hardware recovery tests.
 
 These commands are read-only:
 
