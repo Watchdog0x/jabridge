@@ -347,6 +347,11 @@ func DiagnoseFirmware(ctx context.Context, pid uint16, cacheDir string) (Firmwar
 	result.ChecksumMatches = true
 	result.Stage = "native layout"
 	for _, protocol := range result.Protocols {
+		if protocol == 1 && NativeFirmwareProtocolSupported(pid, protocol) {
+			_, err := loadJabraDFUImage(path)
+			result.NativeLayout = err == nil
+			break
+		}
 		if protocol == 7 {
 			result.NativeLayout = validateNativeCSRArchive(path) == nil
 			break
@@ -1102,6 +1107,13 @@ func Run(args []string) (err error) {
 		cmdStatus()
 		return nil
 	}
+	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+		switch args[0] {
+		case "download", "verify", "install":
+			usage()
+			return nil
+		}
+	}
 
 	switch args[0] {
 	case "version", "--version", "-v":
@@ -1583,19 +1595,36 @@ func cmdInstall(args []string) {
 	if !accepted && !term.IsTerminal(int(os.Stdin.Fd())) {
 		die("firmware install needs interactive confirmation; run it in a terminal or use %s for deliberate automation", HardwareWriteFlag)
 	}
+	lock, err := acquireFirmwareInstallLock()
+	if err != nil {
+		die("firmware install: %v", err)
+	}
+	defer func() { _ = lock.Close() }()
 	format, err := detectFormat(path)
 	if err != nil {
 		die("detect: %v", err)
 	}
+	if format == FormatCSRDFU2 {
+		if err := installUSBDFU(path, accepted); err != nil {
+			die("USB DFU install: %v", err)
+		}
+		return
+	}
 	if format != FormatGnVArchive {
 		die("the native installer currently supports only Jabra firmware archives, got %s", format.String())
-	}
-	if err := validateAttachedFirmwareTarget(path); err != nil {
-		die("firmware target check: %v", err)
 	}
 	manifest, err := parseFirmwareManifest(path)
 	if err != nil {
 		die("firmware manifest: %v", err)
+	}
+	if isUSBDFUManifest(manifest) {
+		if err := installUSBDFU(path, accepted); err != nil {
+			die("USB DFU install: %v", err)
+		}
+		return
+	}
+	if err := validateAttachedFirmwareTarget(path); err != nil {
+		die("firmware target check: %v", err)
 	}
 	if err := validateNativeCSRArchive(path); err != nil {
 		die("firmware protocol is not supported by the native installer: %v", err)
@@ -1706,6 +1735,29 @@ func cmdVerify(args []string) {
 	format, err := detectFormat(args[0])
 	if err != nil {
 		die("detect: %v", err)
+	}
+	if format == FormatCSRDFU2 || format == FormatGnVArchive {
+		image, parseErr := loadJabraDFUImage(args[0])
+		if parseErr == nil {
+			devices, err := enumerateUSB()
+			if err != nil {
+				die("verify USB target: %v", err)
+			}
+			device, err := selectUSBDFUTarget(devices, image.Profile)
+			if err != nil {
+				die("verify USB target: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), MetadataTimeout)
+			defer cancel()
+			if err := verifyUSBDFURelease(ctx, image, device); err != nil {
+				die("verify USB DFU file: %v", err)
+			}
+			fmt.Println("Official firmware bytes, USB DFU format and attached model match. No device was changed.")
+			return
+		}
+		if format == FormatCSRDFU2 {
+			die("verify USB DFU format: %v", parseErr)
+		}
 	}
 	if format != FormatGnVArchive {
 		die("verify currently requires a GnV archive, got %s", format.String())

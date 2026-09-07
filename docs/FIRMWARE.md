@@ -12,8 +12,9 @@ Before an update, Jabridge checks:
 2. The firmware archive's target PID list.
 3. Product name and firmware version in the archive manifest.
 4. Firmware file format.
-5. The archive uses the supported partitioned `.gnv` layout, including CRCs
-   and a final partition. Archives for other updater protocols are refused.
+5. The payload matches its native updater: partitioned `.gnv` with CRCs and
+   a final partition, or a registered USB DFU model with a checked image
+   header, suffix and CRC. Other formats are refused.
 6. The HID report descriptor before sending any management query.
 
 Jabra's documentation says supported properties and behavior vary by exact
@@ -27,6 +28,11 @@ The full latest-file check is recorded in the
 [firmware catalog audit](FIRMWARE_CATALOG_AUDIT.md).
 
 ## Install
+
+RC21 also supports a [native USB DFU preview](USB_DFU.md) for Speak 410,
+510, 710 and 810. It accepts the matching raw or wrapped CSR DFU image and
+uses the same CLI commands below. Setup installs access for normal and
+update USB modes. Actual flashing/recovery on these models still needs testing.
 
 Download and verify first:
 
@@ -52,7 +58,7 @@ layout used by Link 380 and several protocol-7 headsets. Protocol 7 alone is
 not enough: Link 390 uses a `.bin` package, and one older headset package mixes
 `.gnv` and `.dfu`. A public Engage 50 II protocol-4 archive instead contains
 controller, headset, and tune-pack `.hex` payloads. All of those different
-layouts are rejected before a device is opened. Firmware protocols 1, 4, 5,
+layouts are rejected before a device is opened. Other protocol-1 models and protocols 4, 5,
 10, 11, 12, 16, 17, and 18 require separate implementations as well.
 
 Use `jabridge model` for the attached model's published firmware protocol, or

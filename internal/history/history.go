@@ -254,11 +254,11 @@ func allowed(value, choices string) string {
 }
 
 func sanitize(event Event) Event {
-	event.Component = allowed(event.Component, "app cli tui service ipc-client ipc-server device")
+	event.Component = allowed(event.Component, "app cli tui service ipc-client ipc-server device firmware")
 	event.Command = allowed(event.Command, "tui status battery diagnose debug buttons daemon --daemon -d update firmware fw settings model models sound audio use setup ipc service completion history --version -v version --help -h help")
 	event.Subcommand = allowed(event.Subcommand, "start status stop restart install download verify set list output volume mute usb dongle ping watch devices battery settings select bash clear")
 	event.Input = allowed(event.Input, "up down enter back action-1 action-2 action-3 action-4")
-	event.Action = allowed(event.Action, "run key navigation screen action load-settings message connect reconnect request malformed close attach detach battery pairing select settings start stop panic debug history")
+	event.Action = allowed(event.Action, "run key navigation screen action load-settings message connect reconnect request malformed close attach detach battery pairing select settings start stop panic debug history dfu-enter dfu-runtime dfu-transfer dfu-verify")
 	event.Phase = allowed(event.Phase, "start ok error cancelled observed panic")
 	event.Screen = allowed(event.Screen, "home search remembered dongle-settings headset-settings devices firmware")
 	event.Connection = allowed(event.Connection, "usb dongle")

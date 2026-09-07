@@ -11,6 +11,7 @@ import (
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/firmware"
 	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
@@ -63,6 +64,11 @@ func (backend *tuiIPCBackend) close() {
 }
 
 func connectTUIService() (*tuiIPCBackend, error) {
+	lease, err := firmware.AcquireDeviceAccess()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lease.Close() }()
 	socket := ipcSocketPath()
 	if client, version, err := dialServiceVersion(socket, 700*time.Millisecond); err == nil && version == buildinfo.Version && !serviceHistoryNeedsSetup(client) {
 		return &tuiIPCBackend{client: client, socket: socket}, nil

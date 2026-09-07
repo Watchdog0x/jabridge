@@ -26,6 +26,7 @@ type firmwareRecoveryState struct {
 	TargetUSBPIDs   []string `json:"targetUsbPids"`
 	Attempt         int      `json:"attempt"`
 	StartedAt       string   `json:"startedAt"`
+	USBPort         string   `json:"usbPort,omitempty"`
 }
 
 type firmwareTransferPreparation struct {

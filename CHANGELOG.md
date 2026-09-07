@@ -19,6 +19,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- RC21 adds a shared native USB DFU engine with initial Speak 410/510/710/810
+  profiles, raw/wrapped CSR image validation, exact USB-port targeting,
+  official checksum checks, recovery replay and final firmware-version reads.
+  Real hardware installation/recovery on these models remains unqualified.
+- Narrow USB access rules and setup checks for the new updater profiles.
+- An exclusive firmware-install lock and interrupt-aware USB DFU transfer.
+
 - `setup --force` explicitly uses sudo to reinstall and reload device-access
   rules. Setup checks every detected Jabra control/input node for access.
 - Descriptor-selected native management transport with report fragmentation,

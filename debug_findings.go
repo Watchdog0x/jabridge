@@ -24,6 +24,20 @@ func parseCapabilityWord(value string) (uint64, error) {
 
 func writeFirmwareDiagnostic(out *bytes.Buffer, pids []uint16) {
 	fmt.Fprintln(out, "\nFirmware availability and cached-file checks:")
+	paths, accessErr := firmware.USBFirmwareAccessPaths()
+	if accessErr != nil {
+		fmt.Fprintf(out, "USB firmware access: unavailable (%s)\n", diagnosticError(accessErr))
+	}
+	for _, path := range paths {
+		file, err := os.OpenFile(path, os.O_RDWR, 0)
+		state := "read/write access ready"
+		if err != nil {
+			state = diagnosticError(err)
+		} else {
+			_ = file.Close()
+		}
+		fmt.Fprintf(out, "USB firmware node %s/%s: %s\n", filepath.Base(filepath.Dir(path)), filepath.Base(path), state)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	seen := map[uint16]bool{}
@@ -66,7 +80,7 @@ func writeFirmwareDiagnostic(out *bytes.Buffer, pids []uint16) {
 func nativeFirmwareFinding(result firmware.FirmwareDiagnostic) string {
 	known := false
 	for _, protocol := range result.Protocols {
-		if protocol == 7 {
+		if firmware.NativeFirmwareProtocolSupported(result.Latest.ProductID, protocol) {
 			known = true
 		}
 	}
@@ -103,6 +117,9 @@ func reportNextSteps(body string) []string {
 	}
 	if reportLineContains(body, "hidraw", "permission denied") {
 		add("Device control access is denied: run jabridge setup on the host, reconnect USB if asked, and repeat as the normal user.")
+	}
+	if reportLineContains(body, "USB firmware node", "permission denied") {
+		add("USB firmware access is denied: run jabridge setup as your normal user and reconnect USB. This permission is separate from HID settings access.")
 	}
 	if strings.Contains(body, "ExecMainStatus=226") {
 		add("The service failed during namespace setup: investigate the service sandbox and host namespace/AppArmor policy. Running the app as root is not the fix.")

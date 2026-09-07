@@ -85,6 +85,12 @@ func TestFirmwareFindingNeverQualifiesEvolve3OrSpeakFlashing(t *testing.T) {
 	if !strings.Contains(got, "NOT TESTED") {
 		t.Fatal(got)
 	}
+	for _, pid := range []uint16{0x0412, 0x0422, 0x2475, 0x2456} {
+		got := nativeFirmwareFinding(firmware.FirmwareDiagnostic{Latest: firmware.LatestInfo{ProductID: pid}, Protocols: []int{1}, Cached: true, ChecksumMatches: true, NativeLayout: true})
+		if strings.Contains(got, "NOT IMPLEMENTED") || !strings.Contains(got, "recovery are NOT TESTED") {
+			t.Fatal(pid, got)
+		}
+	}
 }
 
 func TestFirmwareReportDeduplicatesPhysicalAndServiceInventory(t *testing.T) {

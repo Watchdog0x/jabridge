@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Watchdog0x/jabridge/internal/firmware"
 	"golang.org/x/term"
 )
 
@@ -82,7 +83,8 @@ func runSetup(args []string) error {
 	// An older rule may make hidraw usable while still omitting input-event
 	// access. Always refresh a missing/outdated rule instead of treating one
 	// accessible node as proof that the complete setup is installed.
-	if force || setupNeedsDeviceAccessInstall(deviceAccessRuleInstalled(), found, usable) {
+	usbFound, usbUsable := probeUSBFirmwareAccess()
+	if force || setupNeedsDeviceAccessInstall(deviceAccessRuleInstalled(), found, usable) || (usbFound && !usbUsable) {
 		if force {
 			fmt.Println("Refreshing device access with sudo...")
 		}
@@ -101,6 +103,7 @@ func runSetup(args []string) error {
 	time.Sleep(300 * time.Millisecond)
 	found, usable = probeJabraHidrawAccess()
 	inputFound, inputUsable := probeJabraInputAccess()
+	usbFound, usbUsable = probeUSBFirmwareAccess()
 	if found && usable && (!inputFound || inputUsable) {
 		fmt.Println("Device access is ready. Starting your user service...")
 	}
@@ -114,6 +117,13 @@ func runSetup(args []string) error {
 		return err
 	}
 	fmt.Println("Jabridge is installed and will start automatically when you sign in.")
+	if usbFound {
+		if usbUsable {
+			fmt.Println("USB firmware access is ready.")
+		} else {
+			fmt.Println("Reconnect USB once before using firmware install. USB firmware access is not ready yet.")
+		}
+	}
 	switch {
 	case found && usable && (!inputFound || inputUsable):
 		fmt.Println("Device access is ready.")
@@ -361,6 +371,7 @@ func reloadAndTriggerUdev() error {
 	}
 	commands := [][]string{
 		{"control", "--reload-rules"},
+		{"trigger", "--subsystem-match=usb", "--attr-match=idVendor=0b0e", "--action=add"},
 		{"trigger", "--subsystem-match=hidraw", "--action=add"},
 		{"trigger", "--subsystem-match=input", "--action=add"},
 		{"settle", "--timeout=5"},
@@ -376,6 +387,24 @@ func reloadAndTriggerUdev() error {
 		}
 	}
 	return nil
+}
+
+func probeUSBFirmwareAccess() (found, usable bool) {
+	paths, err := firmware.USBFirmwareAccessPaths()
+	if err != nil {
+		return false, false
+	}
+	usable = true
+	for _, path := range paths {
+		found = true
+		file, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			usable = false
+		} else {
+			_ = file.Close()
+		}
+	}
+	return found, usable
 }
 
 func deviceAccessRuleInstalled() bool {

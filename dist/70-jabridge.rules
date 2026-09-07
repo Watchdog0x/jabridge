@@ -3,3 +3,5 @@
 SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="0b0e", MODE="0660", TAG+="uaccess"
 # Jabra media-button events, without granting access to other input devices.
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="0b0e", MODE="0660", TAG+="uaccess"
+# Native USB DFU profiles and their documented recovery identities.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="0411|0412|0420|0421|0422|0971|0982|2456|2475", MODE="0660", TAG+="uaccess"

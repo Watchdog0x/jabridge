@@ -53,6 +53,15 @@ func TestHistorySurvivesFreshRecorderAndScrubsPrivateStrings(t *testing.T) {
 	}
 }
 
+func TestFirmwareStageHistoryOmitsPrivateValues(t *testing.T) {
+	for _, action := range []string{"dfu-enter", "dfu-runtime", "dfu-transfer", "dfu-verify"} {
+		event := sanitize(Event{Component: "firmware", Action: action, Phase: "observed", USBProduct: 0x0422, Connection: "usb", Setting: "PRIVATE_SERIAL", Input: "PRIVATE_BYTES"})
+		if event.Component != "firmware" || event.Action != action || event.Setting != "" || strings.Contains(event.Input, "PRIVATE") {
+			t.Fatal(event)
+		}
+	}
+}
+
 func TestRotationAndAgeRetentionAreBounded(t *testing.T) {
 	r, now := testRecorder(t)
 	r.limit = 512

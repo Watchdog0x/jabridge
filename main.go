@@ -11,6 +11,7 @@ import (
 	"github.com/Watchdog0x/jabridge/daemon"
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/firmware"
 	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
@@ -55,6 +56,15 @@ func runApp() error {
 		if err != nil {
 			return err
 		}
+	}
+	installing := (os.Args[1] == "firmware" || os.Args[1] == "fw") && len(os.Args) > 2 && os.Args[2] == "install"
+	if !installing && (commandNeedsDirectHardware(os.Args[1]) || os.Args[1] == "debug" || os.Args[1] == "buttons") {
+		lease, leaseErr := firmware.AcquireDeviceAccess()
+		if leaseErr != nil {
+			_ = resumeService()
+			return leaseErr
+		}
+		defer func() { _ = lease.Close() }()
 	}
 	switch os.Args[1] {
 	case "--help", "-h", "help":
@@ -137,6 +147,11 @@ The TUI starts the service when needed and reconnects after service restarts.`)
 }
 
 func runDaemon() error {
+	lease, err := firmware.AcquireDeviceAccess()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lease.Close() }()
 	cfg := daemon.DefaultConfig()
 	cfg.BusylightSender = &jabraBusylightSender{}
 	return daemon.Start(cfg, pollDevices, &jabraAPIBridge{})

@@ -366,6 +366,16 @@ finished, so two processes never own the device at the same time.
 
 ## What is tested
 
+An independent Speak 510 report on RC19 confirms direct USB detection,
+variant 08-01, firmware 2.32.0, battery/charging, four setting reads, volume
+events and a battery update over IPC. Voice setting writes read back, but the
+tester still hears the Bluetooth voice announcement with Tones selected.
+That audible behavior is not confirmed fixed.
+
+RC21 adds a [shared native USB DFU preview](docs/USB_DFU.md) for Speak 410,
+510, 710 and 810. Official file checks and simulated transfers pass. Actual
+firmware installation and recovery on those models still need testing.
+
 On one Link 380 (`0b0e:24c7`), Jabridge passes device and firmware detection,
 model matching, saved-headset reads, reconnect checks, and all five current
 setting reads. Controlled tests changed and restored each of these settings:
