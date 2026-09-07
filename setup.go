@@ -69,8 +69,9 @@ func runSetup(args []string) error {
 		}
 		return reloadAndTriggerUdev()
 	}
-	if len(args) != 0 {
-		return errors.New("usage: jabridge setup")
+	force := len(args) == 1 && args[0] == "--force"
+	if len(args) != 0 && !force {
+		return errors.New("usage: jabridge setup [--force]")
 	}
 	installedExecutable, err := installUserFiles()
 	if err != nil {
@@ -81,7 +82,10 @@ func runSetup(args []string) error {
 	// An older rule may make hidraw usable while still omitting input-event
 	// access. Always refresh a missing/outdated rule instead of treating one
 	// accessible node as proof that the complete setup is installed.
-	if setupNeedsDeviceAccessInstall(deviceAccessRuleInstalled(), found, usable) {
+	if force || setupNeedsDeviceAccessInstall(deviceAccessRuleInstalled(), found, usable) {
+		if force {
+			fmt.Println("Refreshing device access with sudo...")
+		}
 		if os.Geteuid() == 0 {
 			if err := installDeviceAccess(systemUdevRulePath); err != nil {
 				return err
@@ -89,7 +93,7 @@ func runSetup(args []string) error {
 			if err := reloadAndTriggerUdev(); err != nil {
 				return err
 			}
-		} else if err := runPrivilegedSetup(installedExecutable); err != nil {
+		} else if err := runPrivilegedSetup(installedExecutable, force); err != nil {
 			return err
 		}
 	}
@@ -124,22 +128,24 @@ func runSetup(args []string) error {
 }
 
 func probeJabraInputAccess() (found, usable bool) {
+	usable = true
 	for _, path := range jabraInputPaths() {
 		found = true
 		file, err := os.Open(path)
 		if err == nil {
 			_ = file.Close()
-			return true, true
+		} else {
+			usable = false
 		}
 	}
-	return found, false
+	return found, found && usable
 }
 
 func setupNeedsDeviceAccessInstall(ruleInstalled, hidrawFound, hidrawUsable bool) bool {
 	return !ruleInstalled || hidrawFound && !hidrawUsable
 }
 
-func runPrivilegedSetup(executable string) error {
+func runPrivilegedSetup(executable string, forceSudo bool) error {
 	if resolved, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
 		executable = resolved
 	}
@@ -148,18 +154,9 @@ func runPrivilegedSetup(executable string) error {
 		return fmt.Errorf("jabridge executable is not a regular file: %s", executable)
 	}
 
-	var command *exec.Cmd
-	if graphicalSession() {
-		if helper, lookupErr := exec.LookPath("pkexec"); lookupErr == nil {
-			command = exec.Command(helper, executable, "setup", "--system")
-		}
-	}
-	if command == nil {
-		helper, lookupErr := exec.LookPath("sudo")
-		if lookupErr != nil {
-			return errors.New("no authorization helper found; install polkit or sudo")
-		}
-		command = exec.Command(helper, "--", executable, "setup", "--system")
+	command, err := privilegedSetupCommand(executable, forceSudo)
+	if err != nil {
+		return err
 	}
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
@@ -168,6 +165,26 @@ func runPrivilegedSetup(executable string) error {
 		return fmt.Errorf("device access setup failed: %w", err)
 	}
 	return nil
+}
+
+func privilegedSetupCommand(executable string, forceSudo bool) (*exec.Cmd, error) {
+	var command *exec.Cmd
+	if graphicalSession() && !forceSudo {
+		if helper, lookupErr := exec.LookPath("pkexec"); lookupErr == nil {
+			command = exec.Command(helper, executable, "setup", "--system")
+		}
+	}
+	if command == nil {
+		helper, lookupErr := exec.LookPath("sudo")
+		if lookupErr != nil {
+			if forceSudo {
+				return nil, errors.New("sudo is required for setup --force")
+			}
+			return nil, errors.New("no authorization helper found; install polkit or sudo")
+		}
+		command = exec.Command(helper, "--", executable, "setup", "--system")
+	}
+	return command, nil
 }
 
 func installUserFiles() (string, error) {
@@ -372,6 +389,7 @@ func deviceAccessRuleInstalled() bool {
 }
 
 func probeJabraHidrawAccess() (found, usable bool) {
+	usable = true
 	entries, err := os.ReadDir("/sys/class/hidraw")
 	if err != nil {
 		return false, false
@@ -385,10 +403,11 @@ func probeJabraHidrawAccess() (found, usable bool) {
 		file, openErr := os.OpenFile(filepath.Join("/dev", entry.Name()), os.O_RDWR, 0)
 		if openErr == nil {
 			_ = file.Close()
-			return true, true
+		} else {
+			usable = false
 		}
 	}
-	return found, false
+	return found, found && usable
 }
 
 func jabraHIDUevent(data []byte) bool {
@@ -406,8 +425,13 @@ func jabraHIDUevent(data []byte) bool {
 func printSetupUsage() {
 	fmt.Println(`Usage:
   jabridge setup
+  jabridge setup --force
 
 Sets up one-time Linux device access. Jabridge opens the normal administrator
 authorization prompt, installs the app and Bash completion for the current user,
-reloads device access, and enables the background service at sign-in.`)
+reloads device access, and enables the background service at sign-in.
+
+--force always uses sudo to reinstall and reload the access rules, even when
+access looks ready. Run this command as your normal user; only its permission
+repair step runs as root.`)
 }

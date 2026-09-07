@@ -113,6 +113,18 @@ service start without saving a serial number or Bluetooth address.
 
 ## Help with problems
 
+To repair device permissions again, run:
+
+```bash
+./jabridge setup --force
+```
+
+This uses `sudo` to reinstall and reload the access rules even when they
+already exist. Run it as your normal user; setup handles the root step and
+then starts your user service. It checks all detected Jabra control/input
+nodes before reporting access ready. A device reply timeout with access
+already ready is a separate protocol problem; include a debug report.
+
 RC18 adds management reads and settings writes for descriptor-defined
 `FF00:0001` reports, including the 33-byte layout reported by Speak 510.
 The available setting list still depends on a successful device read and an

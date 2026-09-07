@@ -7,6 +7,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- `setup --force` explicitly uses sudo to reinstall and reload device-access
+  rules. Setup checks every detected Jabra control/input node for access.
 - Descriptor-selected native management transport with report fragmentation,
   query/reply handling and settings writes, including 33-byte report layouts.
 - Model-filtered Speak 510 call-button action, Bluetooth name and speed-dial

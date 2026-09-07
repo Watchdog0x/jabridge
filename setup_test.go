@@ -4,8 +4,28 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
+
+func TestForcedSetupUsesSudoEvenInGraphicalSession(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"sudo", "pkexec"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("DISPLAY", ":1")
+	forced, err := privilegedSetupCommand("/safe/jabridge", true)
+	if err != nil || !reflect.DeepEqual(forced.Args, []string{filepath.Join(dir, "sudo"), "--", "/safe/jabridge", "setup", "--system"}) {
+		t.Fatal(forced, err)
+	}
+	normal, err := privilegedSetupCommand("/safe/jabridge", false)
+	if err != nil || normal.Path != filepath.Join(dir, "pkexec") {
+		t.Fatal(normal, err)
+	}
+}
 
 func TestInstallDeviceAccessAtomically(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "rules", "70-jabridge.rules")

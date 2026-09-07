@@ -96,6 +96,9 @@ _jabridge_completion() {
                 return
             fi
             ;;
+        setup)
+            mapfile -t COMPREPLY < <(compgen -W '--force --help' -- "$current")
+            ;;
         service)
             mapfile -t COMPREPLY < <(compgen -W 'start status stop restart --help' -- "$current")
             ;;
