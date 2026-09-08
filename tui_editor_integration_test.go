@@ -113,7 +113,10 @@ func TestEditorManualHarness(t *testing.T) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	go func() { <-ctx.Done(); _ = listener.Close() }()
-	api := &editorTestAPI{value: "Demo headset", instance: strings.Repeat("a", 32)}
+	var api ipc.API = &editorTestAPI{value: "Demo headset", instance: strings.Repeat("a", 32)}
+	if os.Getenv("JABRIDGE_TEST_CONTROLLER") == "1" {
+		api = &controllerEditorTestAPI{editorTestAPI: editorTestAPI{value: "Demo controller", instance: strings.Repeat("a", 32)}}
+	}
 	bus := ipc.NewEventBus()
 	t.Log("Simulated headset IPC ready")
 	for {

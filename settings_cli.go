@@ -65,6 +65,10 @@ func printSettingsForDevice(kind, prefix string, device *jabra_DeviceInfo, scope
 		return
 	}
 	for _, setting := range values {
+		settingPrefix := prefix
+		if settingValuePart(device, setting) == "controller" {
+			settingPrefix = "controller"
+		}
 		mode := "read only"
 		if setting.editable() {
 			mode = "editable"
@@ -75,15 +79,15 @@ func printSettingsForDevice(kind, prefix string, device *jabra_DeviceInfo, scope
 				choices = append(choices, choiceValueToken(choice.Name))
 			}
 			fmt.Printf("  %s.%s = %s  (%s; choices: %s)\n",
-				prefix, setting.key(), choiceValueToken(setting.valueName()), mode, strings.Join(choices, ", "))
+				settingPrefix, setting.key(), choiceValueToken(setting.valueName()), mode, strings.Join(choices, ", "))
 			continue
 		}
 		if setting.Text != nil {
 			fmt.Printf("  %s.%s = %q  (%s; set a quoted name with the command below)\n",
-				prefix, setting.key(), setting.valueName(), mode)
+				settingPrefix, setting.key(), setting.valueName(), mode)
 			continue
 		}
-		fmt.Printf("  %s.%s = %s  (%s)\n", prefix, setting.key(), strings.ToLower(setting.valueName()), mode)
+		fmt.Printf("  %s.%s = %s  (%s)\n", settingPrefix, setting.key(), strings.ToLower(setting.valueName()), mode)
 	}
 }
 
@@ -179,6 +183,8 @@ func parseSettingSelector(selector string) (settingScope, string, error) {
 		return settingScopeDongle, key, nil
 	case "headset":
 		return settingScopeHeadset, key, nil
+	case "controller":
+		return settingScopeController, key, nil
 	default:
 		return 0, "", fmt.Errorf("unknown settings device %q; use dongle or headset", prefix)
 	}
@@ -198,6 +204,9 @@ func parseOnOff(value string) (bool, error) {
 func settingScopeName(scope settingScope) string {
 	if scope == settingScopeDongle {
 		return "dongle"
+	}
+	if scope == settingScopeController {
+		return "controller"
 	}
 	return "headset"
 }

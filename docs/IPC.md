@@ -219,3 +219,19 @@ and TUI reconnect flow are implemented. The TUI uses IPC and never receives a
 `hidraw` path. A few legacy CLI hardware commands still run directly; Jabridge
 automatically stops the service for that one command and starts it again when
 the command finishes. Moving those last commands onto IPC is follow-up work.
+
+## Controller parts
+
+In the controller test build, `devices.list` can include a `parts` list. Each
+entry has `role`, `address`, `variant`, `firmware` and `ready`. These are parts
+of the same USB device, not extra USB devices or audio outputs.
+
+`settings.list` and `settings.set` also accept `device: "controller"`.
+Headset listings retain controller entries for older clients. New clients use
+the setting's `component` field to place it in the appropriate menu. Menu
+grouping is not a command address; the service handles routing.
+
+Pass the complete `target` returned by the service when editing. Its new
+`topology` value binds the edit to the observed parts as well as the USB
+attachment. Do not construct or change it. If it becomes stale, reload the
+settings. Existing devices without managed parts omit this field.

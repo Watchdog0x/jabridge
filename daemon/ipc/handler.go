@@ -23,17 +23,26 @@ import (
 
 // DeviceInfo is the JSON-serializable device representation for IPC.
 type DeviceInfo struct {
-	ID         uint16       `json:"id"`
-	Name       string       `json:"name"`
-	PID        uint16       `json:"pid"`
-	Variant    string       `json:"variant,omitempty"`
-	Serial     string       `json:"serial"`
-	IsDongle   bool         `json:"isDongle"`
-	Connection string       `json:"connection"`
-	ParentID   uint16       `json:"parentId,omitempty"`
-	Battery    *BatteryInfo `json:"battery,omitempty"`
-	Firmware   string       `json:"firmware,omitempty"`
-	Selected   bool         `json:"selected"`
+	ID         uint16            `json:"id"`
+	Name       string            `json:"name"`
+	PID        uint16            `json:"pid"`
+	Variant    string            `json:"variant,omitempty"`
+	Serial     string            `json:"serial"`
+	IsDongle   bool              `json:"isDongle"`
+	Connection string            `json:"connection"`
+	ParentID   uint16            `json:"parentId,omitempty"`
+	Battery    *BatteryInfo      `json:"battery,omitempty"`
+	Firmware   string            `json:"firmware,omitempty"`
+	Selected   bool              `json:"selected"`
+	Parts      []ControlPartInfo `json:"parts,omitempty"`
+}
+
+type ControlPartInfo struct {
+	Role     string `json:"role"`
+	Address  byte   `json:"address"`
+	Variant  string `json:"variant,omitempty"`
+	Firmware string `json:"firmware,omitempty"`
+	Ready    bool   `json:"ready"`
 }
 
 type BatteryInfo struct {
@@ -79,11 +88,13 @@ type SettingInfo struct {
 	MaxBytes   int            `json:"maxBytes,omitempty"`
 	Target     *SettingTarget `json:"target,omitempty"`
 	MayRestart bool           `json:"mayRestart,omitempty"`
+	Component  string         `json:"component,omitempty"`
 }
 
 type SettingTarget struct {
 	ID       uint16 `json:"id"`
 	Instance string `json:"instance"`
+	Topology string `json:"topology,omitempty"`
 }
 
 type TargetedSettingsAPI interface {
@@ -342,8 +353,8 @@ func dispatch(req Request, api API) (response Response) {
 		var params struct {
 			Device string `json:"device"`
 		}
-		if err := decodeParams(req.Params, &params); err != nil || (params.Device != "dongle" && params.Device != "headset") {
-			return ErrorResponse(req.ID, ErrCodeInvalidP, "settings.list requires device dongle or headset")
+		if err := decodeParams(req.Params, &params); err != nil || (params.Device != "dongle" && params.Device != "headset" && params.Device != "controller") {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "settings.list requires device dongle, headset or controller")
 		}
 		settings, err := api.ListSettings(params.Device)
 		if err != nil {
@@ -360,7 +371,7 @@ func dispatch(req Request, api API) (response Response) {
 			Previous *string        `json:"previous"`
 		}
 		if err := decodeParams(req.Params, &params); err != nil ||
-			(params.Device != "dongle" && params.Device != "headset") || params.Key == "" || params.Value == nil {
+			(params.Device != "dongle" && params.Device != "headset" && params.Device != "controller") || params.Key == "" || params.Value == nil {
 			return ErrorResponse(req.ID, ErrCodeInvalidP, "settings.set requires device, key, and value")
 		}
 		if params.Target != nil || params.Previous != nil {

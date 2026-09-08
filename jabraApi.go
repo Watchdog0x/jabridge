@@ -54,6 +54,9 @@ type jabra_DeviceInfo struct {
 	gnpDestinationKnown bool
 	metadataProbeAt     time.Time
 	controlDiagnostic   string
+	controlParts        []controlPart
+	controlTopology     string
+	partsCheckedAt      time.Time
 }
 
 type batteryComponent int
@@ -152,6 +155,7 @@ func cloneDeviceInfo(device *jabra_DeviceInfo) *jabra_DeviceInfo {
 		return nil
 	}
 	clone := *device
+	clone.controlParts = append([]controlPart(nil), device.controlParts...)
 	if device.featureFlags != nil {
 		features := *device.featureFlags
 		clone.featureFlags = &features
@@ -808,6 +812,10 @@ func enrichUSBDevice(device *jabra_DeviceInfo) {
 	if device == nil {
 		return
 	}
+	if len(controlPartPlans(device)) > 0 {
+		refreshControlParts(device)
+		return
+	}
 	path, destination, found := discoverGNPControlEndpoint(device)
 	updateDeviceByID(device.deviceID, func(stored *jabra_DeviceInfo) {
 		stored.controlDiagnostic = device.controlDiagnostic
@@ -873,7 +881,7 @@ func discoverGNPControlEndpoint(device *jabra_DeviceInfo) (string, byte, bool) {
 	if device == nil {
 		return "", 0, false
 	}
-	allPaths := findHidrawPathsForPID(device.vendorID, device.productID)
+	allPaths := findHidrawPathsForDevice(device)
 	paths := filterGNPManagementPaths(allPaths, firmwaretool.HasControlLayout)
 	if len(paths) == 0 {
 		device.controlDiagnostic = "No supported management report. Run jabridge debug to check permissions and descriptors."
@@ -1020,6 +1028,9 @@ func firstDeviceIndexLocked(wantDongle bool) int {
 }
 
 func refreshSelectedDeviceData() {
+	for _, device := range deviceSnapshots() {
+		refreshControlParts(device)
+	}
 	if dongle, exists := selectedDongleSnapshot(); exists && supportsValidatedPairingReads(dongle.productID) {
 		updated, err := getPairingList(dongle.deviceID)
 		if err != nil {
@@ -1283,9 +1294,9 @@ func loadDongleSettings() ([]menuItem, []deviceSettingValue, error) {
 	return lines, readSupportedDeviceSettings(dongle, settingScopeDongle), nil
 }
 
-func loadHeadsetSettings() ([]menuItem, []deviceSettingValue, error) {
+func loadHeadsetSettingsScope(scope settingScope) ([]menuItem, []deviceSettingValue, error) {
 	if currentTUIBackend() != nil {
-		return loadIPCSettings(settingScopeHeadset)
+		return loadIPCSettings(scope)
 	}
 	headset, exists := selectedHeadsetSnapshot()
 	if !exists {
@@ -1300,7 +1311,7 @@ func loadHeadsetSettings() ([]menuItem, []deviceSettingValue, error) {
 		{id: -1, label: fmt.Sprintf("Connection:         %s", connection)},
 		{id: -1, label: fmt.Sprintf("USB ID:             0b0e:%04x", headset.productID)},
 	}
-	return lines, readSupportedDeviceSettings(headset, settingScopeHeadset), nil
+	return lines, filterControllerSettings(headset, readSupportedDeviceSettings(headset, settingScopeHeadset), scope == settingScopeController), nil
 }
 
 func updateStartMenu() {
@@ -1315,8 +1326,13 @@ func updateStartMenu() {
 			}
 		}
 	}
-	if _, headsetExists := selectedHeadsetSnapshot(); headsetExists {
-		startMenu = append(startMenu, menuItem{id: 6, label: "Headset settings"})
+	if headset, headsetExists := selectedHeadsetSnapshot(); headsetExists {
+		if !controllerWithoutHeadset(headset) {
+			startMenu = append(startMenu, menuItem{id: 6, label: "Headset settings"})
+		}
+		if hasController(headset) {
+			startMenu = append(startMenu, menuItem{id: 7, label: "Controller settings"})
+		}
 	}
 	if len(deviceSnapshots()) > 1 {
 		startMenu = append(startMenu, menuItem{id: 3, label: "Switch device"})
@@ -1853,7 +1869,7 @@ func getFirmwareVersion(deviceID uint16) string {
 }
 
 func readFirmwareVersion(dev *jabra_DeviceInfo) (string, error) {
-	h, defaultDestination, err := settingTransport(dev)
+	h, defaultDestination, err := settingPartTransport(dev, "firmware", 0)
 	if err != nil {
 		return "", err
 	}
@@ -1915,6 +1931,12 @@ func uniqueDestinations(values []byte) []byte {
 }
 
 func firmwareReadDestinations(dev *jabra_DeviceInfo) []byte {
+	if len(controlPartPlans(dev)) > 0 {
+		if part, ready := findControlPart(dev, "headset"); ready {
+			return []byte{part.Address}
+		}
+		return nil
+	}
 	destinations := make([]byte, 0, 5)
 	appendDestination := func(destination byte) {
 		for _, existing := range destinations {

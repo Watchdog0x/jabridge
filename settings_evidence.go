@@ -17,6 +17,31 @@ func startSettingWriteEvidence(device *jabra_DeviceInfo, key string) uint64 {
 func recordSettingEvidence(device *jabra_DeviceInfo, key string, operation uint64, action string, err error) {
 	entry := historyDeviceEvent(device, action)
 	entry.Setting, entry.Operation = key, operation
+	if len(controlPartPlans(device)) > 0 {
+		override := byte(0)
+		for _, definition := range headsetBoolSettingDefinitions {
+			if definition.Key == key {
+				override = definition.Destination
+				break
+			}
+		}
+		for _, definition := range headsetChoiceSettingDefinitions {
+			if definition.Key == key {
+				override = definition.Destination
+				break
+			}
+		}
+		for _, definition := range headsetTextSettingDefinitions {
+			if definition.Key == key {
+				override = definition.Destination
+				break
+			}
+		}
+		entry.Part = settingPartRole(device, key, override)
+		if part, ready := findControlPart(device, entry.Part); ready {
+			entry.Address = part.Address
+		}
+	}
 	entry.Phase = "ok"
 	if action == "setting-request" {
 		entry.Phase = "start"
@@ -34,6 +59,8 @@ func writeSettingEvidenceSummary(out *bytes.Buffer, events []history.Event) {
 		setting string
 		ack     string
 		read    string
+		part    string
+		address byte
 	}
 	var order []string
 	operations := map[string]*operation{}
@@ -47,11 +74,11 @@ func writeSettingEvidenceSummary(out *bytes.Buffer, events []history.Event) {
 		key := fmt.Sprintf("%s/%d", event.Session, event.Operation)
 		op := operations[key]
 		if op == nil {
-			op = &operation{at: event.Time, pid: event.USBProduct, setting: event.Setting, ack: "NOT OBSERVED", read: "NOT OBSERVED"}
+			op = &operation{at: event.Time, pid: event.USBProduct, setting: event.Setting, ack: "NOT OBSERVED", read: "NOT OBSERVED", part: event.Part, address: event.Address}
 			operations[key] = op
 			order = append(order, key)
 		}
-		if op.pid != event.USBProduct || op.setting != event.Setting {
+		if op.pid != event.USBProduct || op.setting != event.Setting || op.part != event.Part || op.address != event.Address {
 			continue
 		}
 		state := "NOT OBSERVED"
@@ -75,6 +102,9 @@ func writeSettingEvidenceSummary(out *bytes.Buffer, events []history.Event) {
 	for _, key := range order[max(0, len(order)-12):] {
 		op := operations[key]
 		fmt.Fprintf(out, "%s USB 0b0e:%04x setting %s: device ACK=%s; matching readback=%s\n", op.at.UTC().Format(time.RFC3339), op.pid, op.setting, op.ack, op.read)
+		if op.part != "" {
+			fmt.Fprintf(out, "  Control part: %s; address=%d\n", op.part, op.address)
+		}
 	}
 	fmt.Fprintln(out, "These are historical operations, not new tests or a promise about another unit with the same USB model ID.")
 	fmt.Fprintln(out, "Persistence after restart: NOT TESTED automatically. Compare the setting before and after a real device restart.")

@@ -25,6 +25,14 @@ func lookupDeviceModel(device *jabra_DeviceInfo) (*modelcatalog.Capabilities, er
 	if device == nil {
 		return nil, fmt.Errorf("no device")
 	}
+	if len(controlPartPlans(device)) > 0 {
+		part, ready := findControlPart(device, "headset")
+		if !ready {
+			return nil, fmt.Errorf("headset identity unavailable; no settings profile applied")
+		}
+		device = cloneDeviceInfo(device)
+		device.variantType, device.firmwareVersion = part.Variant, part.Firmware
+	}
 	firmware := device.firmwareVersion
 	if firmware == "" {
 		if version, err := readFirmwareVersion(device); err == nil {

@@ -54,9 +54,10 @@ type actionResult struct {
 }
 
 type settingsLoadResult struct {
-	scope  settingScope
-	lines  []menuItem
-	values []deviceSettingValue
+	generation uint64
+	scope      settingScope
+	lines      []menuItem
+	values     []deviceSettingValue
 }
 
 var (
@@ -100,12 +101,14 @@ var (
 	forgetConfirmUntil time.Time
 	forgetConfirmKey   string
 
-	nextSearchRefresh      time.Time
-	uiRevision             atomic.Uint64
-	firmwareViewMu         sync.RWMutex
-	firmwareView           firmwareViewState
-	dongleSettingsLoading  bool
-	headsetSettingsLoading bool
+	nextSearchRefresh         time.Time
+	uiRevision                atomic.Uint64
+	firmwareViewMu            sync.RWMutex
+	firmwareView              firmwareViewState
+	dongleSettingsLoading     bool
+	headsetSettingsLoading    bool
+	headsetSettingsScope      = settingScopeHeadset
+	headsetSettingsGeneration uint64
 )
 
 type firmwareViewState struct {
@@ -437,7 +440,7 @@ func handleEnterKey(results chan<- actionResult) bool {
 	case screenDongleSettings:
 		toggleSelectedSetting(settingScopeDongle, results)
 	case screenHeadsetSettings:
-		toggleSelectedSetting(settingScopeHeadset, results)
+		toggleSelectedSetting(headsetSettingsScope, results)
 	case screenSwitchDevice:
 		if currentSelection < 0 || currentSelection >= len(switchDeviceItems) {
 			setStatus("No connected device selected", true)
@@ -496,7 +499,16 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 		startSettingsLoad(results, settingScopeDongle)
 	case 6:
 		menuState = screenHeadsetSettings
+		headsetSettingsScope = settingScopeHeadset
+		headsetSettingsLoading = false
+		headsetSettingsLines, headsetSettingsValues = nil, nil
 		startSettingsLoad(results, settingScopeHeadset)
+	case 7:
+		menuState = screenHeadsetSettings
+		headsetSettingsScope = settingScopeController
+		headsetSettingsLoading = false
+		headsetSettingsLines, headsetSettingsValues = nil, nil
+		startSettingsLoad(results, settingScopeController)
 	case 4:
 		menuState = screenFirmware
 		refreshFirmwareTargets()
@@ -538,7 +550,7 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 		handleDongleSettingsAction(event, results)
 	case screenHeadsetSettings:
 		if event == keyAction1 {
-			toggleSelectedSetting(settingScopeHeadset, results)
+			toggleSelectedSetting(headsetSettingsScope, results)
 		}
 	case screenFirmware:
 		if event != keyAction1 {
@@ -658,7 +670,7 @@ func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
 
 func selectedDeviceSetting(scope settingScope) (deviceSettingValue, bool) {
 	values := dongleSettingsValues
-	if scope == settingScopeHeadset {
+	if scope != settingScopeDongle {
 		values = headsetSettingsValues
 	}
 	if currentSelection < 0 || currentSelection >= len(values) {
@@ -670,6 +682,10 @@ func selectedDeviceSetting(scope settingScope) (deviceSettingValue, bool) {
 func selectedSettingsDevice(scope settingScope) (*jabra_DeviceInfo, bool) {
 	if scope == settingScopeDongle {
 		return selectedDongleSnapshot()
+	}
+	if scope == settingScopeController {
+		device, exists := selectedHeadsetSnapshot()
+		return device, exists && hasController(device)
 	}
 	return selectedHeadsetSnapshot()
 }
@@ -750,6 +766,7 @@ func withSettingsRefresh(scope settingScope) actionOption {
 }
 
 func startSettingsLoad(results chan<- actionResult, scope settingScope) {
+	var generation uint64
 	if scope == settingScopeDongle {
 		if dongleSettingsLoading {
 			return
@@ -760,6 +777,8 @@ func startSettingsLoad(results chan<- actionResult, scope settingScope) {
 			return
 		}
 		headsetSettingsLoading = true
+		headsetSettingsGeneration++
+		generation = headsetSettingsGeneration
 	}
 	requestUIRedraw()
 	entry := tuiHistoryEvent("load-settings")
@@ -774,13 +793,13 @@ func startSettingsLoad(results chan<- actionResult, scope settingScope) {
 		if scope == settingScopeDongle {
 			lines, values, err = loadDongleSettings()
 		} else {
-			lines, values, err = loadHeadsetSettings()
+			lines, values, err = loadHeadsetSettingsScope(scope)
 		}
 		finish(err)
 		results <- actionResult{
 			err: err,
 			settingsLoad: &settingsLoadResult{
-				scope: scope, lines: lines, values: values,
+				scope: scope, lines: lines, values: values, generation: generation,
 			},
 		}
 	}()
@@ -891,6 +910,9 @@ func advanceFirmwareTarget() bool {
 func applyActionResult(result actionResult, results chan<- actionResult) {
 	if result.settingsLoad != nil {
 		load := result.settingsLoad
+		if load.scope != settingScopeDongle && (load.scope != headsetSettingsScope || load.generation != headsetSettingsGeneration) {
+			return
+		}
 		if load.scope == settingScopeDongle {
 			dongleSettingsLoading = false
 			if result.err == nil {
@@ -923,7 +945,7 @@ func applyActionResult(result actionResult, results chan<- actionResult) {
 		startSettingsLoad(results, settingScopeDongle)
 	}
 	if result.refreshHeadsetSettings && menuState == screenHeadsetSettings {
-		startSettingsLoad(results, settingScopeHeadset)
+		startSettingsLoad(results, headsetSettingsScope)
 	}
 }
 
@@ -1358,6 +1380,10 @@ func renderHomeSummary() {
 	dongle, hasDongle := selectedDongleSnapshot()
 	headset, hasHeadset := selectedHeadsetSnapshot()
 	switch {
+	case hasHeadset && controllerWithoutHeadset(headset):
+		drawCenteredStyled(6, "Controller detected", styleTitle)
+		drawCentered(7, "Headset not detected yet.", false)
+		drawCentered(8, "Connect the headset for its settings.", false)
 	case hasDongle && hasHeadset:
 		drawCenteredStyled(6, "Headset connected", styleTitle)
 		drawCentered(7, trimToWidth(headset.deviceName, max(12, width-16)), false)
@@ -1498,7 +1524,11 @@ func renderDongleSettings() {
 
 func renderHeadsetSettings() {
 	drawingBox()
-	drawCenteredStyled(6, "Headset settings", styleTitle)
+	title := "Headset settings"
+	if headsetSettingsScope == settingScopeController {
+		title = "Controller settings"
+	}
+	drawCenteredStyled(6, title, styleTitle)
 	if headsetSettingsLoading && len(headsetSettingsLines) == 0 {
 		drawCentered(9, "Loading settings...", false)
 		drawSplitActionBar([]string{"Q Back"}, nil)

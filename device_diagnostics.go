@@ -24,10 +24,15 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 	if device == nil {
 		return nil, fmt.Errorf("device disconnected before diagnostic")
 	}
+	refreshControlParts(device)
+	if current := deviceForID(id); current != nil {
+		device = current
+	}
 	checks := []ipc.DiagnosticCheck{}
 	add := func(feature, state, detail string) {
 		checks = append(checks, ipc.DiagnosticCheck{Feature: feature, State: state, Detail: detail})
 	}
+	checks = append(checks, controlPartDiagnostics(device)...)
 	management := device
 	if device.deviceConnection == deviceConnectionType_BT {
 		management = deviceForID(device.parentDeviceID)
@@ -141,9 +146,9 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 	}
 	covered := map[string]bool{}
 	seen := map[string]bool{}
-	failures := 0
+	failures := map[string]int{}
 	deadline := time.Now().Add(30 * time.Second)
-	run := func(key string, properties []string, probe bool, read func() (string, error)) {
+	run := func(key string, override byte, properties []string, probe bool, read func() (string, error)) {
 		if seen[key] {
 			return
 		}
@@ -159,17 +164,22 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 			covered[property] = true
 		}
 		check := ipc.DiagnosticCheck{Feature: "setting " + key}
+		role := settingPartRole(device, key, override)
+		partReady := ready
+		if role != "" {
+			_, partReady = findControlPart(device, role)
+		}
 		switch {
-		case !ready:
+		case !partReady:
 			check.State = "BLOCKED"
 			check.Detail = "Management endpoint unavailable."
-		case failures >= 3 || time.Now().After(deadline):
+		case failures[role] >= 3 || time.Now().After(deadline):
 			check.State = "NOT TESTED"
 			check.Detail = "Stopped after repeated read failures or the read-time budget."
 		default:
 			value, err := read()
 			if err != nil {
-				failures++
+				failures[role]++
 				check.State = "FAIL"
 				check.Detail = protocolDiagnosticError(err)
 			} else {
@@ -184,11 +194,11 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 		scope = settingScopeDongle
 	}
 	for _, definition := range settingDefinitions(scope) {
-		run(definition.Key, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) { value, err := readBoolSetting(device, definition); return onOff(value), err })
+		run(definition.Key, definition.Destination, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) { value, err := readBoolSetting(device, definition); return onOff(value), err })
 		annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 	}
 	for _, definition := range choiceSettingDefinitions(scope) {
-		run(definition.Key, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) {
+		run(definition.Key, definition.Destination, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) {
 			if property, ok := firstCatalogProperty(capabilities, definition.CatalogProperties); ok {
 				definition.Choices = choicesAllowedByCatalog(definition.Choices, property.PossibleValues)
 			}
@@ -207,10 +217,11 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 	}
 	if !device.isDongle {
 		for _, definition := range headsetTextSettingDefinitions {
-			run(definition.Key, definition.CatalogProperties, false, func() (string, error) {
+			run(definition.Key, definition.Destination, definition.CatalogProperties, false, func() (string, error) {
 				_, err := readTextSetting(device, definition)
 				return "text read; value omitted for privacy", err
 			})
+			annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 		}
 	}
 	checks = append(checks, catalogCoverageChecks(capabilities, covered)...)
@@ -234,6 +245,13 @@ func annotateSettingQuery(checks []ipc.DiagnosticCheck, key string, device *jabr
 		address = device.gnpDestination
 	}
 	address = settingDestination(override, address)
+	if role := settingPartRole(device, key, override); role != "" {
+		part, ok := findControlPart(device, role)
+		if ok {
+			address = part.Address
+		}
+		check.Detail += "; part=" + role
+	}
 	check.Detail += fmt.Sprintf("; query=%02x/%02x address=%d", class, op, address)
 }
 

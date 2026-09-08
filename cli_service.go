@@ -84,6 +84,14 @@ func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 			if d.IsDongle {
 				kind = "Dongle"
 			}
+			headsetReady, controllerReady := false, false
+			for _, part := range d.Parts {
+				headsetReady = headsetReady || part.Role == "headset" && part.Ready
+				controllerReady = controllerReady || part.Role == "controller" && part.Ready
+			}
+			if controllerReady && !headsetReady {
+				kind = "Controller"
+			}
 			connection := "USB"
 			if d.Connection == "dongle" {
 				connection = "through dongle"
@@ -100,6 +108,13 @@ func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 				version = "unavailable"
 			}
 			fmt.Fprintln(out, "  Firmware:  ", version)
+			for _, part := range d.Parts {
+				state := "not detected"
+				if part.Ready {
+					state = "ready"
+				}
+				fmt.Fprintf(out, "  %s: %s\n", part.Role, state)
+			}
 		}
 	case "battery":
 		name := ""
@@ -141,11 +156,15 @@ func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 				fmt.Fprintln(out, "  Settings unavailable; run jabridge debug.")
 			}
 			for _, s := range settings {
+				prefix := scope
+				if s.Component == "controller" {
+					prefix = "controller"
+				}
 				mode := "read only"
 				if s.Editable {
 					mode = "editable"
 				}
-				fmt.Fprintf(out, "  %s.%s = %s (%s", scope, s.Key, s.Value, mode)
+				fmt.Fprintf(out, "  %s.%s = %s (%s", prefix, s.Key, s.Value, mode)
 				if len(s.Choices) > 0 {
 					fmt.Fprintf(out, "; choices: %s", strings.Join(s.Choices, ", "))
 				}

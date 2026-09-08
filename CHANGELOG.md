@@ -5,6 +5,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [1.0.0] - Unreleased
 
+### RC24 controller preview
+
+- Separate Engage 50 II headset/controller identities and setting routes.
+- Automatic controller menu, CLI/IPC controller selector and Bash completion.
+- Edits bound to the observed parts; device identity checked around writes.
+- Debug shows part identities, per-setting routes and independent read failures.
+- Initial model rules have automated tests; real controller testing is pending.
+- Controller-only state no longer claims that a headset is connected; settings
+  that depend on the missing headset stay unavailable.
+
 ### Fixed
 
 - RC22 restores the release file layout accepted by existing updaters. The

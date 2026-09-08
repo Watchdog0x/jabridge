@@ -34,12 +34,14 @@ _jabridge_completion() {
                 return
             fi
             if [[ ("${COMP_WORDS[2]}" == "settings" || "${COMP_WORDS[2]}" == "set") && $COMP_CWORD -eq 3 ]]; then
-                mapfile -t COMPREPLY < <(compgen -W 'dongle headset' -- "$current")
+                mapfile -t COMPREPLY < <(compgen -W 'dongle headset controller' -- "$current")
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 4 ]]; then
                 if [[ "${COMP_WORDS[3]}" == "dongle" ]]; then
                     mapfile -t COMPREPLY < <(compgen -W 'auto-pairing prioritize-computer-audio dedicated-call bluetooth-radio softphone-integration' -- "$current")
+                elif [[ "${COMP_WORDS[3]}" == "controller" ]]; then
+                    mapfile -t COMPREPLY < <(compgen -W 'controller-name controller-ringtone controller-ringer-volume smart-ringer call-button mute-button three-dot-button four-dot-button speed-dial speed-dial-2' -- "$current")
                 else
                     mapfile -t COMPREPLY < <(compgen -W 'noise-control hearthrough-level answer-on-undock wind-noise-reduction spatial-call-audio spatial-media-audio sidetone in-call-busylight on-head-detection music-mode auto-answer-on-head auto-pause-music reverse-stereo smart-ringer boom-arm-answer auto-reject-call button-sounds firmware-upgrade-lock prioritize-computer-audio headset-ringer headset-name device-name controller-name bluetooth-name speed-dial speed-dial-2 softphone-integration intellitone-level sidetone-level voice-prompts controller-ringer-volume controller-ringtone boom-arm-action boom-arm-guidance audio-protection auto-sleep mute-reminder sound-mode call-button mute-button three-dot-button four-dot-button' -- "$current")
                 fi
@@ -106,16 +108,23 @@ _jabridge_completion() {
             mapfile -t COMPREPLY < <(compgen -W 'start status stop restart --help' -- "$current")
             ;;
         settings)
+            if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 3 && "$current" == c* ]]; then
+                mapfile -t COMPREPLY < <(compgen -W 'controller.controller-name controller.controller-ringtone controller.controller-ringer-volume controller.smart-ringer controller.call-button controller.mute-button controller.three-dot-button controller.four-dot-button controller.speed-dial controller.speed-dial-2' -- "$current")
+                return
+            fi
             if (( COMP_CWORD == 2 )); then
                 mapfile -t COMPREPLY < <(compgen -W 'list set --help' -- "$current")
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 3 ]]; then
                 mapfile -t COMPREPLY < <(compgen -W 'dongle.auto-pairing dongle.prioritize-computer-audio dongle.dedicated-call dongle.bluetooth-radio dongle.softphone-integration headset.noise-control headset.hearthrough-level headset.answer-on-undock headset.wind-noise-reduction headset.spatial-call-audio headset.spatial-media-audio headset.sidetone headset.in-call-busylight headset.on-head-detection headset.music-mode headset.auto-answer-on-head headset.auto-pause-music headset.reverse-stereo headset.smart-ringer headset.boom-arm-answer headset.auto-reject-call headset.button-sounds headset.firmware-upgrade-lock headset.prioritize-computer-audio headset.headset-ringer headset.headset-name headset.device-name headset.controller-name headset.bluetooth-name headset.speed-dial headset.speed-dial-2 headset.softphone-integration headset.intellitone-level headset.sidetone-level headset.voice-prompts headset.controller-ringer-volume headset.controller-ringtone headset.boom-arm-action headset.boom-arm-guidance headset.audio-protection headset.auto-sleep headset.mute-reminder headset.sound-mode headset.call-button headset.mute-button headset.three-dot-button headset.four-dot-button' -- "$current")
+                mapfile -t -O "${#COMPREPLY[@]}" COMPREPLY < <(compgen -W 'controller.controller-name controller.controller-ringtone controller.controller-ringer-volume controller.smart-ringer controller.call-button controller.mute-button controller.three-dot-button controller.four-dot-button controller.speed-dial controller.speed-dial-2' -- "$current")
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 4 ]]; then
-                case "${COMP_WORDS[3]}" in
+                local setting_selector="${COMP_WORDS[3]}"
+                setting_selector="${setting_selector/#controller./headset.}"
+                case "$setting_selector" in
                     headset.intellitone-level)
                         mapfile -t COMPREPLY < <(compgen -W '79-db 82-db 85-db 88-db 91-db' -- "$current")
                         ;;

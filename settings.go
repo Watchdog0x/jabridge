@@ -17,6 +17,7 @@ type settingScope int
 const (
 	settingScopeDongle settingScope = iota
 	settingScopeHeadset
+	settingScopeController
 )
 
 type boolSettingDefinition struct {
@@ -87,6 +88,7 @@ type remoteSettingValue struct {
 	MaxBytes   int
 	Target     *ipc.SettingTarget
 	MayRestart bool
+	Component  string
 }
 
 func (setting deviceSettingValue) key() string {
@@ -438,13 +440,12 @@ func readBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition)
 }
 
 func readBoolSettingPayload(device *jabra_DeviceInfo, definition boolSettingDefinition) ([]byte, error) {
-	h, src, err := settingTransport(device)
+	h, destination, err := settingPartTransport(device, definition.Key, definition.Destination)
 	if err != nil {
 		return nil, err
 	}
 	defer h.close()
 
-	destination := settingDestination(definition.Destination, src)
 	payload, err := gnpQueryPayloadWithDataTimeout(
 		h,
 		destination,
@@ -549,6 +550,9 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 	}
 
 	readBack, err := readBoolSettingWithRetry(device, definition)
+	if err == nil {
+		err = verifySettingReadbackPart(device, definition.Key, definition.Destination)
+	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
 		return fmt.Errorf("verify %s: %w", definition.Key, err)
@@ -578,7 +582,7 @@ func writeSettingPacket(device *jabra_DeviceInfo, key string, operation uint64, 
 	if err := currentSettingDevice(device); err != nil {
 		return err
 	}
-	h, defaultDestination, err := settingTransport(device)
+	h, destination, err := settingPartTransport(device, key, overrideDestination)
 	if err != nil {
 		return err
 	}
@@ -586,12 +590,12 @@ func writeSettingPacket(device *jabra_DeviceInfo, key string, operation uint64, 
 		h.close()
 		return err
 	}
-	destination := defaultDestination
-	if overrideDestination != 0 {
-		destination = overrideDestination
+	if err := verifySettingPart(device, key, overrideDestination, h); err != nil {
+		h.close()
+		return err
 	}
 	if needsConfigMode {
-		if err := enterConfigMode(h, defaultDestination); err != nil {
+		if err := enterConfigMode(h, destination); err != nil {
 			h.close()
 			return err
 		}
@@ -604,7 +608,7 @@ func writeSettingPacket(device *jabra_DeviceInfo, key string, operation uint64, 
 	recordSettingEvidence(device, key, operation, "setting-ack", writeErr)
 	var endErr error
 	if needsConfigMode {
-		endErr = endConfigMode(h, defaultDestination)
+		endErr = endConfigMode(h, destination)
 	}
 	h.close()
 	if writeErr != nil {
@@ -689,6 +693,13 @@ func refreshedSettingsDevice(original *jabra_DeviceInfo) *jabra_DeviceInfo {
 	if original == nil {
 		return nil
 	}
+	if len(controlPartPlans(original)) > 0 {
+		current := deviceForID(original.deviceID)
+		if validateSettingTarget(current, settingTarget(original)) != nil {
+			return nil
+		}
+		return current
+	}
 	for _, candidate := range deviceSnapshots() {
 		if candidate == nil || candidate.productID != original.productID || candidate.isDongle != original.isDongle {
 			continue
@@ -756,6 +767,9 @@ func catalogAllowsSettingWrite(property modelcatalog.Property) bool {
 }
 
 func readSupportedDeviceSettings(device *jabra_DeviceInfo, scope settingScope) []deviceSettingValue {
+	if scope == settingScopeController {
+		return filterControllerSettings(device, readSupportedDeviceSettings(device, settingScopeHeadset), true)
+	}
 	settings := make([]deviceSettingValue, 0)
 	for _, value := range readSupportedBoolSettings(device, scope) {
 		copy := value
@@ -796,13 +810,13 @@ func readSupportedTextSettings(device *jabra_DeviceInfo) []textSettingValue {
 }
 
 func readTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition) (string, error) {
-	h, defaultDestination, err := settingTransport(device)
+	h, destination, err := settingPartTransport(device, definition.Key, definition.Destination)
 	if err != nil {
 		return "", err
 	}
 	defer h.close()
 	payload, err := gnpQueryPayloadWithDataTimeout(
-		h, settingDestination(definition.Destination, defaultDestination), nextSeq(),
+		h, destination, nextSeq(),
 		definition.Class, definition.Op, nil, 900*time.Millisecond,
 	)
 	if err != nil {
@@ -840,6 +854,9 @@ func writeTextSetting(device *jabra_DeviceInfo, definition textSettingDefinition
 		return fmt.Errorf("write %s: %w", definition.Key, err)
 	}
 	readBack, err := readTextSetting(device, definition)
+	if err == nil {
+		err = verifySettingReadbackPart(device, definition.Key, definition.Destination)
+	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
 		return fmt.Errorf("verify %s: %w", definition.Key, err)

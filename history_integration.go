@@ -57,8 +57,11 @@ func tuiHistoryEvent(action string) history.Event {
 	event.Component = "tui"
 	event.Screen = map[int]string{screenStartMenu: "home", screenSearch: "search", screenPairedDevices: "remembered", screenDongleSettings: "dongle-settings", screenHeadsetSettings: "headset-settings", screenSwitchDevice: "devices", screenFirmware: "firmware"}[menuState]
 	event.Selection = currentSelection
+	if menuState == screenHeadsetSettings && headsetSettingsScope == settingScopeController {
+		event.Screen = "controller-settings"
+	}
 	if menuState == screenDongleSettings || menuState == screenHeadsetSettings {
-		scope := settingScopeHeadset
+		scope := headsetSettingsScope
 		if menuState == screenDongleSettings {
 			scope = settingScopeDongle
 		}

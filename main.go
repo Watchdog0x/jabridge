@@ -209,6 +209,7 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			Connection: connection, ParentID: dev.parentDeviceID,
 			Firmware: dev.firmwareVersion,
 			Selected: int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
+			Parts:    ipcControlParts(dev),
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)
@@ -351,6 +352,7 @@ func (j *jabraAPIBridge) ListSettings(deviceName string) ([]ipc.SettingInfo, err
 	for _, value := range values {
 		info := ipcSettingInfo(deviceName, value)
 		info.Target = settingTarget(device)
+		info.Component = settingValuePart(device, value)
 		result = append(result, info)
 	}
 	return result, nil
@@ -396,6 +398,7 @@ func (j *jabraAPIBridge) setSettingChecked(deviceName, key, value string, target
 	}
 	info := ipcSettingInfo(deviceName, updated)
 	info.Target = settingTarget(refreshedSettingsDevice(device))
+	info.Component = settingValuePart(device, updated)
 	return info, nil
 }
 
@@ -421,8 +424,10 @@ func ipcSettingScope(deviceName string) (settingScope, error) {
 		return settingScopeDongle, nil
 	case "headset":
 		return settingScopeHeadset, nil
+	case "controller":
+		return settingScopeController, nil
 	default:
-		return 0, fmt.Errorf("device must be dongle or headset")
+		return 0, fmt.Errorf("device must be dongle, headset or controller")
 	}
 }
 

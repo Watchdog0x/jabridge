@@ -23,11 +23,11 @@ func settingTarget(device *jabra_DeviceInfo) *ipc.SettingTarget {
 	if device == nil || device.instance == "" {
 		return nil
 	}
-	return &ipc.SettingTarget{ID: device.deviceID, Instance: device.instance}
+	return &ipc.SettingTarget{ID: device.deviceID, Instance: device.instance, Topology: device.controlTopology}
 }
 
 func validateSettingTarget(device *jabra_DeviceInfo, target *ipc.SettingTarget) error {
-	if target == nil || device == nil || target.Instance == "" || target.ID != device.deviceID || target.Instance != device.instance {
+	if target == nil || device == nil || target.Instance == "" || target.ID != device.deviceID || target.Instance != device.instance || target.Topology != device.controlTopology {
 		return errors.New("device changed while editing; reopen its settings")
 	}
 	return nil

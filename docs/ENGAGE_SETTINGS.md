@@ -1,5 +1,11 @@
 # Engage 50 II settings comparison
 
+The controller work now has [separate part discovery and routing](CONTROLLER_SUPPORT.md).
+RC23's headset-only report confirmed 13 setting reads and device readback of
+sidetone, sidetone level and music mode changes. Its combined report selected
+controller identity 03-05 instead of headset identity 01-72. The new routing
+still needs a combined-device hardware retest.
+
 Based on the two RC19 reports and Jabra Direct screenshots shared in
 [issue #5](https://github.com/Watchdog0x/jabridge/issues/5#issuecomment-5575331428)
 on 7 September 2026. The screenshots show headset and controller firmware

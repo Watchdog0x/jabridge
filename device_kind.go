@@ -9,6 +9,9 @@ func deviceKindLabel(device *jabra_DeviceInfo) string {
 	if device.isDongle {
 		return "Dongle"
 	}
+	if controllerWithoutHeadset(device) {
+		return "Controller"
+	}
 	name := strings.ToLower(device.deviceName)
 	switch {
 	case strings.Contains(name, "panacast"):

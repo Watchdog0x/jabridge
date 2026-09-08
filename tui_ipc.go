@@ -262,6 +262,9 @@ func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceIn
 			},
 		}
 		device.batteryStatus = batteryStatusFromIPC(info.Battery)
+		for _, part := range info.Parts {
+			device.controlParts = append(device.controlParts, controlPart{Role: part.Role, Address: part.Address, Variant: part.Variant, Firmware: part.Firmware, Ready: part.Ready})
+		}
 		manager[int(info.ID)] = device
 		if info.Selected {
 			if info.IsDongle {
@@ -358,7 +361,7 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 		connection = "Through dongle"
 	}
 	lines := []menuItem{{id: -1, label: fmt.Sprintf("Device:             %s", device.deviceName)}}
-	if scope == settingScopeHeadset {
+	if scope != settingScopeDongle {
 		lines = append(lines, menuItem{id: -1, label: fmt.Sprintf("Connection:         %s", connection)})
 	}
 	lines = append(lines, menuItem{id: -1, label: fmt.Sprintf("USB ID:             0b0e:%04x", device.productID)})
@@ -370,6 +373,9 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 	}
 	values := make([]deviceSettingValue, 0, len(response))
 	for _, setting := range response {
+		if scope == settingScopeHeadset && setting.Component == "controller" {
+			continue
+		}
 		editable := setting.Editable
 		label := setting.Label
 		if editable && setting.Target == nil {
@@ -383,6 +389,7 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 			Help:    setting.Help,
 			Kind:    setting.Kind, MaxBytes: setting.MaxBytes, Target: setting.Target,
 			MayRestart: setting.MayRestart,
+			Component:  setting.Component,
 		}
 		values = append(values, deviceSettingValue{Remote: remote})
 	}

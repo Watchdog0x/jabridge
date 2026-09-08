@@ -60,8 +60,8 @@ func runIPC(args []string) error {
 		}
 		return printIPCJSON(battery)
 	case "settings":
-		if len(args) != 2 || (args[1] != "dongle" && args[1] != "headset") {
-			return errors.New("usage: jabridge ipc settings dongle|headset")
+		if len(args) != 2 || (args[1] != "dongle" && args[1] != "headset" && args[1] != "controller") {
+			return errors.New("usage: jabridge ipc settings dongle|headset|controller")
 		}
 		var settings []ipc.SettingInfo
 		if err := ipcCall(client, "settings.list", map[string]string{"device": args[1]}, &settings); err != nil {
@@ -69,8 +69,8 @@ func runIPC(args []string) error {
 		}
 		return printIPCJSON(settings)
 	case "set":
-		if len(args) != 4 || (args[1] != "dongle" && args[1] != "headset") {
-			return errors.New("usage: jabridge ipc set dongle|headset SETTING VALUE")
+		if len(args) != 4 || (args[1] != "dongle" && args[1] != "headset" && args[1] != "controller") {
+			return errors.New("usage: jabridge ipc set dongle|headset|controller SETTING VALUE")
 		}
 		var setting ipc.SettingInfo
 		params := map[string]string{"device": args[1], "key": args[2], "value": args[3]}

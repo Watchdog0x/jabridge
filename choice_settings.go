@@ -280,12 +280,11 @@ func readChoiceSetting(device *jabra_DeviceInfo, definition choiceSettingDefinit
 }
 
 func readChoiceSettingPayload(device *jabra_DeviceInfo, definition choiceSettingDefinition) ([]byte, error) {
-	h, defaultDestination, err := settingTransport(device)
+	h, destination, err := settingPartTransport(device, definition.Key, definition.Destination)
 	if err != nil {
 		return nil, err
 	}
 	defer h.close()
-	destination := settingDestination(definition.Destination, defaultDestination)
 	payload, err := gnpQueryPayloadWithDataTimeout(
 		h, destination, nextSeq(), definition.Class, definition.Op, definition.Request, 900*time.Millisecond,
 	)
@@ -317,6 +316,9 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 		return fmt.Errorf("write %s: %w", definition.Key, err)
 	}
 	readBack, err := readChoiceSettingWithRetry(device, definition)
+	if err == nil {
+		err = verifySettingReadbackPart(device, definition.Key, definition.Destination)
+	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
 		return fmt.Errorf("verify %s: %w", definition.Key, err)

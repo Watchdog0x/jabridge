@@ -56,6 +56,10 @@ several choices show the current choice. Jabridge uses the connected device and
 its matching public model profile, so unsupported choices stay hidden. If the
 profile is unavailable, choice settings stay read-only.
 
+The controller test build shows separate Headset settings and Controller
+settings for an Engage 50 II with its Link controller. The service selects the
+right part automatically. [Controller testing help](docs/CONTROLLER_SUPPORT.md).
+
 Some older firmware entries remain in Jabra's catalog with an empty settings
 profile. In that case Jabridge uses the newest populated profile for the same
 USB ID and variant, and `jabridge model` clearly shows both versions.

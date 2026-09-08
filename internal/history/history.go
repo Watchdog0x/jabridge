@@ -42,6 +42,8 @@ type Event struct {
 	USBProduct    uint16    `json:"usbProduct,omitempty"`
 	Connection    string    `json:"connection,omitempty"`
 	Setting       string    `json:"setting,omitempty"`
+	Part          string    `json:"part,omitempty"`
+	Address       byte      `json:"address,omitempty"`
 	Method        string    `json:"method,omitempty"`
 	Error         string    `json:"error,omitempty"`
 	DurationMS    int64     `json:"durationMs,omitempty"`
@@ -262,8 +264,15 @@ func sanitize(event Event) Event {
 	event.Input = allowed(event.Input, "up down enter back action-1 action-2 action-3 action-4")
 	event.Action = allowed(event.Action, "run key navigation screen action load-settings message connect reconnect request malformed close attach detach battery pairing select settings start stop panic debug history dfu-enter dfu-runtime dfu-transfer dfu-verify setting-request setting-ack setting-readback")
 	event.Phase = allowed(event.Phase, "start ok error cancelled observed panic")
-	event.Screen = allowed(event.Screen, "home search remembered dongle-settings headset-settings devices firmware")
+	event.Screen = allowed(event.Screen, "home search remembered dongle-settings headset-settings controller-settings devices firmware")
 	event.Connection = allowed(event.Connection, "usb dongle")
+	event.Part = allowed(event.Part, "headset controller")
+	if event.Part != "headset" && event.Part != "controller" {
+		event.Part, event.Address = "", 0
+	}
+	if event.Address != 1 && event.Address != 3 {
+		event.Address = 0
+	}
 	event.Method = allowed(event.Method, "service.ping service.shutdown history.status version devices.list device.select settings.list settings.set device.battery device.firmware device.features device.reset device.busylight bt.list bt.search bt.search.list bt.search.connect bt.connect bt.disconnect bt.forget bt.pair bt.autopair subscribe diagnostics.device")
 	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed service-capabilities readback-mismatch")
 	if _, ok := settings.Load(event.Setting); !ok {
@@ -547,6 +556,9 @@ func Describe(event Event) string {
 	}
 	if event.Setting != "" {
 		text += " setting=" + event.Setting
+	}
+	if event.Part != "" {
+		text += fmt.Sprintf(" part=%s address=%d", event.Part, event.Address)
 	}
 	if event.Method != "" {
 		text += " method=" + event.Method
