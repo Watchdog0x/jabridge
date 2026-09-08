@@ -1,98 +1,114 @@
-# jabridge: Jabra Direct for Linux
+# Jabridge: Jabra Direct for Linux
 
-[![GitHub Release](https://img.shields.io/github/v/release/Watchdog0x/jLink)](https://github.com/Watchdog0x/jLink/releases)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/Watchdog0x/jLink/blob/main/LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Watchdog0x/jLink)](https://goreportcard.com/report/github.com/Watchdog0x/jLink)
+Jabridge, formerly jLink, brings Jabra headset and dongle management to Linux.
+Think of it as a community alternative to Jabra Direct, with a simple terminal
+menu, command line tools and a background service.
 
+## We are building the new Jabridge
 
-## 🔧 Update Incoming!
+Jabridge 1.0.0 is a native Go rewrite. No Jabra library, .NET or Node.js is
+needed to run it. Download the compiled app and get started.
 
-Hey everyone just a heads-up:
+We are getting close to the first stable release, but we need more people to
+test with real headsets, dongles and Link Call Control units. Your tests help
+us support as many Jabra devices as possible.
 
-An update for **JLink** is coming soon, and you’ll be able to upgrade your firmware easily.
-I’ve completed the first step using the firmware updater. Here's a quick demo of updating my Jabra Evolve2 85 headset from version 1.3.8 to 1.5.4 (the latest):
-```bash
-./update ~/jabraFirmware/new/Firmware/Jabra_Evolve2_85-v1.5.4-ev285t-vector.zip 
-  100% complete                              1.3.8 -> 1.5.4   [0b0e:24ba] Jabra Evolve2 85 UC Data
-```
+The new code is on the [native rewrite branch](https://github.com/Watchdog0x/jabridge/tree/codex/native-go-rewrite).
+The source on `main` is still the old version while the rewrite is being tested.
 
+## Try the new version
 
-
-jLink is your go-to tool for managing **Jabra headsets and dongles** on Linux. Think of it as **Jabra Direct for Linux**. <br>
-Now you can finally manage your Jabra devices on Linux with ease.
-jLink brings the power of Jabra device management to your Linux system.
-
-<div align="center">
-  <img src="./src/image.png" alt="How jLink look" style="max-width: 100%; height: auto;">
-</div>
-
-## Features
-    - Basic Control: Manage basic functions of your Jabra headset.
-    - Device Discovery: Search for new devices and manage connections.
-    - Paired Devices: View the list of paired devices.
-    - Battery Status: Check the battery status of your headset
-
-## Navigation
-
-| Key             | Action                  |
-|------------------|-------------------------|
-| `w` or `↑`      | Move up                |
-| `s` or `↓`      | Move down              |
-| `Enter`         | Select an option       |
-
-### Side Menu
-
-| Key             | Action                  |
-|------------------|-------------------------|
-| `1`, `2`, `3`, `4` | Select an option      |
-| `q`             | Go back                |
-
-
-
-## Installation and update
-<div align="center">
-  <img src="./src/install.png" alt="How jLink look" style="max-width: 100%; height: auto;">
-</div>
-
-### Option 1: Using `curl`
-Run the following command in your terminal:
-```bash
-curl -so- https://raw.githubusercontent.com/Watchdog0x/jLink/main/install.sh | sudo bash
-```
-
-### Option 2: Using `wget`
-Run the following command in your terminal:
+Download the newest **1.0.0 preview** from [Releases](https://github.com/Watchdog0x/jabridge/releases),
+extract it and open a terminal in that folder:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/Watchdog0x/jLink/main/install.sh | sudo bash
+./jabridge
 ```
 
-## Tested Devices:
+Jabridge opens the menu and helps you set up device access and the background
+service. Approve the password prompt if asked. Run the app as your normal
+user, not with `sudo`.
 
-- jabra Link 380 with Jabra Evolve2 85
+Already using a preview? Update the app with:
 
-## TODO
+```bash
+./jabridge update --prerelease
+```
 
-    1. Code Cleanup: Improve the current codebase, which is in need of refactoring.
-    2.  Device Switching: Add support for switching between multiple connected devices.
-    3. Headset Settings: Implement features for configuring advanced headset settings.
-    4. Sound Control: Integrate with PipeWire for precise sound management.
-    5. Daemon Service: Create a background service using IPC shared memory for seamless operation
+## What can it do?
 
-## Contributing
+Manage supported headset and dongle settings, see battery levels, switch
+devices, view remembered headsets and check firmware. Direct USB headsets
+can work without a dongle. Available settings depend on your model and the
+native commands implemented so far.
 
-Contributions are welcome! Here are some ways you can help:
-  - **Refactor and Clean Up**: Improve the existing codebase.
-  - **Implement New Features**: Tackle items from the TODO list.
-  - **Report Bugs**: Open an issue if you encounter any problems.
-  - **Suggest Enhancements**: Share your ideas for improving jLink.
+The menu uses the background service through IPC. You can use the same
+JSON-RPC API to build your own desktop app, panel widget, scripts or other
+tools. Read device information, change supported settings and receive device
+events without writing your own USB driver.
 
+Start with the [easy IPC guide](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/IPC.md).
+Firmware installation temporarily pauses the service for exclusive device
+access; it is not a remote IPC flashing API.
+
+## Firmware updates
+
+You can download and install firmware with Jabridge's native updater on
+supported models and update protocols. Firmware checks and downloads are
+separate from installation:
+
+```bash
+./jabridge firmware
+./jabridge firmware download
+```
+
+Use the exact file name printed by the download command:
+
+```bash
+./jabridge firmware install ./firmware/FILE.zip
+```
+
+The installer checks compatibility and asks you to type `INSTALL` before
+writing. Keep the device plugged in and do not update during a call.
+
+Not every model has been tested. Successful updates on one device do not
+prove that another model or interrupted update recovery works. If an update
+fails, keep the same file and USB port and share the error before retrying.
+Read the [firmware guide](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/FIRMWARE.md)
+for supported methods and recovery limits.
+
+## Help us test
+
+Please try your device and tell us what works and what is missing. Useful
+checks include settings, battery, buttons, the microphone boom, volume wheel,
+audio and unplugging and reconnecting. Only test controls your device has.
+
+Run this to collect a debug report:
+
+```bash
+./jabridge debug
+```
+
+[Open an issue](https://github.com/Watchdog0x/jabridge/issues/new) with your
+device name, Linux version, connection type and debug output. Say whether
+you use direct USB, a dongle or Link Call Control, and describe the problem.
+Check the report for personal information before posting it.
+
+Debug helps us find missing support and bugs. It does not prove that every
+setting, button or firmware update works. Reports where everything works are
+welcome too!
+
+## Independent project
+
+Jabridge is a community project, not an official Jabra product. It is not
+made, approved or supported by GN Audio A/S. Jabra is a trademark of GN Audio A/S.
+The source is licensed under [Apache 2.0](LICENSE).
 
 ## Keywords
-  - Jabra Direct Linux
-  - Jabra headset Linux support
-  - Jabra Linux command-line tool
-  - Manage Jabra devices on Linux
-  - Jabra Link 380 Linux
-  - Jabra Evolve2 85 Linux
 
+Jabra Direct Linux  
+Jabra headset Linux support  
+Jabra Linux command-line tool  
+Manage Jabra devices on Linux  
+Jabra Link 380 Linux  
+Jabra Evolve2 85 Linux
