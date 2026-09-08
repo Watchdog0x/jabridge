@@ -1,6 +1,6 @@
 # Read-only hardware test
 
-Thank you for testing Jabridge 1.0.0 RC22.
+Thank you for testing the latest Jabridge preview.
 
 We need results from real Jabra dongles, wired headsets, wireless headsets, and
 Link/controller devices. This first test only reads information. It must not
@@ -17,21 +17,22 @@ change your hardware.
   this read-only test.
 - Do not enable an experimental hardware-write environment variable.
 
-## Download RC22
+## Download
 
 Download the Linux x86-64 archive, checksum, and signature from the
-[v1.0.0-rc.22 preview](https://github.com/Watchdog0x/jabridge/releases/tag/v1.0.0-rc.22).
+[latest preview](https://github.com/Watchdog0x/jabridge/releases).
+
+Extract the archive and open a terminal in its folder. Check its included
+checksum before running the app. Existing users can update directly:
 
 ```bash
-sha256sum -c jabridge_1.0.0-rc.22_linux_amd64.tar.gz.sha256
-tar -xzf jabridge_1.0.0-rc.22_linux_amd64.tar.gz
-cd jabridge_1.0.0-rc.22_linux_amd64
+./jabridge update --prerelease
 ./jabridge --version
 ```
 
 The main report command is `./jabridge debug --output report.txt`.
 If RC19 failed with `ExecMainStatus=218`, run `./jabridge service restart`
-using RC20 first, even if the old updater reports a service error. This
+using the new binary first, even if the old updater reports a service error. This
 refreshes the corrected user unit without sudo. The failure was in service
 startup, not headset permissions. Keep host security settings enabled.
 

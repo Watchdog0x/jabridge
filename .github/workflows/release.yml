@@ -19,6 +19,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: jabridge-release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -53,6 +57,7 @@ jobs:
 
       - name: Test
         run: |
+          node --test .github/scripts/prune-rc.test.mjs
           go test -race ./...
           CGO_ENABLED=0 go test ./...
           CGO_ENABLED=0 go vet ./...
@@ -147,3 +152,23 @@ jobs:
             release_args+=(--prerelease)
           fi
           gh "${release_args[@]}"
+
+      - name: Back up older RC releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: node .github/scripts/prune-rc.mjs backup "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$RUNNER_TEMP/retired-rc"
+
+      - name: Keep retired RC backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: retired-rc-${{ steps.version.outputs.tag }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/retired-rc/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Keep only the newest published RC
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: node .github/scripts/prune-rc.mjs apply "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$RUNNER_TEMP/retired-rc"

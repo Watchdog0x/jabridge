@@ -138,6 +138,21 @@ The response is:
 
 ## Methods
 
+For an editor, use the `target` returned by `settings.list` and send the old
+`value` as `previous` with `settings.set`. The service rejects the edit if the
+selected device, attachment or setting value changed while the editor was open.
+The target's `instance` is temporary and is not a serial number. Do not save it
+for use after reconnecting or restarting the service.
+
+Setting metadata also includes `kind`, `maxBytes` for text, `help`, and
+`mayRestart` when the native definition uses configuration mode. Existing
+clients can continue using the original device/key/value form for immediate
+commands. New interactive editors should always use the bound form.
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"settings.set","params":{"device":"headset","key":"device-name","value":"Office headset","previous":"Old name","target":{"id":1,"instance":"COPY_FROM_SETTINGS_LIST"}}}
+```
+
 | Method | Purpose | Changes hardware? |
 | --- | --- | --- |
 | `service.ping` | Health check | No |

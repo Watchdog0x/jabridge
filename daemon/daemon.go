@@ -268,6 +268,14 @@ func (a *busylightAPI) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error) 
 	return diagnostics.DiagnoseDevice(id)
 }
 
+func (a *busylightAPI) SetSettingTarget(device, key, value string, target ipc.SettingTarget, previous string) (ipc.SettingInfo, error) {
+	settings, ok := a.API.(ipc.TargetedSettingsAPI)
+	if !ok {
+		return ipc.SettingInfo{}, fmt.Errorf("device-bound setting edits are not available")
+	}
+	return settings.SetSettingTarget(device, key, value, target, previous)
+}
+
 func (a *busylightAPI) SetBusylightMode(mode string) error {
 	parsed, err := ParseBusylightMode(mode)
 	if err != nil {

@@ -52,6 +52,9 @@ jobs:
         env:
           CGO_ENABLED: 0
 
+      - name: Check release retention policy
+        run: node --test .github/scripts/prune-rc.test.mjs
+
       - name: Check Bash completion
         run: bash -n internal/completion/jabridge.bash
 

@@ -145,6 +145,15 @@ Speak 510 adds `headset.call-button`, `headset.bluetooth-name` and
 `headset.speed-dial` where the device profile exposes them. Text values can
 be changed with `jabridge settings set DEVICE.SETTING VALUE`.
 
+In the TUI, Enter opens a list when a setting has several choices. Names and
+other text values can now be edited there too. Type the new text and press
+Enter to save, or Escape to cancel. Backspace edits and Ctrl+U clears the text.
+Simple On/Off settings still toggle directly unless a restart warning is needed.
+
+An open editor is tied to the device and value it loaded. If either changes,
+Jabridge asks you to reopen the setting instead of writing to the wrong device.
+Typed text is not recorded in debug history.
+
 When the service is running, `status`, `battery`, `settings`, `diagnose` and
 `model` use it without stopping the TUI or changing the selected device.
 

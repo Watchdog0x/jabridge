@@ -349,12 +349,22 @@ func (j *jabraAPIBridge) ListSettings(deviceName string) ([]ipc.SettingInfo, err
 	values := readSupportedDeviceSettings(device, scope)
 	result := make([]ipc.SettingInfo, 0, len(values))
 	for _, value := range values {
-		result = append(result, ipcSettingInfo(deviceName, value))
+		info := ipcSettingInfo(deviceName, value)
+		info.Target = settingTarget(device)
+		result = append(result, info)
 	}
 	return result, nil
 }
 
 func (j *jabraAPIBridge) SetSetting(deviceName, key, value string) (ipc.SettingInfo, error) {
+	return j.setSettingChecked(deviceName, key, value, nil, nil)
+}
+
+func (j *jabraAPIBridge) SetSettingTarget(deviceName, key, value string, target ipc.SettingTarget, previous string) (ipc.SettingInfo, error) {
+	return j.setSettingChecked(deviceName, key, value, &target, &previous)
+}
+
+func (j *jabraAPIBridge) setSettingChecked(deviceName, key, value string, target *ipc.SettingTarget, previous *string) (ipc.SettingInfo, error) {
 	scope, err := ipcSettingScope(deviceName)
 	if err != nil {
 		return ipc.SettingInfo{}, err
@@ -363,10 +373,18 @@ func (j *jabraAPIBridge) SetSetting(deviceName, key, value string) (ipc.SettingI
 	if !exists {
 		return ipc.SettingInfo{}, fmt.Errorf("no %s connected", deviceName)
 	}
+	if target != nil {
+		if err := validateSettingTarget(device, target); err != nil {
+			return ipc.SettingInfo{}, err
+		}
+	}
 	settings := readSupportedDeviceSettings(device, scope)
 	setting, exists := findDeviceSettingValue(settings, key)
 	if !exists {
 		return ipc.SettingInfo{}, fmt.Errorf("setting %s is not supported", key)
+	}
+	if previous != nil && *previous != setting.valueName() {
+		return ipc.SettingInfo{}, fmt.Errorf("setting changed while editing; reload before saving")
 	}
 	if _, _, err := applyDeviceSettingFromText(device, setting, value); err != nil {
 		return ipc.SettingInfo{}, err
@@ -376,7 +394,9 @@ func (j *jabraAPIBridge) SetSetting(deviceName, key, value string) (ipc.SettingI
 	if !exists {
 		return ipc.SettingInfo{}, fmt.Errorf("setting %s disappeared after update", key)
 	}
-	return ipcSettingInfo(deviceName, updated), nil
+	info := ipcSettingInfo(deviceName, updated)
+	info.Target = settingTarget(refreshedSettingsDevice(device))
+	return info, nil
 }
 
 func (j *jabraAPIBridge) SelectDevice(id uint16) error {
@@ -410,15 +430,19 @@ func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingIn
 	info := ipc.SettingInfo{
 		Device: deviceName, Key: setting.key(), Label: setting.label(),
 		Value: setting.valueName(), Editable: setting.editable(),
-		Help: setting.help(),
+		Help:       setting.help(),
+		MayRestart: setting.needsConfigMode(),
 	}
 	if setting.Boolean != nil {
+		info.Kind = "boolean"
 		info.Choices = []string{"Off", "On"}
 	} else if setting.Choice != nil {
+		info.Kind = "choice"
 		for _, choice := range setting.Choice.Definition.Choices {
 			info.Choices = append(info.Choices, choice.Name)
 		}
 	} else if setting.Text != nil {
+		info.Kind, info.MaxBytes = "text", setting.Text.Definition.MaxBytes
 		info.Choices = nil
 	}
 	return info

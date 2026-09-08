@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
@@ -75,13 +76,17 @@ type textSettingValue struct {
 }
 
 type remoteSettingValue struct {
-	Device   string
-	Key      string
-	Label    string
-	Value    string
-	Editable bool
-	Choices  []string
-	Help     string
+	Device     string
+	Key        string
+	Label      string
+	Value      string
+	Editable   bool
+	Choices    []string
+	Help       string
+	Kind       string
+	MaxBytes   int
+	Target     *ipc.SettingTarget
+	MayRestart bool
 }
 
 func (setting deviceSettingValue) key() string {
@@ -156,6 +161,9 @@ func (setting deviceSettingValue) editable() bool {
 }
 
 func (setting deviceSettingValue) needsConfigMode() bool {
+	if setting.Remote != nil {
+		return setting.Remote.MayRestart
+	}
 	if setting.Boolean != nil {
 		return setting.Boolean.Definition.NeedsConfigMode
 	}
@@ -567,8 +575,15 @@ func mergeSettingPayload(current []byte, index int, mask, raw byte) ([]byte, err
 }
 
 func writeSettingPacket(device *jabra_DeviceInfo, key string, operation uint64, overrideDestination, class, op byte, payload []byte, needsConfigMode bool) error {
+	if err := currentSettingDevice(device); err != nil {
+		return err
+	}
 	h, defaultDestination, err := settingTransport(device)
 	if err != nil {
+		return err
+	}
+	if err := currentSettingDevice(device); err != nil {
+		h.close()
 		return err
 	}
 	destination := defaultDestination
@@ -580,6 +595,10 @@ func writeSettingPacket(device *jabra_DeviceInfo, key string, operation uint64, 
 			h.close()
 			return err
 		}
+	}
+	if err := currentSettingDevice(device); err != nil {
+		h.close()
+		return err
 	}
 	writeErr := gnpCommand(h, destination, nextSeq(), class, op, payload)
 	recordSettingEvidence(device, key, operation, "setting-ack", writeErr)
@@ -879,6 +898,13 @@ func formatBoolSetting(setting boolSettingValue) string {
 }
 
 func formatDeviceSetting(setting deviceSettingValue) string {
+	if settingIsText(setting) {
+		label := setting.label() + ": " + setting.valueName()
+		if !setting.editable() {
+			label += " (read only)"
+		}
+		return label
+	}
 	value := strings.ToUpper(setting.valueName())
 	if setting.editable() {
 		return fmt.Sprintf("[%-7s] %s", value, setting.label())

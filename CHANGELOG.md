@@ -28,6 +28,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- RC23 adds a choice picker, TUI text editing, restart warnings and byte limits.
+  Saves are tied to one device attachment and the previously read value.
+- Text input handles Unicode, Backspace, clear and paste without treating names
+  as menu shortcuts or storing typed characters in debug history.
+- Newest RC releases retire older RC downloads after keeping a verified backup.
+  Stable releases, Git tags and source history are not deleted.
+
 - RC22 adds model-filtered native definitions for device/controller names,
   second speed dial, IntelliTone level and headset softphone integration.
   They require matching model properties and successful reads; headset

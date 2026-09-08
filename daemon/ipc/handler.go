@@ -68,13 +68,26 @@ type PairedDeviceInfo struct {
 }
 
 type SettingInfo struct {
-	Device   string   `json:"device"`
-	Key      string   `json:"key"`
-	Label    string   `json:"label"`
-	Value    string   `json:"value"`
-	Editable bool     `json:"editable"`
-	Choices  []string `json:"choices,omitempty"`
-	Help     string   `json:"help,omitempty"`
+	Device     string         `json:"device"`
+	Key        string         `json:"key"`
+	Label      string         `json:"label"`
+	Value      string         `json:"value"`
+	Editable   bool           `json:"editable"`
+	Choices    []string       `json:"choices,omitempty"`
+	Help       string         `json:"help,omitempty"`
+	Kind       string         `json:"kind,omitempty"`
+	MaxBytes   int            `json:"maxBytes,omitempty"`
+	Target     *SettingTarget `json:"target,omitempty"`
+	MayRestart bool           `json:"mayRestart,omitempty"`
+}
+
+type SettingTarget struct {
+	ID       uint16 `json:"id"`
+	Instance string `json:"instance"`
+}
+
+type TargetedSettingsAPI interface {
+	SetSettingTarget(device, key, value string, target SettingTarget, previous string) (SettingInfo, error)
 }
 
 // DiagnosticCheck records evidence, not a blanket compatibility verdict.
@@ -340,13 +353,29 @@ func dispatch(req Request, api API) (response Response) {
 
 	case "settings.set":
 		var params struct {
-			Device string  `json:"device"`
-			Key    string  `json:"key"`
-			Value  *string `json:"value"`
+			Device   string         `json:"device"`
+			Key      string         `json:"key"`
+			Value    *string        `json:"value"`
+			Target   *SettingTarget `json:"target"`
+			Previous *string        `json:"previous"`
 		}
 		if err := decodeParams(req.Params, &params); err != nil ||
 			(params.Device != "dongle" && params.Device != "headset") || params.Key == "" || params.Value == nil {
 			return ErrorResponse(req.ID, ErrCodeInvalidP, "settings.set requires device, key, and value")
+		}
+		if params.Target != nil || params.Previous != nil {
+			if params.Target == nil || len(params.Target.Instance) != 32 || params.Previous == nil {
+				return ErrorResponse(req.ID, ErrCodeInvalidP, "bound settings.set requires target and previous value")
+			}
+			targeted, ok := api.(TargetedSettingsAPI)
+			if !ok {
+				return ErrorResponse(req.ID, ErrCodeMethodNF, "service does not support device-bound setting edits")
+			}
+			setting, err := targeted.SetSettingTarget(params.Device, params.Key, *params.Value, *params.Target, *params.Previous)
+			if err != nil {
+				return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+			}
+			return SuccessResponse(req.ID, setting)
 		}
 		setting, err := api.SetSetting(params.Device, params.Key, *params.Value)
 		if err != nil {

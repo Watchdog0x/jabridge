@@ -316,6 +316,24 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
+func TestBoundSettingsRequireCapabilityAndCompleteTarget(t *testing.T) {
+	api := &mockAPI{}
+	for _, params := range []string{
+		`{"device":"headset","key":"name","value":"x","target":{"id":0,"instance":"short"},"previous":"old"}`,
+		`{"device":"headset","key":"name","value":"x","previous":"old"}`,
+		`{"device":"headset","key":"name","value":"x","target":{"id":0,"instance":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`,
+	} {
+		response := dispatch(Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "settings.set", Params: json.RawMessage(params)}, api)
+		if response.Error == nil || response.Error.Code != ErrCodeInvalidP {
+			t.Fatal(response)
+		}
+	}
+	response := dispatch(Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "settings.set", Params: json.RawMessage(`{"device":"headset","key":"name","value":"x","target":{"id":0,"instance":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"previous":"old"}`)}, api)
+	if response.Error == nil || response.Error.Code != ErrCodeMethodNF {
+		t.Fatal("bound edit silently fell back to unbound API", response)
+	}
+}
+
 func TestInvalidWriteParamsAreRejected(t *testing.T) {
 	tests := []Request{
 		{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "bt.pair", Params: json.RawMessage(`{"enable":"yes"}`)},

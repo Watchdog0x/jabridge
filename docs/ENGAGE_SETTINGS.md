@@ -28,7 +28,7 @@ are accepted. Screenshot order alone does not prove numeric wire values.
 | Full mute control, including outside calls | Not mapped. Determine the required device/app behavior before implementing it. |
 | Mute, hook, status and three-dot controller buttons; each offers Busylight, Call handling, Mute, Push-to-talk, Speed dial, No function | All four button definitions exist. Physical event/call-app behavior still needs testing; changing a setting does not prove integration. |
 | Controller smart ringer; Ring, Happy, Melody; volume Off, Low, Mid, High | Definitions exist. Generic ringtone labels need a verified match to the named tones. |
-| Headset name, controller name, two speed-dial numbers | RC22 adds the two name properties and second speed-dial definition, with length-prefixed text encoding. Text editing is CLI-only; hardware tests are still needed. |
+| Headset name, controller name, two speed-dial numbers | RC22 adds the native definitions. RC23 adds TUI text editing and a separate choice picker. Hardware tests are still needed. |
 | Ringtone in headset; call control with softphone | RC22 adds headset-scoped softphone integration with its required configuration mode. Actual setting behavior and call integration still need testing. |
 
 The public profile also lists a forced-busy-state property without a native

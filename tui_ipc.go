@@ -135,7 +135,11 @@ func tuiIPCCall(method string, params, result any) error {
 	if client == nil {
 		return errors.New("jabridge service is not connected")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	timeout := 15 * time.Second
+	if method == "settings.list" || method == "settings.set" {
+		timeout = 90 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return client.Call(ctx, method, params, result)
 }
@@ -368,15 +372,17 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 	for _, setting := range response {
 		editable := setting.Editable
 		label := setting.Label
-		if editable && len(setting.Choices) == 0 {
+		if editable && setting.Target == nil {
 			editable = false
-			label += " (edit with CLI)"
+			label += " (reload to edit)"
 		}
 		remote := &remoteSettingValue{
 			Device: setting.Device, Key: setting.Key, Label: label,
 			Value: setting.Value, Editable: editable,
 			Choices: append([]string(nil), setting.Choices...),
 			Help:    setting.Help,
+			Kind:    setting.Kind, MaxBytes: setting.MaxBytes, Target: setting.Target,
+			MayRestart: setting.MayRestart,
 		}
 		values = append(values, deviceSettingValue{Remote: remote})
 	}
@@ -394,10 +400,15 @@ func setIPCSetting(setting deviceSettingValue, value string) error {
 	if setting.Remote == nil {
 		return errors.New("setting is not an IPC setting")
 	}
-	params := map[string]string{
-		"device": setting.Remote.Device,
-		"key":    setting.Remote.Key,
-		"value":  value,
+	if setting.Remote.Target == nil {
+		return errors.New("device binding is missing; reload settings before editing")
+	}
+	params := map[string]any{
+		"device":   setting.Remote.Device,
+		"key":      setting.Remote.Key,
+		"value":    value,
+		"target":   setting.Remote.Target,
+		"previous": setting.Remote.Value,
 	}
 	var updated ipc.SettingInfo
 	return tuiIPCCall("settings.set", params, &updated)

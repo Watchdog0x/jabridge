@@ -33,6 +33,7 @@ import (
 
 type jabra_DeviceInfo struct {
 	deviceID         uint16
+	instance         string
 	productID        uint16
 	vendorID         uint16
 	deviceName       string
@@ -1122,6 +1123,9 @@ func upsertDongleChild(parentID, productID uint16, name string) bool {
 	for _, device := range deviceManager {
 		if device != nil && device.deviceConnection == deviceConnectionType_BT && device.parentDeviceID == parentID {
 			changed := device.productID != productID || device.deviceName != name || device.hidrawPath != controlPath
+			if changed {
+				device.instance = newDeviceInstance()
+			}
 			device.productID = productID
 			device.deviceName = name
 			device.hidrawPath = controlPath
@@ -1137,6 +1141,7 @@ func upsertDongleChild(parentID, productID uint16, name string) bool {
 	}
 	deviceManager[id] = &jabra_DeviceInfo{
 		deviceID:         uint16(id),
+		instance:         newDeviceInstance(),
 		productID:        productID,
 		vendorID:         jabraVendorID,
 		deviceName:       name,
@@ -1353,6 +1358,7 @@ func addDevice(deviceInfo *jabra_DeviceInfo) {
 		id++
 	}
 	deviceInfo.deviceID = uint16(id)
+	deviceInfo.instance = newDeviceInstance()
 	if deviceInfo.isDongle {
 		if selectedDongle == -1 {
 			selectedDongle = id

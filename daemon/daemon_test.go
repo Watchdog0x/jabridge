@@ -41,6 +41,38 @@ func (n *nilAPI) SetSetting(device, key, value string) (ipc.SettingInfo, error) 
 func (n *nilAPI) SelectDevice(uint16) error { return nil }
 func (n *nilAPI) Shutdown() error           { return nil }
 
+type boundSettingTestAPI struct {
+	nilAPI
+	called   bool
+	target   ipc.SettingTarget
+	previous string
+}
+
+func (a *boundSettingTestAPI) SetSettingTarget(device, key, value string, target ipc.SettingTarget, previous string) (ipc.SettingInfo, error) {
+	a.called = true
+	a.target = target
+	a.previous = previous
+	return ipc.SettingInfo{Device: device, Key: key, Value: value}, nil
+}
+
+func TestServiceWrapperForwardsDeviceBoundSettings(t *testing.T) {
+	inner := &boundSettingTestAPI{}
+	var wrapped ipc.API = &busylightAPI{API: inner}
+	bound, ok := wrapped.(ipc.TargetedSettingsAPI)
+	if !ok {
+		t.Fatal("service wrapper hid bound settings capability")
+	}
+	target := ipc.SettingTarget{ID: 7, Instance: "attachment"}
+	result, err := bound.SetSettingTarget("headset", "device-name", "New", target, "Old")
+	if err != nil || !inner.called || inner.target != target || inner.previous != "Old" || result.Value != "New" {
+		t.Fatal(result, err, inner)
+	}
+	unsupported := &busylightAPI{API: &nilAPI{}}
+	if _, err := unsupported.SetSettingTarget("headset", "device-name", "New", target, "Old"); err == nil {
+		t.Fatal("bound edit fell back to unbound method")
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.SocketPath == "" {

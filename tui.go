@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,7 +35,13 @@ const (
 	keyAction2
 	keyAction3
 	keyAction4
+	keyEscape
+	keyBackspace
+	keyClearText
 )
+
+const keyRuneBase keyEvent = 0x110000
+const keyPasteBase keyEvent = 0x220000
 
 type actionResult struct {
 	message                string
@@ -162,7 +169,7 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 	}
 
 	buf := make([]byte, 16)
-	decoder := &keyDecoder{}
+	decoder := &keyDecoder{rawText: true}
 	for {
 		select {
 		case <-ctx.Done():
@@ -170,14 +177,13 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 		default:
 		}
 
-		n, err := os.Stdin.Read(buf)
+		n, err := unix.Read(fd, buf)
 		if n > 0 {
 			for _, event := range decoder.feed(buf[:n]) {
 				select {
 				case keyEvents <- event:
 				case <-ctx.Done():
 					return
-				default:
 				}
 			}
 			continue
@@ -185,6 +191,13 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 
 		if err != nil {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+				if event := decoder.flushEscape(time.Now()); event != keyNone {
+					select {
+					case keyEvents <- event:
+					case <-ctx.Done():
+						return
+					}
+				}
 				time.Sleep(20 * time.Millisecond)
 				continue
 			}
@@ -194,7 +207,10 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 }
 
 type keyDecoder struct {
-	pending []byte
+	pending     []byte
+	rawText     bool
+	pasting     bool
+	escapeSince time.Time
 }
 
 // feed accepts arbitrary terminal read chunks. Escape sequences may be split
@@ -206,31 +222,116 @@ func (d *keyDecoder) feed(input []byte) []keyEvent {
 	for len(d.pending) > 0 {
 		if d.pending[0] == 0x1b {
 			if len(d.pending) < 2 {
+				if d.escapeSince.IsZero() {
+					d.escapeSince = time.Now()
+				}
 				break
 			}
+			d.escapeSince = time.Time{}
 			if d.pending[1] != '[' {
-				d.pending = d.pending[1:]
+				d.pending = d.pending[2:]
 				continue
 			}
-			if len(d.pending) < 3 {
+			end := 2
+			for end < len(d.pending) && (d.pending[end] < 0x40 || d.pending[end] > 0x7e) {
+				end++
+			}
+			if end == len(d.pending) {
+				if len(d.pending) > 64 {
+					d.pending = nil
+				}
 				break
 			}
-			switch d.pending[2] {
+			parameters := string(d.pending[2:end])
+			switch d.pending[end] {
 			case 'A':
 				events = append(events, keyUp)
 			case 'B':
 				events = append(events, keyDown)
+			case '~':
+				if parameters == "200" {
+					d.pasting = true
+				}
+				if parameters == "201" {
+					d.pasting = false
+				}
+			case 'u':
+				fields := strings.Split(parameters, ";")
+				code, parseErr := strconv.Atoi(strings.Split(fields[0], ":")[0])
+				released := len(fields) > 1 && strings.HasSuffix(fields[1], ":3")
+				if parseErr == nil && !released && code >= 0 && code <= utf8.MaxRune {
+					if event := d.runeEvent(rune(code)); event != keyNone {
+						events = append(events, event)
+					}
+				}
 			}
-			d.pending = d.pending[3:]
+			d.pending = d.pending[end+1:]
 			continue
 		}
-
-		if event := basicKeyEvent(d.pending[0]); event != keyNone {
+		if !utf8.FullRune(d.pending) {
+			break
+		}
+		r, size := utf8.DecodeRune(d.pending)
+		if r == utf8.RuneError && size == 1 {
+			d.pending = d.pending[1:]
+			continue
+		}
+		if event := d.runeEvent(r); event != keyNone {
 			events = append(events, event)
 		}
-		d.pending = d.pending[1:]
+		d.pending = d.pending[size:]
 	}
 	return events
+}
+
+func (d *keyDecoder) runeEvent(r rune) keyEvent {
+	if d.rawText && r >= 32 && r != 127 {
+		if d.pasting {
+			return keyPasteBase + keyEvent(r)
+		}
+		return keyRuneBase + keyEvent(r)
+	}
+	if d.pasting {
+		return keyNone
+	}
+	if r == 8 || r == 127 {
+		return keyBackspace
+	}
+	if r == 21 {
+		return keyClearText
+	}
+	if r == 27 {
+		return keyEscape
+	}
+	if r < 128 {
+		return basicKeyEvent(byte(r))
+	}
+	return keyNone
+}
+
+func (d *keyDecoder) flushEscape(now time.Time) keyEvent {
+	if len(d.pending) == 1 && d.pending[0] == 27 && !d.escapeSince.IsZero() && now.Sub(d.escapeSince) >= 60*time.Millisecond {
+		d.pending, d.escapeSince = nil, time.Time{}
+		return keyEscape
+	}
+	return keyNone
+}
+
+func navigationKey(event keyEvent) keyEvent {
+	if event >= keyPasteBase {
+		return keyNone
+	}
+	if event >= keyRuneBase {
+		r := event - keyRuneBase
+		if r < 128 {
+			return basicKeyEvent(byte(r))
+		}
+		return keyNone
+	}
+	if event == keyEscape {
+		return keyBack
+	}
+	return event
 }
 
 func parseKeyEvents(input []byte) []keyEvent {
@@ -261,6 +362,14 @@ func basicKeyEvent(b byte) keyEvent {
 }
 
 func handleKeyEvent(event keyEvent, results chan<- actionResult) bool {
+	if activeSettingEditor != nil {
+		handleSettingEditorKey(event, results)
+		return false
+	}
+	event = navigationKey(event)
+	if event == keyNone {
+		return false
+	}
 	before := menuState
 	entry := tuiHistoryEvent("key")
 	entry.Input = map[keyEvent]string{keyUp: "up", keyDown: "down", keyEnter: "enter", keyBack: "back", keyAction1: "action-1", keyAction2: "action-2", keyAction3: "action-3", keyAction4: "action-4"}[event]
@@ -582,6 +691,12 @@ func toggleSelectedSetting(scope settingScope, results chan<- actionResult) {
 	device, exists := selectedSettingsDevice(scope)
 	if !exists {
 		setStatus("Device disconnected", true)
+		return
+	}
+	if settingIsText(setting) || len(settingChoices(setting)) > 2 || setting.needsConfigMode() {
+		if err := openSettingEditor(scope, setting, device); err != nil {
+			setStatus(err.Error(), true)
+		}
 		return
 	}
 	wanted, err := setting.nextValueName()
@@ -1450,6 +1565,9 @@ func settingsActionBar(values []deviceSettingValue) []string {
 	}
 	actions = append(actions, "↑/↓ Select")
 	if setting, exists := selectedDeviceSettingForValues(values); exists && setting.editable() {
+		if settingIsText(setting) || len(settingChoices(setting)) > 2 || setting.needsConfigMode() {
+			return append(actions, "Enter Edit")
+		}
 		return append(actions, "Enter Change")
 	}
 	return append(actions, "Read only")
@@ -1819,6 +1937,11 @@ func composeFrame() *frame {
 	}
 
 	header()
+	if activeSettingEditor != nil {
+		renderSettingEditor()
+		renderStatus()
+		return screen
+	}
 	switch menuState {
 	case screenSearch:
 		menuSearchForNewDevices()
@@ -1842,6 +1965,9 @@ func composeFrame() *frame {
 func startUi(parent context.Context) {
 	ctx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+	fmt.Print("\x1b[?2004h")
+	defer fmt.Print("\x1b[?2004l")
+	defer func() { activeSettingEditor = nil }()
 
 	keyEvents := make(chan keyEvent, 32)
 	actionResults := make(chan actionResult, 8)
