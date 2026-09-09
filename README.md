@@ -9,9 +9,7 @@ menu, command line tools and a background service.
 Jabridge 1.0.0 is a native Go rewrite. No Jabra library, .NET or Node.js is
 needed to run it. Download the compiled app and get started.
 
-We are getting close to the first stable release, but we need more people to
-test with real headsets, dongles and Link Call Control units. Your tests help
-us support as many Jabra devices as possible.
+We are getting close to the first stable release.
 
 The new code is on the [native rewrite branch](https://github.com/Watchdog0x/jabridge/tree/codex/native-go-rewrite).
 The source on `main` is still the old version while the rewrite is being tested.
@@ -22,6 +20,12 @@ Download the newest **1.0.0 preview** from [Releases](https://github.com/Watchdo
 extract it and open a terminal in that folder:
 
 ```bash
+./jabridge setup
+```
+
+Run setup first and follow the prompts. Then open the menu:
+
+```bash
 ./jabridge
 ```
 
@@ -29,10 +33,10 @@ Jabridge opens the menu and helps you set up device access and the background
 service. Approve the password prompt if asked. Run the app as your normal
 user, not with `sudo`.
 
-Already using a preview? Update the app with:
+Update Jabridge with:
 
 ```bash
-./jabridge update --prerelease
+./jabridge update
 ```
 
 ## What can it do?
@@ -77,26 +81,18 @@ fails, keep the same file and USB port and share the error before retrying.
 Read the [firmware guide](https://github.com/Watchdog0x/jabridge/blob/codex/native-go-rewrite/docs/FIRMWARE.md)
 for supported methods and recovery limits.
 
-## Help us test
+## Problems?
 
-Please try your device and tell us what works and what is missing. Useful
-checks include settings, battery, buttons, the microphone boom, volume wheel,
-audio and unplugging and reconnecting. Only test controls your device has.
-
-Run this to collect a debug report:
+Before opening an issue, save a debug report:
 
 ```bash
-./jabridge debug
+./jabridge debug --output jabridge-debug.txt
 ```
 
-[Open an issue](https://github.com/Watchdog0x/jabridge/issues/new) with your
-device name, Linux version, connection type and debug output. Say whether
-you use direct USB, a dongle or Link Call Control, and describe the problem.
-Check the report for personal information before posting it.
-
-Debug helps us find missing support and bugs. It does not prove that every
-setting, button or firmware update works. Reports where everything works are
-welcome too!
+Check `jabridge-debug.txt` before sharing it. Then
+[open an issue](https://github.com/Watchdog0x/jabridge/issues/new), attach the
+file and tell us your device model, connection and what went wrong.
+Debug does not change settings or firmware.
 
 ## Independent project
 
