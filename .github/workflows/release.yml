@@ -1,0 +1,83 @@
+name: Build signed release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jabridge-signed-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: .go-version
+          cache: true
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
+        with:
+          version: v2.13.2
+          args: --timeout=5m
+      - name: Check and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          make fmt vet test test-static completion-check
+          mkdir -p release
+          for arch in amd64 arm64; do
+            package="jabridge_1.0.0_linux_$arch"
+            GOOS=linux GOARCH="$arch" make build VERSION=1.0.0 BUILD_DIR="release/$package"
+            mkdir -p "release/$package/completions" "release/$package/system"
+            install -m 0644 README.md CHANGELOG.md LICENSE docs/HARDWARE_TESTING.md docs/IPC.md "release/$package/"
+            install -m 0644 internal/completion/jabridge.bash "release/$package/completions/"
+            install -m 0644 internal/assets/jabridge.service internal/assets/70-jabridge.rules "release/$package/system/"
+            tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$(git show -s --format=%ct HEAD)" -C release -cf - "$package" | gzip -n > "release/$package.tar.gz"
+          done
+          test "$(release/jabridge_1.0.0_linux_amd64/jabridge --version)" = 'Jabridge 1.0.0'
+          JABRIDGE_TEST_RELEASE_ARCHIVE="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz" go test ./internal/selfupdate -count=1
+          git archive --format=tar --prefix=jabridge_1.0.0_source/ HEAD | gzip -n > release/jabridge_1.0.0_source.tar.gz
+          cd release
+          sha256sum ./*.tar.gz > SHA256SUMS
+          for archive in ./*.tar.gz; do sha256sum "$archive" > "$archive.sha256"; done
+      - name: Sign and verify
+        env:
+          SIGNING_KEY: ${{ secrets.JABRIDGE_RELEASE_SIGNING_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY"
+          umask 077
+          key_file="$RUNNER_TEMP/jabridge-release-key.pem"
+          public_file="$RUNNER_TEMP/jabridge-release-public.pem"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$SIGNING_KEY" > "$key_file"
+          unset SIGNING_KEY
+          openssl pkey -in "$key_file" -pubout -out "$public_file"
+          actual_key=$(openssl pkey -pubin -in "$public_file" -outform DER | tail -c 32 | base64 -w0)
+          test "$actual_key" = 'O/LS2hYTQ7QX/HUss+kAP1daBicZhCqGkO3OezZco5o='
+          for archive in release/*.tar.gz; do
+            openssl pkeyutl -sign -rawin -inkey "$key_file" -in "$archive" > "$RUNNER_TEMP/archive.sig"
+            openssl pkeyutl -verify -rawin -pubin -inkey "$public_file" -in "$archive" -sigfile "$RUNNER_TEMP/archive.sig"
+            base64 -w0 "$RUNNER_TEMP/archive.sig" > "$archive.sig"
+          done
+      - name: Test signed application update
+        run: |
+          JABRIDGE_TEST_RELEASE_ARCHIVE="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz" \
+          JABRIDGE_TEST_RELEASE_SIGNATURE="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz.sig" \
+          go test ./internal/selfupdate -run '^TestInstallVerifiesAndReplacesBinary$' -count=1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jabridge-1.0.0-signed
+          path: |
+            release/*.tar.gz
+            release/*.sha256
+            release/*.sig
+            release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30

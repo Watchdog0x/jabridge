@@ -1,0 +1,22 @@
+[Unit]
+Description=Jabridge — Jabra headset manager daemon
+Documentation=https://github.com/Watchdog0x/jabridge
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env jabridge --daemon
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+UMask=0077
+# This runs under the user manager. Kernel/capability and mount-namespace
+# restrictions can fail before ExecStart on hosts with restricted user namespaces.
+StateDirectory=jabridge
+StateDirectoryMode=0700
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target

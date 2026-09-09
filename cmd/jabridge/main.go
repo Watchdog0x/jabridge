@@ -1,0 +1,533 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/Watchdog0x/jabridge/daemon"
+	"github.com/Watchdog0x/jabridge/daemon/buttons"
+	"github.com/Watchdog0x/jabridge/daemon/ipc"
+	"github.com/Watchdog0x/jabridge/daemon/pipewire"
+	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/firmware"
+	"github.com/Watchdog0x/jabridge/internal/history"
+)
+
+func main() {
+
+	configureHistory()
+
+	command := "tui"
+	if len(os.Args) > 1 {
+		command = os.Args[1]
+	}
+	event := history.Event{Component: "app", Action: "run", Command: command}
+	if len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
+		event.Subcommand = os.Args[2]
+	}
+	defer history.CapturePanic(event)
+	finish := history.Begin(event)
+	err := runApp()
+	finish(err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "jabridge: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runApp() error {
+
+	if len(os.Args) == 1 {
+		if err := offerDeviceAccessSetup(); err != nil {
+			return err
+		}
+		if err := runTUI(); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	var err error
+	if os.Args[1] == "sound" || os.Args[1] == "audio" {
+		return runSound(os.Args[2:])
+	}
+	if (os.Args[1] == "firmware" || os.Args[1] == "fw") && !firmwareCommandNeedsHardware(os.Args[2:]) {
+		return runFirmware(os.Args[2:])
+	}
+	// IPC-only button commands must not acquire a hardware/firmware lease.
+	if os.Args[1] == "buttons" && len(os.Args) == 3 {
+		switch os.Args[2] {
+		case "status", "on", "off", "watch", "--help", "-h":
+			return runButtons(os.Args[2:])
+		}
+	}
+	if handled, err := tryServiceCLI(os.Args[1:]); handled {
+		return err
+	}
+	installing := (os.Args[1] == "firmware" || os.Args[1] == "fw") && len(os.Args) > 2 && os.Args[2] == "install"
+	if installing {
+		if err := firmware.ValidateInstallInput(os.Args[3:]); err != nil {
+			return err
+		}
+	}
+	resumeService := func() error { return nil }
+	if commandNeedsDirectHardware(os.Args[1]) {
+		resumeService, err = pauseUserServiceForDirectCommand()
+		if err != nil {
+			return err
+		}
+	}
+	if !installing && (commandNeedsDirectHardware(os.Args[1]) || os.Args[1] == "debug" || os.Args[1] == "buttons") {
+		lease, leaseErr := firmware.AcquireDeviceAccess()
+		if leaseErr != nil {
+			_ = resumeService()
+			return leaseErr
+		}
+		defer func() { _ = lease.Close() }()
+	}
+	switch os.Args[1] {
+	case "--help", "-h", "help":
+		printUsage()
+	case "--version", "-v", "version":
+		fmt.Printf("%s %s\n", buildinfo.Name, buildinfo.Version)
+	case "--licenses":
+		fmt.Print(thirdPartyNotices)
+	case "status":
+		err = runStatus()
+	case "battery":
+		err = runBattery()
+	case "diagnose":
+		err = runDiagnose()
+	case "debug":
+		err = runDebug(os.Args[2:])
+	case "history":
+		err = runHistory(os.Args[2:])
+	case "buttons":
+		err = runButtons(os.Args[2:])
+	case "--daemon", "-d", "daemon":
+		err = runDaemon()
+	case "update":
+		err = runUpdate(os.Args[2:])
+	case "firmware", "fw":
+		err = runFirmware(os.Args[2:])
+	case "settings":
+		err = runSettings(os.Args[2:])
+	case "model":
+		err = runModel()
+	case "models":
+		err = runModels(os.Args[2:])
+	case "sound", "audio":
+		err = runSound(os.Args[2:])
+	case "use":
+		err = runUse(os.Args[2:])
+	case "setup":
+		err = runSetup(os.Args[2:])
+	case "ipc":
+		err = runIPC(os.Args[2:])
+	case "service":
+		err = runService(os.Args[2:])
+	case "completion":
+		err = runCompletion(os.Args[2:])
+	default:
+		err = fmt.Errorf("unknown command %q; run jabridge --help", os.Args[1])
+	}
+	if resumeErr := resumeService(); err == nil && resumeErr != nil {
+		err = fmt.Errorf("restart background service: %w", resumeErr)
+	}
+	return err
+}
+
+func printUsage() {
+	fmt.Println(`jabridge — Linux control for supported Jabra devices
+
+Usage:
+  jabridge             open the terminal UI through the background service
+  jabridge status      show connected USB devices
+  jabridge battery     show headset battery from 0 to 100 percent
+  jabridge diagnose    check USB and control-interface discovery
+  jabridge debug       create a shareable device and service report
+  jabridge history     show recent local actions and failures
+  jabridge buttons     inspect buttons or enable optional music control
+  jabridge update      update the app
+  jabridge firmware    check or download device firmware
+  jabridge settings    list or change supported device settings
+  jabridge model       match devices with the online capability catalog
+  jabridge models      browse the online Jabra model catalog
+  jabridge sound       show or change Jabra PipeWire sound controls
+  jabridge use         choose direct USB or wireless-dongle headset use
+  jabridge setup       set up one-time Linux device access
+  jabridge ipc         use the background-service API
+  jabridge service     start, stop, restart, or check the service
+  jabridge --help      show help
+
+More:
+  jabridge --daemon           run the local service
+  jabridge completion bash    print Bash completion
+  jabridge --licenses         show third-party notices
+
+The TUI starts the service when needed and reconnects after service restarts.`,
+	)
+}
+
+func runDaemon() error {
+	lease, err := firmware.AcquireDeviceAccess()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lease.Close() }()
+	cfg := daemon.DefaultConfig()
+	cfg.ButtonsMonitor = buttons.NativeMonitor
+	if socket := os.Getenv("JABRIDGE_SOCKET"); socket != "" {
+		cfg.SocketPath = socket
+		cfg.PIDPath = socket + ".pid"
+	}
+	cfg.SoundReady = func(sound *pipewire.SoundController) { serviceSoundController.Store(sound) }
+	defer serviceSoundController.Store(nil)
+	cfg.BusylightSender = &jabraBusylightSender{}
+	return daemon.Start(cfg, pollDevices, &jabraAPIBridge{})
+}
+
+func runTUI() error {
+	for {
+		pendingFirmwareInstall = nil
+		backend, err := connectTUIService()
+		if err != nil {
+			return err
+		}
+		if err := runTUIWithBackend(backend); err != nil {
+			return err
+		}
+		plan := pendingFirmwareInstall
+		pendingFirmwareInstall = nil
+		if plan == nil {
+			return nil
+		}
+		// The TUI and its stdin reader have fully stopped. Use the same native
+		// installer and typed confirmation as the CLI, never an acceptance flag.
+		resume, err := pauseUserServiceForDirectCommand()
+		if err != nil {
+			return err
+		}
+		fmt.Println("Firmware update. Keep the device plugged in. The installer asks before writing.")
+		installErr := plan.Install()
+		resumeErr := resume()
+		if resumeErr != nil {
+			return fmt.Errorf("firmware result: %v; restart service: %w", installErr, resumeErr)
+		}
+		if installErr != nil {
+			setResultStatus(installErr.Error(), true, "Could not finish")
+		} else {
+			setResultStatus("Firmware transfer finished. Checking the device again.", false, "Done")
+		}
+		menuState = screenFirmware
+	}
+}
+
+func runTUIWithBackend(backend *tuiIPCBackend) error {
+	setTUIBackend(backend)
+	defer func() {
+
+		backend.close()
+	}()
+	if err := initialTUIServiceSync(backend); err != nil {
+		return fmt.Errorf("load service state: %w", err)
+	}
+
+	oldSettings, err := enableRawMode()
+	if err != nil {
+		return fmt.Errorf("enable raw mode: %w", err)
+	}
+	defer restoreTerminal(oldSettings)
+
+	pollContext, stopPoll := context.WithCancel(context.Background())
+	pollDone := make(chan struct{})
+	defer func() { stopPoll(); backend.close(); <-pollDone }()
+	updateStartMenu()
+	go func() { defer close(pollDone); runTUIServiceSync(pollContext, backend) }()
+
+	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[0;40;97m")
+	defer fmt.Print("\x1b[0m\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
+
+	clearScreen()
+	startUi(pollContext)
+	return nil
+}
+
+// jabraAPIBridge adapts the jabraApi.go global functions to the ipc.API interface.
+type jabraAPIBridge struct{}
+
+func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
+	var out []ipc.DeviceInfo
+	deviceStateMu.RLock()
+	activeDongle, activeHeadset := selectedDongle, selectedHeadset
+	deviceStateMu.RUnlock()
+	for _, dev := range deviceSnapshots() {
+		connection := "usb"
+		if dev.deviceConnection == deviceConnectionType_BT {
+			connection = "dongle"
+		}
+		d := ipc.DeviceInfo{
+			ID: dev.deviceID, Name: dev.deviceName, PID: dev.productID,
+			Instance: dev.instance, Topology: dev.controlTopology,
+			Variant: dev.variantType, Serial: "", IsDongle: dev.isDongle,
+			Connection: connection, ParentID: dev.parentDeviceID,
+			Firmware: dev.firmwareVersion,
+			Selected: int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
+			Parts:    ipcControlParts(dev),
+		}
+		if dev.batteryStatus != nil {
+			d.Battery = ipcBatteryInfo(dev.batteryStatus)
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+func (j *jabraAPIBridge) GetBattery() (*ipc.BatteryInfo, error) {
+	headset, exists := selectedHeadsetSnapshot()
+	if !exists {
+		return nil, fmt.Errorf("no headset found")
+	}
+	bs, err := getBatteryStatus(headset.deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return ipcBatteryInfo(bs), nil
+}
+
+func ipcBatteryInfo(status *batteryStatus) *ipc.BatteryInfo {
+	if status == nil {
+		return nil
+	}
+	result := &ipc.BatteryInfo{
+		Level:     status.levelInPercent,
+		Charging:  status.charging,
+		Low:       status.batteryLow,
+		Component: int(status.component),
+	}
+	for _, component := range status.components {
+		result.Components = append(result.Components, ipc.BatteryComponentInfo{
+			Name:      component.label,
+			Level:     component.levelInPercent,
+			Charging:  component.charging,
+			Component: int(component.component),
+		})
+	}
+	return result
+}
+
+func (j *jabraAPIBridge) GetFirmware() string {
+	if headset, exists := selectedHeadsetSnapshot(); exists {
+		return headset.firmwareVersion
+	}
+	if dongle, exists := selectedDongleSnapshot(); exists {
+		return dongle.firmwareVersion
+	}
+	return ""
+}
+
+func (j *jabraAPIBridge) GetFeatures() ipc.FeatureInfo {
+	var ff *featureFlags
+	if dev := deviceForID(0); dev != nil && dev.featureFlags != nil {
+		ff = dev.featureFlags
+	} else {
+		ff = &featureFlags{}
+	}
+	return ipc.FeatureInfo{
+		BusyLight:    ff.busyLight,
+		FactoryReset: ff.factoryReset,
+		PairingList:  ff.pairingList,
+		RemoteMMI:    ff.remoteMMI,
+		MusicEQ:      ff.musicEqualizer,
+		OnHeadDetect: ff.onHeadDetection,
+	}
+}
+
+func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists || dongle.pairingList == nil {
+		return nil
+	}
+	var out []ipc.PairedDeviceInfo
+	for index, pd := range dongle.pairingList.pairedDevices {
+		out = append(out, ipc.PairedDeviceInfo{
+			ID:        index,
+			Name:      pd.deviceName,
+			Addr:      "",
+			Connected: pd.isConnected,
+		})
+	}
+	return out
+}
+
+func (j *jabraAPIBridge) GetSearchList() []ipc.PairedDeviceInfo {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists {
+		return nil
+	}
+	list := getSearchDeviceList(dongle.deviceID)
+	if list == nil {
+		return nil
+	}
+	result := make([]ipc.PairedDeviceInfo, 0, len(list.pairedDevices))
+	for index, device := range list.pairedDevices {
+		result = append(result, ipc.PairedDeviceInfo{ID: index, Name: device.deviceName, Connected: device.isConnected})
+	}
+	return result
+}
+
+func (j *jabraAPIBridge) SearchNewDevices() error { return searchForNewDevices() }
+func (j *jabraAPIBridge) GetSearchState() ipc.SearchState {
+	state, devices := currentNativeSearch()
+	for index, device := range devices {
+		state.Devices = append(state.Devices, ipc.PairedDeviceInfo{ID: index, Name: device.Name})
+	}
+	return state
+}
+func (j *jabraAPIBridge) StopSearch() error { return stopNativeSearch() }
+func (j *jabraAPIBridge) ConnectSearchDevice(index int) error {
+	return connectNewDevice(uint16(index))
+}
+func (j *jabraAPIBridge) ConnectSearchDeviceBound(index int, session string) error {
+	return connectSearchDeviceBound(index, session)
+}
+func (j *jabraAPIBridge) ConnectRememberedDevice(index int) error {
+	return connectRememberedDevice(index)
+}
+func (j *jabraAPIBridge) DisconnectRememberedDevice(index int) error {
+	return disconnectRememberedDevice(index)
+}
+func (j *jabraAPIBridge) ForgetRememberedDevice(index int) error {
+	return forgetRememberedDevice(index)
+}
+func (j *jabraAPIBridge) SetBTPairing(e bool) error     { return setDongleInBTPairing(e) }
+func (j *jabraAPIBridge) GetAutoPairing() (bool, error) { return getAutoPairing() }
+func (j *jabraAPIBridge) SetAutoPairing(e bool) error   { return setAutoPairing(e) }
+func (j *jabraAPIBridge) FactoryReset() error {
+	dongle, exists := selectedDongleSnapshot()
+	if !exists {
+		return fmt.Errorf("no dongle found")
+	}
+	return factoryResetConfirmed(dongle.deviceID)
+}
+func (j *jabraAPIBridge) SetBusylightMode(mode string) error { return nil } // wired in daemon
+func (j *jabraAPIBridge) GetBusylightMode() string           { return "auto" }
+
+func (j *jabraAPIBridge) ListSettings(deviceName string) ([]ipc.SettingInfo, error) {
+	scope, err := ipcSettingScope(deviceName)
+	if err != nil {
+		return nil, err
+	}
+	device, exists := selectedSettingsDevice(scope)
+	if !exists {
+		return nil, fmt.Errorf("no %s connected", deviceName)
+	}
+	values := readSupportedDeviceSettings(device, scope)
+	result := make([]ipc.SettingInfo, 0, len(values))
+	for _, value := range values {
+		info := ipcSettingInfo(deviceName, value)
+		info.Target = settingTarget(device)
+		info.Component = settingValuePart(device, value)
+		result = append(result, info)
+	}
+	return result, nil
+}
+
+func (j *jabraAPIBridge) SetSetting(deviceName, key, value string) (ipc.SettingInfo, error) {
+	return j.setSettingChecked(deviceName, key, value, nil, nil)
+}
+
+func (j *jabraAPIBridge) SetSettingTarget(deviceName, key, value string, target ipc.SettingTarget, previous string) (ipc.SettingInfo, error) {
+	return j.setSettingChecked(deviceName, key, value, &target, &previous)
+}
+
+func (j *jabraAPIBridge) setSettingChecked(deviceName, key, value string, target *ipc.SettingTarget, previous *string) (ipc.SettingInfo, error) {
+	scope, err := ipcSettingScope(deviceName)
+	if err != nil {
+		return ipc.SettingInfo{}, err
+	}
+	device, exists := selectedSettingsDevice(scope)
+	if !exists {
+		return ipc.SettingInfo{}, fmt.Errorf("no %s connected", deviceName)
+	}
+	if target != nil {
+		if err := validateSettingTarget(device, target); err != nil {
+			return ipc.SettingInfo{}, err
+		}
+	}
+	settings := readSupportedDeviceSettings(device, scope)
+	setting, exists := findDeviceSettingValue(settings, key)
+	if !exists {
+		return ipc.SettingInfo{}, fmt.Errorf("setting %s is not supported", key)
+	}
+	if previous != nil && *previous != setting.valueName() {
+		return ipc.SettingInfo{}, fmt.Errorf("setting changed while editing; reload before saving")
+	}
+	if _, _, err := applyDeviceSettingFromText(device, setting, value); err != nil {
+		return ipc.SettingInfo{}, err
+	}
+	refreshed := readSupportedDeviceSettings(refreshedSettingsDevice(device), scope)
+	updated, exists := findDeviceSettingValue(refreshed, key)
+	if !exists {
+		return ipc.SettingInfo{}, fmt.Errorf("setting %s disappeared after update", key)
+	}
+	info := ipcSettingInfo(deviceName, updated)
+	info.Target = settingTarget(refreshedSettingsDevice(device))
+	info.Component = settingValuePart(device, updated)
+	return info, nil
+}
+
+func (j *jabraAPIBridge) SelectDevice(id uint16) error {
+	_, err := selectRegistryDevice(int(id))
+	if err != nil {
+		return err
+	}
+	return saveSelectedConnectionPreference()
+}
+
+func (j *jabraAPIBridge) Shutdown() error {
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}()
+	return nil
+}
+
+func ipcSettingScope(deviceName string) (settingScope, error) {
+	switch deviceName {
+	case "dongle":
+		return settingScopeDongle, nil
+	case "headset":
+		return settingScopeHeadset, nil
+	case "controller":
+		return settingScopeController, nil
+	default:
+		return 0, fmt.Errorf("device must be dongle, headset or controller")
+	}
+}
+
+func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingInfo {
+	info := ipc.SettingInfo{
+		Device: deviceName, Key: setting.key(), Label: setting.label(),
+		Value: setting.valueName(), Editable: setting.editable(),
+		Help:       setting.help(),
+		MayRestart: setting.needsConfigMode(),
+	}
+	if setting.Boolean != nil {
+		info.Kind = "boolean"
+		info.Choices = []string{"Off", "On"}
+	} else if setting.Choice != nil {
+		info.Kind = "choice"
+		for _, choice := range setting.Choice.Definition.Choices {
+			info.Choices = append(info.Choices, choice.Name)
+		}
+	} else if setting.Text != nil {
+		info.Kind, info.MaxBytes = "text", setting.Text.Definition.MaxBytes
+		info.Choices = nil
+	}
+	return info
+}
