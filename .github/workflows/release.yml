@@ -43,8 +43,8 @@ jobs:
           JABRIDGE_TEST_RELEASE_ARCHIVE="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz" go test ./internal/selfupdate -count=1
           git archive --format=tar --prefix=jabridge_1.0.0_source/ HEAD | gzip -n > release/jabridge_1.0.0_source.tar.gz
           cd release
-          sha256sum ./*.tar.gz > SHA256SUMS
-          for archive in ./*.tar.gz; do sha256sum "$archive" > "$archive.sha256"; done
+          sha256sum *.tar.gz > SHA256SUMS
+          for archive in *.tar.gz; do sha256sum "$archive" > "$archive.sha256"; done
       - name: Sign and verify
         env:
           SIGNING_KEY: ${{ secrets.JABRIDGE_RELEASE_SIGNING_KEY }}
@@ -70,6 +70,7 @@ jobs:
         run: |
           JABRIDGE_TEST_RELEASE_ARCHIVE="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz" \
           JABRIDGE_TEST_RELEASE_SIGNATURE="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz.sig" \
+          JABRIDGE_TEST_RELEASE_CHECKSUM="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz.sha256" \
           go test ./internal/selfupdate -run '^TestInstallVerifiesAndReplacesBinary$' -count=1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -133,6 +133,15 @@ func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 	digest := sha256.Sum256(archive)
 	archiveName := "jabridge_1.0.0_linux_amd64.tar.gz"
 	checksum := []byte(fmt.Sprintf("%x  %s\n", digest, archiveName))
+	if checksumPath := os.Getenv("JABRIDGE_TEST_RELEASE_CHECKSUM"); checksumPath != "" {
+		if actualArchive == "" {
+			t.Fatal("release checksum requires a release archive")
+		}
+		checksum, err = os.ReadFile(checksumPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 	signature := []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, archive)) + "\n")
