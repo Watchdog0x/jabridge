@@ -13,7 +13,7 @@ all: check build
 
 build:
 	mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/jabridge
+	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/jabridge
 
 fmt:
 	@unformatted="$$(gofmt -l .)"; \
