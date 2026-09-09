@@ -43,7 +43,7 @@ jobs:
           JABRIDGE_TEST_RELEASE_ARCHIVE="$PWD/release/jabridge_1.0.0_linux_amd64.tar.gz" go test ./internal/selfupdate -count=1
           git archive --format=tar --prefix=jabridge_1.0.0_source/ HEAD | gzip -n > release/jabridge_1.0.0_source.tar.gz
           cd release
-          sha256sum *.tar.gz > SHA256SUMS
+          sha256sum -- *.tar.gz > SHA256SUMS
           for archive in *.tar.gz; do sha256sum "$archive" > "$archive.sha256"; done
       - name: Sign and verify
         env:
