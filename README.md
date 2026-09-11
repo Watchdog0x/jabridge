@@ -30,7 +30,7 @@ jabridge setup
 jabridge
 ```
 
-Make sure Go's bin folder is in your PATH. With a Go installation, use `jabridge` instead of `./jabridge` in the commands below.
+Make sure Go's bin folder is in your PATH.
 
 ## Navigation
 
