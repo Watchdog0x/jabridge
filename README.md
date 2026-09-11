@@ -22,6 +22,16 @@ Follow the prompts. Then open the menu:
 ./jabridge
 ```
 
+Or install with Go 1.27.1 or newer, run setup and open the menu:
+
+```bash
+go install github.com/Watchdog0x/jabridge/cmd/jabridge@v1.0.0
+jabridge setup
+jabridge
+```
+
+Make sure Go's bin folder is in your PATH. With a Go installation, use `jabridge` instead of `./jabridge` in the commands below.
+
 ## Navigation
 
 | Key | Action |
