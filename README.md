@@ -25,7 +25,7 @@ Follow the prompts. Then open the menu:
 Or install with Go 1.27.1 or newer, run setup and open the menu:
 
 ```bash
-go install github.com/Watchdog0x/jabridge/cmd/jabridge@v1.0.1
+go install github.com/Watchdog0x/jabridge/cmd/jabridge@v1.0.2
 jabridge setup
 jabridge
 ```
@@ -54,6 +54,22 @@ With a Link 380, choose **Find headset** and put your headset in pairing mode. Q
 
 ## Update Jabridge to the latest release
 
+When you open Jabridge in a terminal, it checks for a new app version. If one
+is available, the menu shows an update screen. Press `Y` to update or `N` to
+continue. You can also use the arrow keys and Enter; No is selected by default.
+The command line asks:
+
+```text
+A new Jabridge update is available: VERSION
+Update now? (yes/no) [no]:
+```
+
+Type `yes` to update and restart, or `no` to continue. Enter also means no.
+The prompt appears before the menu or command starts. If the check fails or
+takes more than two seconds, Jabridge continues normally. Scripts and
+background services do not get the prompt.
+
+You can also update directly:
 
 ```bash
 ./jabridge update

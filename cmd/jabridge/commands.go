@@ -48,22 +48,32 @@ func runUpdate(args []string) error {
 	if *checkOnly {
 		return nil
 	}
+	return installAppUpdate(context.Background(), client, plan, os.Stdout)
+}
+
+// Both explicit updates and startup offers install the exact release that was
+// shown, using the same signature checks and post-update setup.
+func installAppUpdate(ctx context.Context, client *selfupdate.Client, plan selfupdate.Plan, output io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("find running executable: %w", err)
 	}
-	fmt.Printf("Downloading and verifying %s...\n", plan.ArchiveName)
+	if _, err := fmt.Fprintf(output, "Downloading and verifying %s...\n", plan.ArchiveName); err != nil {
+		return fmt.Errorf("show update progress: %w", err)
+	}
 	serviceWasActive, err := userServiceActive()
 	if err != nil {
 		return fmt.Errorf("check service before updating: %w", err)
 	}
-	if err := client.Install(context.Background(), plan, executable); err != nil {
+	if err := client.Install(ctx, plan, executable); err != nil {
 		return err
 	}
 	if err := completeAppUpdate(executable, serviceWasActive); err != nil {
 		return fmt.Errorf("jabridge updated to %s, but post-update setup failed: %w", plan.Version, err)
 	}
-	fmt.Printf("Updated Jabridge to %s.\n", plan.Version)
+	if _, err := fmt.Fprintf(output, "Updated Jabridge to %s.\n", plan.Version); err != nil {
+		return fmt.Errorf("app updated to %s, but status could not be shown: %w", plan.Version, err)
+	}
 	return nil
 }
 

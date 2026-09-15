@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.2 — 2026-09-15
+
+Interactive startup now checks for a new Jabridge app version and asks whether
+to update. Yes installs the signed release and restarts the same menu or
+command. No, Enter or end of input continues without updating.
+
+The TUI update screen accepts Y or N immediately and supports arrow-key
+selection with No selected by default. The update screen and main menu have
+a shared dark theme, mint highlights, softer borders and aligned menu items.
+Fixed RGB colors also keep firmware, settings and status text readable across
+terminal themes. Downloading and device startup stay inside the styled UI.
+
+The update check has a two-second timeout. Failed checks do not block normal
+use. Help, version output, JSON output, redirected streams, setup, service
+commands and the background daemon do not show the prompt. The explicit
+`jabridge update` and `jabridge update --check` commands keep their behavior.
+
 ## 1.0.1 — 2026-09-15
 
 Fix Evolve2 40 firmware updates being rejected with a message asking for an

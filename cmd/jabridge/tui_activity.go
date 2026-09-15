@@ -118,7 +118,7 @@ func setResultStatus(message string, failed bool, kind string) {
 
 const (
 	styleStatusPanel   = styleBase
-	styleStatusInfo    = "1;30;106"
-	styleStatusSuccess = "1;30;102"
-	styleStatusError   = "1;97;41"
+	styleStatusInfo    = styleHomeSelect
+	styleStatusSuccess = styleHomeSelect
+	styleStatusError   = styleAlert
 )

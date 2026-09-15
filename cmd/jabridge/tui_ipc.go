@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -65,6 +67,10 @@ func (backend *tuiIPCBackend) close() {
 }
 
 func connectTUIService() (*tuiIPCBackend, error) {
+	return connectTUIServiceWithOutput(os.Stdout)
+}
+
+func connectTUIServiceWithOutput(output io.Writer) (*tuiIPCBackend, error) {
 	lease, err := firmware.AcquireDeviceAccess()
 	if err != nil {
 		return nil, err
@@ -77,7 +83,9 @@ func connectTUIService() (*tuiIPCBackend, error) {
 		_ = client.Close()
 	}
 
-	fmt.Println("Starting Jabridge service...")
+	if _, err := fmt.Fprintln(output, "Starting Jabridge service..."); err != nil {
+		return nil, err
+	}
 	installedExecutable, err := installUserFiles()
 	if err != nil {
 		return nil, fmt.Errorf("install user service: %w", err)

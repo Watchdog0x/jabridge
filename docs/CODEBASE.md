@@ -46,6 +46,17 @@ Use [the firmware guide](FIRMWARE.md) for individual protocols and model checks.
 Application updates are separate: `cmd/jabridge/app_update.go` calls
 `internal/selfupdate`. They do not install headset firmware.
 
+`main.go` calls `app_update_prompt.go` before starting an interactive menu or
+command. The check has a short timeout, and the prompt reads only its own
+answer line. An accepted offer and `jabridge update` both call
+`installAppUpdate` in `commands.go`, then `completeAppUpdate` in
+`app_update.go` refreshes completion and the installed service copy. Startup
+offers restart the updated executable with the original arguments.
+
+`tui_app_update.go` owns the update decision screen and its single-key input.
+It stops its input reader and restores the terminal before handing control to
+the installer or main menu. `tui_theme.go` holds the shared home/update palette.
+
 ## Build and check
 
 ```sh

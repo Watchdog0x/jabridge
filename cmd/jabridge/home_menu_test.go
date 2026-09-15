@@ -57,7 +57,7 @@ func TestNormalHeaderHasNoPreviewBadge(t *testing.T) {
 	}
 }
 
-func TestQuitIsRightCenteredBelowSound(t *testing.T) {
+func TestHomeMenuLabelsStayAlignedBelowSound(t *testing.T) {
 	withMenuState(t)
 	withDeviceState(t, nil, -1, -1)
 	startMenu = []menuItem{{id: 8, label: "Sound"}, {id: 5, label: "Quit"}}
@@ -68,7 +68,7 @@ func TestQuitIsRightCenteredBelowSound(t *testing.T) {
 			menu()
 			soundCol := textColumn(t, f, 11, "Sound")
 			quitCol := textColumn(t, f, 12, "Quit")
-			if quitCol != soundCol+1 {
+			if quitCol != soundCol {
 				t.Fatalf("width %d selection %d: Sound=%d Quit=%d", w, selected, soundCol, quitCol)
 			}
 		}

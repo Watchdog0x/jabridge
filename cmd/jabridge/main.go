@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"syscall"
@@ -40,6 +41,9 @@ func main() {
 }
 
 func runApp() error {
+	if err := offerStartupAppUpdate(os.Args[1:]); err != nil {
+		return err
+	}
 
 	if len(os.Args) == 1 {
 		if err := offerDeviceAccessSetup(); err != nil {
@@ -194,7 +198,12 @@ func runDaemon() error {
 func runTUI() error {
 	for {
 		pendingFirmwareInstall = nil
-		backend, err := connectTUIService()
+		var backend *tuiIPCBackend
+		err := runTUIStartupTask("Opening Jabridge", "Getting your devices ready", func(context.Context) error {
+			var err error
+			backend, err = connectTUIServiceWithOutput(io.Discard)
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -249,7 +258,7 @@ func runTUIWithBackend(backend *tuiIPCBackend) error {
 	updateStartMenu()
 	go func() { defer close(pollDone); runTUIServiceSync(pollContext, backend) }()
 
-	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[0;40;97m")
+	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[" + styleBase + "m")
 	defer fmt.Print("\x1b[0m\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
 
 	clearScreen()

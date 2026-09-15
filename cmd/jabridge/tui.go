@@ -1149,17 +1149,17 @@ func clampSelection(selection, count int) int {
 // background so a cell is self-describing and the frame never depends on
 // whatever attributes the terminal happened to be left in.
 const (
-	styleBase     = "0;40;97"
-	styleText     = "0;40;97"
-	styleBorder   = "0;40;97"
-	styleTitle    = "1;40;96"
-	styleWarn     = "1;40;93"
-	styleSelected = "1;30;106"
-	styleAction   = "1;30;107"
-	styleAlert    = "1;97;41"
-	styleBattOK   = "1;40;92"
-	styleBattWarn = "1;40;93"
-	styleBattLow  = "1;40;91"
+	styleBase     = styleHomeBase
+	styleText     = styleHomeBase
+	styleBorder   = styleHomeBorder
+	styleTitle    = styleHomeTitle
+	styleWarn     = styleHomeWarn
+	styleSelected = styleHomeSelect
+	styleAction   = styleHomeCard
+	styleAlert    = "1;38;2;255;245;245;48;2;143;37;52"
+	styleBattOK   = styleHomeTitle
+	styleBattWarn = styleHomeWarn
+	styleBattLow  = "1;38;2;255;135;150;48;2;14;22;32"
 )
 
 // cell is one character position of a composed frame.
@@ -1172,6 +1172,7 @@ type cell struct {
 // frame and flushFrame emits it in a single write, so the terminal is never
 // shown a cleared or half-drawn screen.
 type frame struct {
+	baseStyle                                string
 	width                                    int
 	height                                   int
 	cells                                    []cell
@@ -1187,6 +1188,9 @@ func newFrame(width, height int) *frame {
 
 // resize prepares the buffer for a frame of the given size and blanks it.
 func (f *frame) resize(width, height int) {
+	if f.baseStyle == "" {
+		f.baseStyle = styleBase
+	}
 	f.clip = false
 	if width < 0 {
 		width = 0
@@ -1199,7 +1203,7 @@ func (f *frame) resize(width, height int) {
 		f.cells = make([]cell, width*height)
 	}
 	for i := range f.cells {
-		f.cells[i] = cell{ch: ' ', style: styleBase}
+		f.cells[i] = cell{ch: ' ', style: f.baseStyle}
 	}
 }
 
@@ -1214,7 +1218,7 @@ func (f *frame) setText(row, col int, text, style string) {
 		return
 	}
 	if style == "" {
-		style = styleBase
+		style = f.baseStyle
 	}
 	base := (row - 1) * f.width
 	for _, r := range text {
@@ -1245,7 +1249,7 @@ func (f *frame) render() string {
 		line := f.cells[row*f.width : (row+1)*f.width]
 		// Trailing default-styled blanks are covered by the erase below.
 		end := f.width
-		for end > 0 && line[end-1].ch == ' ' && line[end-1].style == styleBase {
+		for end > 0 && line[end-1].ch == ' ' && line[end-1].style == f.baseStyle {
 			end--
 		}
 
@@ -1257,8 +1261,8 @@ func (f *frame) render() string {
 			}
 			b.WriteRune(line[i].ch)
 		}
-		if style != styleBase {
-			b.WriteString("\033[" + styleBase + "m")
+		if style != f.baseStyle {
+			b.WriteString("\033[" + f.baseStyle + "m")
 		}
 		b.WriteString("\033[K")
 	}
@@ -1327,7 +1331,7 @@ func panelBounds() (left, right, bottom int) {
 }
 
 func menu() {
-	drawingBox()
+	drawingHomeBox()
 	renderHomeSummary()
 
 	if len(startMenu) == 0 {
@@ -1354,20 +1358,17 @@ func menu() {
 		}
 		left, right, _ := panelBounds()
 		menuWidth := min(48, right-left-6)
-		label := trimToWidth(option.label, menuWidth-4)
+		label := trimToWidth(option.label, menuWidth-6)
 		style := styleText
 		if i == currentSelection {
 			style = styleSelected
 		}
 		col := left + (right-left-menuWidth)/2
 		screen.setText(row, col, strings.Repeat(" ", menuWidth), style)
-		labelCol := labelColumnFor(label)
-		if option.id == 5 {
-			labelCol = (left + right - displayWidth(label) + 2) / 2
-		}
-		screen.setText(row, labelCol, label, style)
+		screen.setText(row, col+3, label, style)
 		if i == currentSelection {
 			screen.setText(row, col, "›", style)
+			screen.setText(row, col+menuWidth-2, "→", style)
 		}
 	}
 	drawActionBar([]string{"↑/↓ Move", "Enter Open", "Q Quit"}, -1)
@@ -1967,6 +1968,7 @@ func updateSelectionState() {
 // composeFrame paints the entire UI into the off-screen buffer and returns it.
 // It only reads state, so the same state always yields the same frame.
 func composeFrame() *frame {
+	screen.baseStyle = styleBase
 	screen.resize(width, height)
 	if width < 40 || height < 16 {
 		renderSmallTerminal()
