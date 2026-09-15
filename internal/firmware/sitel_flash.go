@@ -40,6 +40,13 @@ func prepareSitelTransfer(ctx context.Context, peer sitelRequest, images []sitel
 	if info.Mode == 1 {
 		return info, nil, errors.New("sitel endpoint is still in application mode")
 	}
+	profile, ok := sitelProfileForPID(uint16(info.ID))
+	if !ok || info.ID != uint32(JabraVendorID)<<16|uint32(profile.BootPID) {
+		return info, nil, errors.New("unsupported Sitel bootloader image identity")
+	}
+	if err := profile.validateImages(images, wanted); err != nil {
+		return info, nil, err
+	}
 	var prepared []sitelPreparedImage
 	seen := map[byte]bool{}
 	for _, image := range images {
@@ -73,9 +80,6 @@ func prepareSitelTransfer(ctx context.Context, peer sitelRequest, images []sitel
 			}
 		}
 		prepared = append(prepared, value)
-	}
-	if len(prepared) != 3 || !seen[3] || !seen[29] || !seen[27] {
-		return info, nil, errors.New("engage update requires headset, controller and tune images")
 	}
 	return info, prepared, nil
 }

@@ -26,10 +26,10 @@ jobs:
       - name: Test and build
         run: |
           make fmt vet test test-static completion-check
-          make build VERSION=1.0.0
-          test "$(dist/bin/jabridge --version)" = "Jabridge 1.0.0"
+          make build
+          test "$(dist/bin/jabridge --version)" = "Jabridge $(make -s version)"
       - name: Build arm64
-        run: GOOS=linux GOARCH=arm64 make build BUILD_DIR=dist/arm64 VERSION=1.0.0
+        run: GOOS=linux GOARCH=arm64 make build BUILD_DIR=dist/arm64
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: jabridge-linux-amd64-review

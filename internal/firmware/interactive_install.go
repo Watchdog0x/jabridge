@@ -128,10 +128,14 @@ func interactiveInstallBindingForDevices(path string, pid uint16, devices []USBD
 		return "", err
 	}
 	if isSitelManifest(manifest) {
-		if !engageRuntimePID(pid) && pid != 0x4050 {
-			return "", errors.New("select an Engage 50 II for this firmware")
+		profile, err := sitelProfileForManifest(manifest)
+		if err != nil {
+			return "", err
 		}
-		if _, _, err := loadEngageImages(path); err != nil {
+		if !profile.runtime(pid) && pid != profile.BootPID {
+			return "", fmt.Errorf("this firmware is for %s; it does not match the selected device (0b0e:%04x)", profile.Name, pid)
+		}
+		if _, _, err := loadSitelImages(path); err != nil {
 			return "", err
 		}
 	} else if isUSBDFUManifest(manifest) {

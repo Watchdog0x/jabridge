@@ -38,7 +38,7 @@ func ValidateInstallInput(args []string) error {
 		return err
 	}
 	if isSitelManifest(manifest) {
-		_, _, err := loadEngageImages(path)
+		_, _, err := loadSitelImages(path)
 		return err
 	}
 	if isExtendedCSRManifest(manifest) {

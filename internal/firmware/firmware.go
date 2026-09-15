@@ -46,9 +46,6 @@ const (
 	// Firmware download host returned by the metadata service.
 	DownloadBaseURL = "https://sdkbackend.jabra.com"
 
-	// Identify this client honestly rather than impersonating a vendor SDK.
-	UserAgent = "Jabridge/1.0.0 (+https://github.com/Watchdog0x/jabridge)"
-
 	// Timeout budget per HTTP call. Metadata is ~1KB, download can be MBs.
 	MetadataTimeout         = 15 * time.Second
 	DownloadTimeout         = 30 * time.Minute
@@ -65,6 +62,9 @@ const (
 )
 
 var commandLineRiskAccepted atomic.Bool
+
+// Keep HTTP identification consistent with normal and release builds.
+var UserAgent = "Jabridge/" + buildinfo.Version + " (+https://github.com/Watchdog0x/jabridge)"
 
 func requireHardwareWrites() error {
 	if !commandLineRiskAccepted.Load() && os.Getenv(HardwareWriteEnv) != HardwareWriteAck {
@@ -362,7 +362,7 @@ func DiagnoseFirmware(ctx context.Context, pid uint16, cacheDir string) (Firmwar
 			break
 		}
 		if protocol == 4 && NativeFirmwareProtocolSupported(pid, protocol) {
-			_, _, err := loadEngageImages(path)
+			_, _, err := loadSitelImages(path)
 			result.NativeLayout = err == nil
 			break
 		}
@@ -1214,8 +1214,8 @@ func cmdManifest(args []string) {
 		for _, image := range plan {
 			fmt.Printf("  order %d: %s; target ID %s; GNP address %s; %d HEX records verified\n", image.File.UpdateOrder, image.File.Name, image.File.SitelHidTargetID, image.File.GNPAddress, len(image.Segments))
 		}
-		if _, _, err := loadEngageImages(args[0]); err == nil {
-			fmt.Println("Image checks passed. Engage installation and recovery are a native hardware-test preview. No device was changed.")
+		if _, _, err := loadSitelImages(args[0]); err == nil {
+			fmt.Println("Image checks passed. Native Sitel installation and recovery are available for this model. No device was changed.")
 		} else {
 			fmt.Println("Image checks passed. This Sitel model is not supported by the native installer. No device was changed.")
 		}
@@ -1623,8 +1623,8 @@ func cmdInstallForTarget(args []string, validateTarget func() error, expectedDig
 		die("firmware manifest: %v", err)
 	}
 	if isSitelManifest(manifest) {
-		if err := installEngageChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
-			die("Engage firmware: %v", err)
+		if err := installSitelChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+			die("Sitel firmware: %v", err)
 		}
 		return
 	}

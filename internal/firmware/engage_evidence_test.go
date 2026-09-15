@@ -16,7 +16,7 @@ func TestEngageControllerWithoutOwnSerial(t *testing.T) {
 	state := firmwareRecoveryState{ArchiveSHA256: "fixture"}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := runEngageInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err != nil {
+	if err := runSitelInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	if w.activations != 1 || w.controllerVersion != "4.1.3" {
@@ -41,7 +41,7 @@ func TestSitelCRCOriginalUpdaterVectors(t *testing.T) {
 
 func TestSitelLinkRetriesWithoutRepeatingRequest(t *testing.T) {
 	w := makeEngageWorld(false)
-	peer := &engageHPPeer{world: w, dropAck: 2}
+	peer := &sitelBootPeer{world: w, dropAck: 2}
 	layout := sitelHIDLayout{ReportID: 10, ReportBytes: 64, MaxMessage: 1024}
 	link := &sitelLink{io: peer, in: layout, out: layout, timeout: time.Millisecond}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -67,7 +67,7 @@ func TestSitelZeroIDAndWriteBufferNotices(t *testing.T) {
 	state := firmwareRecoveryState{ArchiveSHA256: "fixture"}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := runEngageInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err != nil {
+	if err := runSitelInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	if w.writes != 96 {
@@ -78,7 +78,7 @@ func TestSitelZeroIDAndWriteBufferNotices(t *testing.T) {
 func TestEngageControllerEventTypeIsNotSubscriptionMask(t *testing.T) {
 	w := makeEngageWorld(true)
 	w.badControllerType = true
-	r := &engageRuntime{io: &engageRuntimePeer{world: w}}
+	r := &sitelRuntime{io: &sitelRuntimePeer{world: w}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	id, err := r.identify(ctx, w.device())
@@ -94,7 +94,7 @@ func TestEngageControllerDowngradeRefusedBeforeBootloader(t *testing.T) {
 	w := makeEngageWorld(true)
 	w.controllerVersion = "5.0.0"
 	state := firmwareRecoveryState{ArchiveSHA256: "fixture"}
-	if err := runEngageInstall(context.Background(), w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err == nil || w.bootMode || w.writes != 0 {
+	if err := runSitelInstall(context.Background(), w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err == nil || w.bootMode || w.writes != 0 {
 		t.Fatal("controller downgrade path guessed")
 	}
 }
@@ -105,7 +105,7 @@ func TestEngageControllerUSBRestartDoesNotReplayActivation(t *testing.T) {
 	state := firmwareRecoveryState{ArchiveSHA256: "fixture"}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := runEngageInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err != nil {
+	if err := runSitelInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	if w.activations != 1 || w.generation != 3 || w.controllerVersion != "4.1.3" {
@@ -120,7 +120,7 @@ func TestEngageRecoverySurvivesSavedRecordReload(t *testing.T) {
 	state := firmwareRecoveryState{FormatVersion: 1, ArchiveSHA256: strings.Repeat("a", 64), ProductName: "Engage fixture", FirmwareVersion: "4.1.3", TargetUSBPIDs: []string{"0x4050"}, Attempt: 1}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := runEngageInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return saveFirmwareRecoveryState(state) }, nil); err == nil {
+	if err := runSitelInstall(ctx, w, w.device(), w.images, "4.1.3", &state, func() error { return saveFirmwareRecoveryState(state) }, nil); err == nil {
 		t.Fatal("interruption expected")
 	}
 	reloaded, err := loadFirmwareRecoveryState()
@@ -130,11 +130,11 @@ func TestEngageRecoverySurvivesSavedRecordReload(t *testing.T) {
 	before := w.writes
 	wrong := w.device()
 	wrong.Serial = "replacement"
-	if err := runEngageInstall(ctx, w, wrong, w.images, "4.1.3", &reloaded, func() error { return nil }, nil); err == nil || w.writes != before {
+	if err := runSitelInstall(ctx, w, wrong, w.images, "4.1.3", &reloaded, func() error { return nil }, nil); err == nil || w.writes != before {
 		t.Fatal("replaced bootloader accepted")
 	}
 	w.failWrite = 0
-	if err := runEngageInstall(ctx, w, w.device(), w.images, "4.1.3", &reloaded, func() error { return saveFirmwareRecoveryState(reloaded) }, nil); err != nil {
+	if err := runSitelInstall(ctx, w, w.device(), w.images, "4.1.3", &reloaded, func() error { return saveFirmwareRecoveryState(reloaded) }, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := clearFirmwareRecoveryState(); err != nil {
@@ -196,7 +196,7 @@ func TestLocalEngageOriginalImagesThroughNativeUpdater(t *testing.T) {
 	if path == "" {
 		t.Skip("set JABRIDGE_TEST_ENGAGE_ARCHIVE for an isolated real-image transfer")
 	}
-	manifest, images, err := loadEngageImages(path)
+	manifest, images, err := loadSitelImages(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestLocalEngageOriginalImagesThroughNativeUpdater(t *testing.T) {
 			state := firmwareRecoveryState{ArchiveSHA256: "fixture"}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := runEngageInstall(ctx, w, w.device(), images, manifest.Version, &state, func() error { return nil }, nil); err != nil {
+			if err := runSitelInstall(ctx, w, w.device(), images, manifest.Version, &state, func() error { return nil }, nil); err != nil {
 				t.Fatal(err)
 			}
 			t.Logf("original images verified and transferred: writes=%d erases=%d controller activations=%d; no physical hardware", w.writes, w.erases, w.activations)

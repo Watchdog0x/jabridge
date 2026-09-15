@@ -10,16 +10,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type engageRawHID struct {
+type sitelRawHID struct {
 	file    *os.File
 	in, out sitelHIDLayout
 }
 
-func (h *engageRawHID) wait(ctx context.Context, events int16) error {
+func (h *sitelRawHID) wait(ctx context.Context, events int16) error {
 	_, err := (csrContextHID{transport: &HidrawTransport{f: h.file}}).wait(ctx, events)
 	return err
 }
-func (h *engageRawHID) Write(ctx context.Context, raw []byte) error {
+func (h *sitelRawHID) Write(ctx context.Context, raw []byte) error {
 	if len(raw) != h.out.ReportBytes || raw[0] != h.out.ReportID {
 		return errors.New("invalid firmware HID output layout")
 	}
@@ -43,7 +43,7 @@ func (h *engageRawHID) Write(ctx context.Context, raw []byte) error {
 		return nil
 	}
 }
-func (h *engageRawHID) Read(ctx context.Context) ([]byte, error) {
+func (h *sitelRawHID) Read(ctx context.Context) ([]byte, error) {
 	buffer := make([]byte, 256)
 	for {
 		if err := h.wait(ctx, unix.POLLIN); err != nil {
@@ -75,26 +75,26 @@ func (h *engageRawHID) Read(ctx context.Context) ([]byte, error) {
 	}
 }
 
-type engageManagementIO struct {
-	raw       *engageRawHID
+type sitelManagementIO struct {
+	raw       *sitelRawHID
 	assembler controlAssembler
 }
 
-func (h *engageManagementIO) Write(ctx context.Context, report []byte) error {
+func (h *sitelManagementIO) Write(ctx context.Context, report []byte) error {
 	if len(report) < 6 || report[0] != 5 {
-		return errors.New("invalid Engage management report")
+		return errors.New("invalid Sitel management report")
 	}
 	length := int(report[4] & 63)
 	kind := report[4] & 0xc0
 	if length < 5 || length+1 > len(report) || length == 5 && (kind != 0x80 || report[5] != 7) {
-		return errors.New("invalid Engage management length")
+		return errors.New("invalid Sitel management length")
 	}
 	if kind == 0 {
 		if length != 8 || report[5] != 13 || (report[6] != 1 && report[6] != 2) || report[7] != 5 || report[8] != 0 {
 			return errors.New("unknown firmware subscription event")
 		}
 	} else if kind != 0x40 && kind != 0x80 {
-		return errors.New("invalid Engage request flags")
+		return errors.New("invalid Sitel request flags")
 	}
 	packet := report[1 : length+1]
 	for len(packet) > 0 {
@@ -108,7 +108,7 @@ func (h *engageManagementIO) Write(ctx context.Context, report []byte) error {
 	}
 	return nil
 }
-func (h *engageManagementIO) Read(ctx context.Context) ([]byte, error) {
+func (h *sitelManagementIO) Read(ctx context.Context) ([]byte, error) {
 	for {
 		raw, err := h.raw.Read(ctx)
 		if err != nil {
@@ -125,15 +125,15 @@ func (h *engageManagementIO) Read(ctx context.Context) ([]byte, error) {
 	}
 }
 
-func openEngageRuntime(device USBDevice) (*engageRuntime, func() error, error) {
+func openSitelRuntime(device USBDevice) (*sitelRuntime, func() error, error) {
 	transport, err := openBoundManagement(device)
 	if err != nil {
 		return nil, nil, err
 	}
 	layout := transport.Layout
-	raw := &engageRawHID{file: transport.file, in: sitelHIDLayout{ReportID: layout.InputID, ReportBytes: layout.InputBytes, MaxMessage: 1024}, out: sitelHIDLayout{ReportID: layout.OutputID, ReportBytes: layout.OutputBytes, MaxMessage: 1024}}
-	io := &engageManagementIO{raw: raw, assembler: controlAssembler{layout: layout}}
-	return &engageRuntime{io: io}, transport.Close, nil
+	raw := &sitelRawHID{file: transport.file, in: sitelHIDLayout{ReportID: layout.InputID, ReportBytes: layout.InputBytes, MaxMessage: 1024}, out: sitelHIDLayout{ReportID: layout.OutputID, ReportBytes: layout.OutputBytes, MaxMessage: 1024}}
+	io := &sitelManagementIO{raw: raw, assembler: controlAssembler{layout: layout}}
+	return &sitelRuntime{io: io}, transport.Close, nil
 }
 
 // The Sitel updater selects FF54/FF55, not the FF00 runtime GNP interface.
@@ -180,9 +180,10 @@ func selectSitelLayouts(reports []HIDReport) (sitelHIDLayout, sitelHIDLayout, er
 	return in, out, nil
 }
 
-func openEngageBoot(device USBDevice) (*engageRawHID, error) {
-	if device.ProductID != 0x4050 {
-		return nil, errors.New("not an Engage bootloader PID")
+func openSitelBoot(device USBDevice) (*sitelRawHID, error) {
+	profile, ok := sitelProfileForPID(device.ProductID)
+	if !ok || device.ProductID != profile.BootPID || device.VendorID != JabraVendorID || device.ViaDongle {
+		return nil, errors.New("not a supported Sitel bootloader")
 	}
 	if err := validateUSBDevice(device); err != nil {
 		return nil, err
@@ -191,7 +192,7 @@ func openEngageBoot(device USBDevice) (*engageRawHID, error) {
 	if err != nil {
 		return nil, err
 	}
-	var selected *engageRawHID
+	var selected *sitelRawHID
 	var scanErrors []error
 	for _, node := range nodes {
 		parent, err := filepath.EvalSymlinks(filepath.Join("/sys/class/hidraw", node.Name(), "device"))
@@ -231,12 +232,12 @@ func openEngageBoot(device USBDevice) (*engageRawHID, error) {
 		if selected != nil {
 			_ = selected.file.Close()
 			_ = file.Close()
-			return nil, errors.New("multiple Engage bootloader interfaces")
+			return nil, errors.New("multiple Sitel bootloader interfaces")
 		}
-		selected = &engageRawHID{file: file, in: in, out: out}
+		selected = &sitelRawHID{file: file, in: in, out: out}
 	}
 	if selected == nil {
-		return nil, errors.Join(append([]error{errors.New("engage bootloader HID interface is unavailable")}, scanErrors...)...)
+		return nil, errors.Join(append([]error{errors.New("sitel bootloader HID interface is unavailable")}, scanErrors...)...)
 	}
 	if err := validateUSBDevice(device); err != nil {
 		_ = selected.file.Close()

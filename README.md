@@ -25,7 +25,7 @@ Follow the prompts. Then open the menu:
 Or install with Go 1.27.1 or newer, run setup and open the menu:
 
 ```bash
-go install github.com/Watchdog0x/jabridge/cmd/jabridge@v1.0.0
+go install github.com/Watchdog0x/jabridge/cmd/jabridge@v1.0.1
 jabridge setup
 jabridge
 ```
@@ -100,6 +100,8 @@ Check `jabridge-debug.txt` before sharing it. Then [open an issue](https://githu
 ## Build your own app
 
 The service shares device state and controls through IPC. Build a GNOME, KDE, Hyprland or other frontend using the [simple IPC guide](docs/IPC.md). No applet is bundled.
+
+For the source code, start with the [codebase guide](https://github.com/Watchdog0x/jabridge/blob/main/docs/CODEBASE.md).
 
 ## Thank you
 

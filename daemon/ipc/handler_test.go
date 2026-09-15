@@ -6,6 +6,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 )
 
 // mockAPI implements the API interface for testing.
@@ -111,8 +113,8 @@ func TestVersion(t *testing.T) {
 	if m["service"] != "jabridge" {
 		t.Errorf("service = %v, want jabridge", m["service"])
 	}
-	if m["version"] != "1.0.0" {
-		t.Errorf("version = %v, want 1.0.0", m["version"])
+	if m["version"] != buildinfo.Version {
+		t.Errorf("version = %v, want %s", m["version"], buildinfo.Version)
 	}
 }
 

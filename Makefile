@@ -1,5 +1,5 @@
 BINARY_NAME := jabridge
-VERSION ?= 1.0.0
+VERSION ?= $(shell sed -n 's/^var Version = "\(.*\)"/\1/p' internal/buildinfo/buildinfo.go)
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 BUILD_DIR ?= dist/bin
@@ -7,9 +7,12 @@ PREFIX ?= /usr/local
 MODULE_PATH := github.com/Watchdog0x/jabridge
 LDFLAGS := -s -w -X $(MODULE_PATH)/internal/buildinfo.Version=$(VERSION)
 
-.PHONY: all build check clean completion-check fmt install lint test test-static uninstall vet
+.PHONY: all build check clean completion-check fmt install lint test test-static uninstall version vet
 
 all: check build
+
+version:
+	@printf '%s\n' "$(VERSION)"
 
 build:
 	mkdir -p $(BUILD_DIR)

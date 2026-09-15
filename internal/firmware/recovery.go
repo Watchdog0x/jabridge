@@ -164,13 +164,18 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 		return firmwareRecoveryState{}, errors.New("firmware recovery state is incomplete")
 	}
 	if state.Protocol == 4 {
-		if !engageRuntimePID(state.RuntimePID) || state.BootPID != 0x4050 || state.USBPort == "" {
-			return firmwareRecoveryState{}, errors.New("engage recovery identity is incomplete")
+		profile, ok := sitelProfileForPID(state.RuntimePID)
+		pids, err := parseTargetPIDs(state.TargetUSBPIDs)
+		if !ok || !profile.runtime(state.RuntimePID) || state.BootPID != profile.BootPID || state.USBPort == "" || err != nil || len(pids) != 1 || pids[0] != profile.BootPID {
+			return firmwareRecoveryState{}, errors.New("sitel recovery identity does not match the firmware target")
+		}
+		if !engageHasController(state.RuntimePID) && state.ControllerIdentitySHA256 != "" {
+			return firmwareRecoveryState{}, errors.New("unexpected controller in Sitel recovery record")
 		}
 		switch state.Phase {
 		case "entering-bootloader", "flashing", "booting-runtime", "controller":
 		default:
-			return firmwareRecoveryState{}, errors.New("invalid Engage recovery phase")
+			return firmwareRecoveryState{}, errors.New("invalid Sitel recovery phase")
 		}
 		for _, value := range []string{state.TargetIdentitySHA256, state.ControllerIdentitySHA256, state.USBSerialSHA256} {
 			if value == "" {
@@ -178,11 +183,11 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 			}
 			decoded, err := hex.DecodeString(value)
 			if err != nil || len(decoded) != sha256.Size {
-				return firmwareRecoveryState{}, errors.New("invalid Engage recovery identity digest")
+				return firmwareRecoveryState{}, errors.New("invalid Sitel recovery identity digest")
 			}
 		}
 		if state.TargetIdentitySHA256 == "" {
-			return firmwareRecoveryState{}, errors.New("engage recovery headset identity is missing")
+			return firmwareRecoveryState{}, errors.New("sitel recovery headset identity is missing")
 		}
 	}
 	return state, nil

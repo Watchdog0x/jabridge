@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.1 — 2026-09-15
+
+Fix Evolve2 40 firmware updates being rejected with a message asking for an
+Engage 50 II. The shared Sitel updater now uses each model's runtime IDs,
+bootloader ID and complete image set. Evolve2 40, Evolve2 40 SE, Evolve2 30,
+Evolve2 30 SE and Connect 4h use their headset and sound-prompt images;
+Engage 50 II keeps its separate controller image and activation step.
+
+The menu, command line, debug report and recovery path use the same model
+profiles. Other Sitel models report their own unsupported model instead of
+asking for an Engage or falling through to the CSR updater.
+
+Regression checks cover every added runtime variant, wrong-model rejection,
+interrupted recovery and transfers of original firmware files through an
+isolated test peer. These checks do not establish physical update or recovery
+results for the newly added models. Other firmware families retain their
+existing support limits.
+
+Release builds and archive names now follow the application version, and the
+signed application-update test accepts the actual release version. A new
+codebase guide explains the main components and firmware flow.
+
 ## 1.0.0 — 2026-09-10
 
 The native Go rewrite, renamed from jLink to Jabridge.

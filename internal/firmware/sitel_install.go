@@ -9,25 +9,26 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
 )
 
-type engageInstallBackend interface {
-	runtime(context.Context, USBDevice) (*engageRuntime, engageIdentity, func() error, error)
+type sitelInstallBackend interface {
+	runtime(context.Context, USBDevice) (*sitelRuntime, sitelIdentity, func() error, error)
 	boot(context.Context, USBDevice) (*sitelRequester, func() error, error)
 	wait(context.Context, USBDevice, uint16) (USBDevice, error)
 }
-type nativeEngageBackend struct{}
+type nativeSitelBackend struct{}
 
-func (nativeEngageBackend) runtime(ctx context.Context, device USBDevice) (*engageRuntime, engageIdentity, func() error, error) {
+func (nativeSitelBackend) runtime(ctx context.Context, device USBDevice) (*sitelRuntime, sitelIdentity, func() error, error) {
 	ready, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var last error
 	for {
-		r, closeConnection, err := openEngageRuntime(device)
+		r, closeConnection, err := openSitelRuntime(device)
 		if err == nil {
 			id, readErr := r.identify(ready, device)
 			if readErr == nil {
@@ -38,15 +39,15 @@ func (nativeEngageBackend) runtime(ctx context.Context, device USBDevice) (*enga
 		}
 		last = err
 		if err := waitDFU(ready, 100*time.Millisecond); err != nil {
-			return nil, engageIdentity{}, nil, fmt.Errorf("engage runtime did not become ready: %v: %w", last, err)
+			return nil, sitelIdentity{}, nil, fmt.Errorf("sitel runtime did not become ready: %v: %w", last, err)
 		}
 	}
 }
-func (nativeEngageBackend) boot(ctx context.Context, device USBDevice) (*sitelRequester, func() error, error) {
+func (nativeSitelBackend) boot(ctx context.Context, device USBDevice) (*sitelRequester, func() error, error) {
 	ready, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	for {
-		raw, err := openEngageBoot(device)
+		raw, err := openSitelBoot(device)
 		if err == nil {
 			link := &sitelLink{io: raw, in: raw.in, out: raw.out, timeout: 2 * time.Second}
 			if err := link.start(ready); err != nil {
@@ -56,11 +57,11 @@ func (nativeEngageBackend) boot(ctx context.Context, device USBDevice) (*sitelRe
 			return &sitelRequester{link: link, address: 1, timeout: 30 * time.Second}, raw.file.Close, nil
 		}
 		if waitErr := waitDFU(ready, 100*time.Millisecond); waitErr != nil {
-			return nil, nil, fmt.Errorf("engage bootloader did not become ready: %v: %w", err, waitErr)
+			return nil, nil, fmt.Errorf("sitel bootloader did not become ready: %v: %w", err, waitErr)
 		}
 	}
 }
-func (nativeEngageBackend) wait(ctx context.Context, previous USBDevice, pid uint16) (USBDevice, error) {
+func (nativeSitelBackend) wait(ctx context.Context, previous USBDevice, pid uint16) (USBDevice, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return USBDevice{}, err
@@ -75,7 +76,7 @@ func (nativeEngageBackend) wait(ctx context.Context, previous USBDevice, pid uin
 					continue
 				}
 				if previous.Serial != "" && device.Serial != "" && previous.Serial != device.Serial {
-					return USBDevice{}, errors.New("USB serial changed during Engage update")
+					return USBDevice{}, errors.New("USB serial changed during Sitel update")
 				}
 				return device, nil
 			}
@@ -86,36 +87,44 @@ func (nativeEngageBackend) wait(ctx context.Context, previous USBDevice, pid uin
 	}
 }
 
-func engageDisconnect(err error) bool {
+func sitelDisconnect(err error) bool {
 	return errors.Is(err, unix.ENODEV) || errors.Is(err, unix.ENXIO) || errors.Is(err, unix.ESHUTDOWN) || errors.Is(err, io.EOF)
 }
 
-func waitEngageDevice(ctx context.Context, backend engageInstallBackend, previous USBDevice, pid uint16) (USBDevice, error) {
+func waitSitelDevice(ctx context.Context, backend sitelInstallBackend, previous USBDevice, pid uint16) (USBDevice, error) {
 	device, err := backend.wait(ctx, previous, pid)
 	if err != nil {
 		return device, err
 	}
 	if device.SysPath != previous.SysPath || device.VendorID != JabraVendorID || device.ProductID != pid || device.attachment == nil || previous.attachment == nil || device.attachment.fingerprint == previous.attachment.fingerprint || (device.Serial != "" && previous.Serial != "" && device.Serial != previous.Serial) {
-		return USBDevice{}, errors.New("engage update target changed during reconnect")
+		return USBDevice{}, errors.New("sitel update target changed during reconnect")
 	}
 	return device, nil
 }
 
 // The recovery record is bound to the archive, original runtime identity and
 // USB port. It is saved before entering the bootloader, not after a failed flash.
-func runEngageInstall(ctx context.Context, backend engageInstallBackend, device USBDevice, images []sitelPlannedImage, wanted string, state *firmwareRecoveryState, save func() error, progress func(byte, int, int)) error {
+func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device USBDevice, images []sitelPlannedImage, wanted string, state *firmwareRecoveryState, save func() error, progress func(byte, int, int)) error {
 	if backend == nil || state == nil || save == nil || state.ArchiveSHA256 == "" || wanted == "" {
-		return errors.New("incomplete Engage installation plan")
+		return errors.New("incomplete Sitel installation plan")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	profile, ok := sitelProfileForPID(device.ProductID)
+	if !ok || device.VendorID != JabraVendorID || device.ViaDongle || device.attachment == nil {
+		return errors.New("unsupported Sitel installation target")
+	}
+	if err := profile.validateImages(images, wanted); err != nil {
+		return err
+	}
+	expectedID := uint32(JabraVendorID)<<16 | uint32(profile.BootPID)
 	if state.USBSerialSHA256 != "" && device.Serial != "" && state.USBSerialSHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(device.Serial))) {
-		return errors.New("engage recovery USB identity changed")
+		return errors.New("sitel recovery USB identity changed")
 	}
 	checkpoint := func(phase string) error { state.Phase = phase; return save() }
-	var runtime *engageRuntime
-	var id engageIdentity
+	var runtime *sitelRuntime
+	var id sitelIdentity
 	var closeConnection func() error
 	defer func() {
 		if closeConnection != nil {
@@ -123,21 +132,24 @@ func runEngageInstall(ctx context.Context, backend engageInstallBackend, device 
 		}
 	}()
 	var err error
-	if engageRuntimePID(device.ProductID) {
+	if profile.runtime(device.ProductID) {
 		runtime, id, closeConnection, err = backend.runtime(ctx, device)
 		if err != nil {
 			return err
 		}
+		if id.PID != device.ProductID || id.BootPID != profile.BootPID {
+			return errors.New("sitel runtime identity does not match the installation target")
+		}
 		if id.ControllerAddress != 0 && compareVersions(id.ControllerVersion, wanted) > 0 {
 			return errors.New("controller firmware is newer than this package; refusing an unsupported controller downgrade")
 		}
-		if state.TargetIdentitySHA256 != "" && state.TargetIdentitySHA256 != engageIdentityHash(id) {
-			return errors.New("recovery belongs to a different Engage headset")
+		if state.TargetIdentitySHA256 != "" && state.TargetIdentitySHA256 != sitelIdentityHash(id) {
+			return errors.New("recovery belongs to a different Sitel headset")
 		}
 		if state.ControllerIdentitySHA256 != "" && !engageControllerMatches(state.ControllerIdentitySHA256, id) {
 			return errors.New("recovery controller identity changed")
 		}
-		state.TargetIdentitySHA256 = engageIdentityHash(id)
+		state.TargetIdentitySHA256 = sitelIdentityHash(id)
 		state.RuntimePID = id.PID
 		state.BootPID = id.BootPID
 		state.Protocol = 4
@@ -155,21 +167,21 @@ func runEngageInstall(ctx context.Context, backend engageInstallBackend, device 
 			return err
 		}
 		_, err = runtime.exchange(ctx, 1, 7, 0x80, nil)
-		if err != nil && !engageDisconnect(err) {
-			return fmt.Errorf("enter Engage bootloader: %w", err)
+		if err != nil && !sitelDisconnect(err) {
+			return fmt.Errorf("enter Sitel bootloader: %w", err)
 		}
 		_ = closeConnection()
 		closeConnection = nil
 		{
 			wait, cancel := context.WithTimeout(ctx, 30*time.Second)
-			device, err = waitEngageDevice(wait, backend, device, state.BootPID)
+			device, err = waitSitelDevice(wait, backend, device, state.BootPID)
 			cancel()
 			if err != nil {
 				return err
 			}
 		}
-	} else if device.ProductID != 0x4050 || state.Protocol != 4 || !engageRuntimePID(state.RuntimePID) || state.BootPID != 0x4050 || state.TargetIdentitySHA256 == "" || state.USBPort != filepath.Base(device.SysPath) {
-		return errors.New("bootloader recovery requires the saved Engage identity and original USB port")
+	} else if device.ProductID != profile.BootPID || state.Protocol != 4 || !profile.runtime(state.RuntimePID) || state.BootPID != profile.BootPID || state.TargetIdentitySHA256 == "" || state.USBPort != filepath.Base(device.SysPath) {
+		return errors.New("bootloader recovery requires the saved Sitel identity and original USB port")
 	}
 	{
 		if err = checkpoint("flashing"); err != nil {
@@ -181,15 +193,15 @@ func runEngageInstall(ctx context.Context, backend engageInstallBackend, device 
 		}
 		closeConnection = closeBoot
 		info, prepared, prepareErr := prepareSitelTransfer(ctx, peer, images, wanted)
-		if prepareErr != nil && info.ID == 0x0b0e4050 && info.Mode == 1 {
+		if prepareErr != nil && info.ID == expectedID && info.Mode == 1 {
 			_, err = peer.request(ctx, 5, []byte{3})
-			if err != nil && (!peer.link.lastWriteComplete || !engageDisconnect(err)) {
+			if err != nil && (!peer.link.lastWriteComplete || !sitelDisconnect(err)) {
 				return err
 			}
 			_ = closeConnection()
 			closeConnection = nil
 			wait, cancel := context.WithTimeout(ctx, 30*time.Second)
-			device, err = waitEngageDevice(wait, backend, device, state.BootPID)
+			device, err = waitSitelDevice(wait, backend, device, state.BootPID)
 			cancel()
 			if err != nil {
 				return err
@@ -204,8 +216,8 @@ func runEngageInstall(ctx context.Context, backend engageInstallBackend, device 
 		if prepareErr != nil {
 			return prepareErr
 		}
-		if info.ID != 0x0b0e4050 {
-			return errors.New("engage bootloader image identity mismatch")
+		if info.ID != expectedID {
+			return errors.New("sitel bootloader image identity mismatch")
 		}
 		for _, image := range prepared {
 			if err := transferSitelImage(ctx, peer, image, info, func(done, total int) {
@@ -225,13 +237,13 @@ func runEngageInstall(ctx context.Context, backend engageInstallBackend, device 
 			return err
 		}
 		_, err = peer.request(ctx, 5, []byte{3})
-		if err != nil && (!peer.link.lastWriteComplete || !engageDisconnect(err)) {
-			return fmt.Errorf("engage runtime boot: %w", err)
+		if err != nil && (!peer.link.lastWriteComplete || !sitelDisconnect(err)) {
+			return fmt.Errorf("sitel runtime boot: %w", err)
 		}
 		_ = closeConnection()
 		closeConnection = nil
 		wait, cancel := context.WithTimeout(ctx, 60*time.Second)
-		device, err = waitEngageDevice(wait, backend, device, state.RuntimePID)
+		device, err = waitSitelDevice(wait, backend, device, state.RuntimePID)
 		cancel()
 		if err != nil {
 			return err
@@ -242,17 +254,17 @@ func runEngageInstall(ctx context.Context, backend engageInstallBackend, device 
 		}
 	}
 activate:
-	if id.Version != wanted || engageIdentityHash(id) != state.TargetIdentitySHA256 {
-		return errors.New("engage headset firmware or identity did not verify after restart")
+	if id.Version != wanted || sitelIdentityHash(id) != state.TargetIdentitySHA256 {
+		return errors.New("sitel headset firmware or identity did not verify after restart")
 	}
 	if state.ControllerIdentitySHA256 != "" && !engageControllerMatches(state.ControllerIdentitySHA256, id) {
-		return errors.New("engage controller identity did not verify after restart")
+		return errors.New("sitel controller identity did not verify after restart")
 	}
 	if err = checkpoint("controller"); err != nil {
 		return err
 	}
 	if err = runtime.activateController(ctx, id, wanted); err != nil {
-		if !engageDisconnect(err) {
+		if !sitelDisconnect(err) {
 			return err
 		}
 		_ = closeConnection()
@@ -262,87 +274,23 @@ activate:
 	return nil
 }
 
-// A controller restart may re-enumerate the combined USB device. Re-open only
-// the original port/model and verify both identities and versions. Never replay
-// the activation command merely because its final reply was lost.
-func verifyEngageControllerReattach(ctx context.Context, backend engageInstallBackend, previous USBDevice, state *firmwareRecoveryState, wanted string) error {
-	wait, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	device, err := waitEngageDevice(wait, backend, previous, state.RuntimePID)
-	if err != nil {
-		return err
-	}
-	for {
-		_, id, closeConnection, err := backend.runtime(wait, device)
-		if err == nil {
-			_ = closeConnection()
-			if engageIdentityHash(id) != state.TargetIdentitySHA256 || !engageControllerMatches(state.ControllerIdentitySHA256, id) {
-				return errors.New("controller reconnect returned a different device")
-			}
-			if id.Version != wanted {
-				return errors.New("headset version changed during controller activation")
-			}
-			if id.ControllerVersion == wanted {
-				return nil
-			}
-		}
-		if wait.Err() != nil {
-			return fmt.Errorf("controller did not return with firmware %s: %w", wanted, wait.Err())
-		}
-		if err != nil {
-			retry, stop := context.WithTimeout(wait, time.Second)
-			next, changed := waitEngageDevice(retry, backend, device, state.RuntimePID)
-			stop()
-			if changed == nil {
-				device = next
-			}
-		}
-		if err := waitDFU(wait, 200*time.Millisecond); err != nil {
-			return err
-		}
-	}
-}
-
 func isSitelManifest(manifest *BuildVector) bool {
 	if manifest == nil {
 		return false
 	}
 	for _, file := range manifest.Files {
-		if file.SitelHidTargetID != "" {
+		if file.SitelHidTargetID != "" || strings.EqualFold(filepath.Ext(file.Name), ".hex") {
 			return true
 		}
 	}
 	return false
 }
-func loadEngageImages(path string) (*BuildVector, []sitelPlannedImage, error) {
-	manifest, files, err := parseGnVArchive(path)
+func installSitelChecked(snapshot *firmwareSnapshot, accepted bool, validateTarget func() error, preferredPID uint16) error {
+	manifest, images, err := loadSitelImages(snapshot.path)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	pids, err := parseTargetPIDs(manifest.TargetUSBPIDs)
-	if err != nil || len(pids) != 1 || pids[0] != 0x4050 {
-		return nil, nil, errors.New("not an Engage 50 II firmware package")
-	}
-	if _, err := parseVersionTriplet(manifest.Version); err != nil {
-		return nil, nil, err
-	}
-	images, err := planSitelImages(manifest, files)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(images) != 3 {
-		return nil, nil, errors.New("engage package needs three distinct images")
-	}
-	for i, target := range []string{"03", "29", "27"} {
-		if images[i].File.SitelHidTargetID != target || images[i].File.GNPAddress != "1" || images[i].File.Version != manifest.Version {
-			return nil, nil, errors.New("unsupported Engage image order or metadata")
-		}
-	}
-	return manifest, images, nil
-}
-
-func installEngageChecked(snapshot *firmwareSnapshot, accepted bool, validateTarget func() error, preferredPID uint16) error {
-	manifest, images, err := loadEngageImages(snapshot.path)
+	profile, err := sitelProfileForManifest(manifest)
 	if err != nil {
 		return err
 	}
@@ -368,10 +316,13 @@ func installEngageChecked(snapshot *firmwareSnapshot, accepted bool, validateTar
 	}
 	var candidates []USBDevice
 	for _, device := range devices {
+		if device.VendorID != JabraVendorID || device.ViaDongle {
+			continue
+		}
 		if preferredPID != 0 && device.ProductID != preferredPID {
 			continue
 		}
-		if engageRuntimePID(device.ProductID) || device.ProductID == 0x4050 && transfer.Recovery {
+		if profile.runtime(device.ProductID) || device.ProductID == profile.BootPID && transfer.Recovery {
 			if transfer.Recovery && state.USBPort != filepath.Base(device.SysPath) {
 				continue
 			}
@@ -379,11 +330,11 @@ func installEngageChecked(snapshot *firmwareSnapshot, accepted bool, validateTar
 		}
 	}
 	if len(candidates) != 1 {
-		return fmt.Errorf("connect exactly one matching Engage 50 II on its original USB port; found %d", len(candidates))
+		return fmt.Errorf("connect exactly one matching %s on its original USB port; found %d", profile.Name, len(candidates))
 	}
 	device := candidates[0]
 	lookupPID := device.ProductID
-	if lookupPID == 0x4050 {
+	if lookupPID == profile.BootPID {
 		lookupPID = state.RuntimePID
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), MetadataTimeout)
@@ -397,7 +348,7 @@ func installEngageChecked(snapshot *firmwareSnapshot, accepted bool, validateTar
 		return err
 	}
 	if !firmwareReleaseMatchesDevice(checksum, lookupPID, evidence) || evidence.HasUnspecifiedFirmwareProtocol || len(evidence.FirmwareProtocols) != 1 || evidence.FirmwareProtocols[0] != 4 {
-		return errors.New("engage firmware requires matching official protocol-4 metadata and checksum")
+		return errors.New("sitel firmware requires matching official protocol-4 metadata and checksum")
 	}
 	if previousErr == nil && previous.Protocol != 0 && previous.Protocol != 4 {
 		return errors.New("unfinished transfer uses a different firmware protocol")
@@ -407,10 +358,13 @@ func installEngageChecked(snapshot *firmwareSnapshot, accepted bool, validateTar
 		if transfer.Recovery {
 			word = "RECOVER"
 		}
-		fmt.Fprintf(os.Stderr, "Firmware: %s %s\nSelected USB: 0b0e:%04x\nKeep the headset and Link Call Control connected.\n", manifest.ProductName, manifest.Version, device.ProductID)
+		fmt.Fprintf(os.Stderr, "Firmware: %s %s\nSelected USB: 0b0e:%04x\nKeep the headset connected.\n", manifest.ProductName, manifest.Version, device.ProductID)
+		if engageHasController(lookupPID) {
+			fmt.Fprintln(os.Stderr, "Keep Link Call Control connected too.")
+		}
 		fmt.Fprintln(os.Stderr, "End calls and close other Jabra tools first.")
 		if !confirmFirmwareAction(os.Stdin, os.Stderr, word) {
-			return errors.New("engage firmware install cancelled")
+			return errors.New("sitel firmware install cancelled")
 		}
 	}
 	if validateTarget != nil {
@@ -428,7 +382,7 @@ func installEngageChecked(snapshot *firmwareSnapshot, accepted bool, validateTar
 	ctx, cancel = context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
 	lastTarget, lastPercent := byte(0), -1
-	err = runEngageInstall(ctx, nativeEngageBackend{}, device, images, manifest.Version, &state, func() error { return saveFirmwareRecoveryState(state) }, func(target byte, done, total int) {
+	err = runSitelInstall(ctx, nativeSitelBackend{}, device, images, manifest.Version, &state, func() error { return saveFirmwareRecoveryState(state) }, func(target byte, done, total int) {
 		percent := done * 100 / total
 		if target != lastTarget || percent != lastPercent {
 			fmt.Fprintf(os.Stderr, "\rFirmware target %d: %3d%%", target, percent)
@@ -439,15 +393,15 @@ func installEngageChecked(snapshot *firmwareSnapshot, accepted bool, validateTar
 		}
 	})
 	if err != nil {
-		return fmt.Errorf("engage update stopped; keep this archive for recovery: %w", err)
+		return fmt.Errorf("sitel update stopped; keep this archive for recovery: %w", err)
 	}
 	if err := clearFirmwareRecoveryState(); err != nil {
 		return err
 	}
 	if state.ControllerIdentitySHA256 != "" {
-		fmt.Fprintf(os.Stderr, "Engage firmware %s installed and verified, including Link Call Control.\n", manifest.Version)
+		fmt.Fprintf(os.Stderr, "%s firmware %s installed and verified, including Link Call Control.\n", profile.Name, manifest.Version)
 	} else {
-		fmt.Fprintf(os.Stderr, "Engage headset firmware %s installed and verified. No controller was connected.\n", manifest.Version)
+		fmt.Fprintf(os.Stderr, "%s firmware %s installed and verified.\n", profile.Name, manifest.Version)
 	}
 	return nil
 }

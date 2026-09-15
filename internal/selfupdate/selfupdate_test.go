@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -132,6 +133,14 @@ func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 	}
 	digest := sha256.Sum256(archive)
 	archiveName := "jabridge_1.0.0_linux_amd64.tar.gz"
+	releaseVersion := "1.0.0"
+	if actualArchive != "" {
+		archiveName = filepath.Base(actualArchive)
+		releaseVersion = strings.TrimSuffix(strings.TrimPrefix(archiveName, "jabridge_"), "_linux_amd64.tar.gz")
+		if archiveName != "jabridge_"+releaseVersion+"_linux_amd64.tar.gz" || releaseVersion == "" {
+			t.Fatalf("invalid release archive name: %s", archiveName)
+		}
+	}
 	checksum := []byte(fmt.Sprintf("%x  %s\n", digest, archiveName))
 	if checksumPath := os.Getenv("JABRIDGE_TEST_RELEASE_CHECKSUM"); checksumPath != "" {
 		if actualArchive == "" {
@@ -188,7 +197,7 @@ func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 		PublicKey:  publicKey,
 	}
 	plan := Plan{
-		Version:          "1.0.0",
+		Version:          releaseVersion,
 		ArchiveName:      archiveName,
 		Archive:          Asset{Name: archiveName, BrowserDownloadURL: server.URL + "/archive", Size: int64(len(archive))},
 		Checksum:         Asset{Name: archiveName + ".sha256", BrowserDownloadURL: server.URL + "/checksum", Size: int64(len(checksum))},
@@ -219,7 +228,7 @@ func TestInstallVerifiesAndReplacesBinary(t *testing.T) {
 	}
 	if actualArchive != "" {
 		output, err := exec.Command(runningPath, "--version").CombinedOutput()
-		if err != nil || string(output) != "Jabridge 1.0.0\n" {
+		if err != nil || string(output) != "Jabridge "+releaseVersion+"\n" {
 			t.Fatalf("installed release did not execute: %s; %v", output, err)
 		}
 	}

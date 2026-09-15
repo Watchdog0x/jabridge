@@ -35,7 +35,8 @@ func usbDFUProfileForPID(pid uint16) (usbDFUProfile, bool) {
 // flash is qualified. Payload validation and hardware tests remain separate.
 func NativeFirmwareProtocolSupported(pid uint16, protocol int) bool {
 	if protocol == 4 {
-		return engageRuntimePID(pid) || pid == 0x4050
+		_, known := sitelProfileForPID(pid)
+		return known
 	}
 	if protocol == 7 || protocol == 16 || protocol == 17 {
 		return true
