@@ -79,34 +79,40 @@ func TestVolumeProbeFailureNeverWrites(t *testing.T) {
 	}
 }
 
-func descriptorFixture() []byte {
-	data := []byte{18, 1, 0, 2, 0, 0, 0, 8, 0x0e, 0x0b, 0x36, 0x0e, 0x11, 1, 1, 2, 3, 1, 9, 2, 0, 0, 2, 1, 0, 0x80, 50}
-	parts := [][]byte{{9, 4, 0, 0, 0, 1, 1, 0, 0}, {9, 0x24, 1, 0, 1, 40, 0, 1, 1}, {12, 0x24, 2, 1, 1, 1, 0, 2, 3, 0, 0, 0}, {10, 0x24, 6, 2, 1, 1, 1, 0, 0, 0}, {9, 0x24, 3, 3, 1, 3, 0, 2, 0}, {9, 4, 1, 0, 0, 1, 2, 0, 0}}
-	for _, p := range parts {
-		data = append(data, p...)
-	}
-	binary.LittleEndian.PutUint16(data[20:], uint16(len(data)-18))
-	return data
-}
-
 func TestDescriptorsBindExactAudioPath(t *testing.T) {
-	d := descriptorFixture()
+	d := originalDescriptorFixture(t)
+	descriptorUnit(t, d, 2)[6] = 1 // The live device may advertise only mute.
 	info, err := Inspect(d)
 	if err != nil || info.Channels != 2 || info.Interface != 0 || info.AdvertisedVolume {
 		t.Fatal(info, err)
 	}
 	// Audio feature unit2 may omit the Volume bit. The exact firmware proof,
 	// not that bit, supplies this model's endpoint compatibility route.
-	for _, mutate := range []func([]byte){
-		func(b []byte) { b[10]++ }, func(b []byte) { b[12]++ }, func(b []byte) { b[17] = 2 },
-		func(b []byte) { b[20]++ }, func(b []byte) { b[34] = 0x20 }, func(b []byte) { b[40] = 2 },
-		func(b []byte) { b[57+4] = 4 }, func(b []byte) { b[67+7] = 7 }, func(b []byte) { b[57] = 255 },
+	for name, mutate := range map[string]func([]byte){
+		"model":          func(b []byte) { b[10]++ },
+		"firmware":       func(b []byte) { b[12]++ },
+		"configurations": func(b []byte) { b[17] = 2 },
+		"total length":   func(b []byte) { b[20]++ },
+		"audio 2":        func(b []byte) { b[34] = 0x20 },
+		"audio version":  func(b []byte) { b[40] = 2 },
+		"direct source":  func(b []byte) { descriptorUnit(t, b, 2)[4] = 1 },
+		"missing mute":   func(b []byte) { descriptorUnit(t, b, 2)[6] = 0 },
+		"mixer cycle":    func(b []byte) { descriptorUnit(t, b, 8)[5] = 2 },
+		"mixer channels": func(b []byte) { descriptorUnit(t, b, 8)[7] = 1 },
+		"monitor source": func(b []byte) { descriptorUnit(t, b, 7)[4] = 4 },
+		"microphone":     func(b []byte) { descriptorUnit(t, b, 10)[4] = 0xff },
+		"speaker type":   func(b []byte) { descriptorUnit(t, b, 3)[4] = 1; descriptorUnit(t, b, 3)[5] = 3 },
+		"output source":  func(b []byte) { descriptorUnit(t, b, 3)[7] = 7 },
+		"duplicate unit": func(b []byte) { descriptorUnit(t, b, 7)[3] = 8 },
+		"missing unit":   func(b []byte) { descriptorUnit(t, b, 7)[3] = 11 },
 	} {
-		copyData := append([]byte(nil), d...)
-		mutate(copyData)
-		if _, err := Inspect(copyData); err == nil {
-			t.Fatal("unverified audio path accepted", copyData)
-		}
+		t.Run(name, func(t *testing.T) {
+			copyData := append([]byte(nil), d...)
+			mutate(copyData)
+			if _, err := Inspect(copyData); err == nil {
+				t.Fatal("unverified audio path accepted")
+			}
+		})
 	}
 	if Supported(0x24c7, Firmware) || Supported(ProductID, "1.12.0") || !Supported(ProductID, Firmware) {
 		t.Fatal("unsupported models/firmware enabled")

@@ -2,7 +2,7 @@ package headsetvolume
 
 import (
 	"encoding/binary"
-	"errors"
+	"fmt"
 )
 
 type Descriptor struct {
@@ -11,35 +11,45 @@ type Descriptor struct {
 	AdvertisedVolume bool
 }
 
-// Require the exact firmware's Audio 1 playback chain: USB streaming input 1,
-// feature unit 2, and speaker output 3. This also works when the live descriptor
-// advertises only mute, as reported in issue 44. The firmware-specific volume
-// route is enabled by profile evidence, never by an absent descriptor bit.
+// DescriptorError contains only parser reasons and numeric USB descriptor fields.
+// It is safe to include in a debug report without exposing paths or device names.
+type DescriptorError struct{ detail string }
+
+func (e *DescriptorError) Error() string { return e.detail }
+
+func descriptorError(format string, args ...any) error {
+	return &DescriptorError{detail: fmt.Sprintf(format, args...)}
+}
+
+// Require the exact firmware's Audio 1 playback chain: USB input 1, mixer 8,
+// feature unit 2, and headset output 3. Mixer 8 also takes microphone monitoring
+// from feature 7. The volume bit may be absent; the exact firmware profile,
+// rather than that descriptor bit, establishes the endpoint compatibility route.
 func Inspect(data []byte) (Descriptor, error) {
 	var result Descriptor
 	if len(data) < 18 || data[0] != 18 || data[1] != 1 || binary.LittleEndian.Uint16(data[8:]) != VendorID || binary.LittleEndian.Uint16(data[10:]) != ProductID || binary.LittleEndian.Uint16(data[12:]) != 0x0111 || data[17] != 1 {
-		return result, errors.New("not the validated Evolve2 30 SE USB firmware")
+		return result, descriptorError("not the validated Evolve2 30 SE USB firmware")
 	}
 	if len(data) < 27 || data[18] != 9 || data[19] != 2 || int(binary.LittleEndian.Uint16(data[20:])) != len(data)-18 {
-		return result, errors.New("invalid or multiple USB configurations")
+		return result, descriptorError("invalid or multiple USB configurations")
 	}
-	active, found, header, input, feature, output := false, false, false, false, false, false
-	featureLength, controlLength, expectedControlLength := 0, 0, 0
-	seen := map[byte]bool{}
+	active, found, header := false, false, false
+	controlLength, expectedControlLength := 0, 0
+	units := map[byte][]byte{}
 	for offset := 27; offset < len(data); {
 		if offset+2 > len(data) || data[offset] < 2 || offset+int(data[offset]) > len(data) {
-			return result, errors.New("truncated USB descriptor")
+			return result, descriptorError("truncated USB descriptor")
 		}
 		item := data[offset : offset+int(data[offset])]
 		offset += len(item)
 		if item[1] == 4 {
 			if len(item) != 9 {
-				return result, errors.New("invalid USB interface descriptor")
+				return result, descriptorError("invalid USB interface descriptor")
 			}
 			active = item[5] == 1 && item[6] == 1
 			if active {
 				if found || item[3] != 0 || item[7] != 0 {
-					return result, errors.New("unsupported or ambiguous USB audio control interface")
+					return result, descriptorError("unsupported or ambiguous USB audio control interface")
 				}
 				found = true
 				result.Interface = item[2]
@@ -50,48 +60,47 @@ func Inspect(data []byte) (Descriptor, error) {
 			continue
 		}
 		if len(item) < 3 {
-			return result, errors.New("short audio control descriptor")
+			return result, descriptorError("short audio control descriptor")
 		}
 		controlLength += len(item)
 		if item[2] >= 2 && item[2] <= 8 {
-			if len(item) < 4 || seen[item[3]] {
-				return result, errors.New("ambiguous audio unit identity")
+			if len(item) < 4 || units[item[3]] != nil {
+				return result, descriptorError("ambiguous audio unit identity")
 			}
-			seen[item[3]] = true
+			units[item[3]] = item
 		}
-		switch item[2] {
-		case 1:
+		if item[2] == 1 {
 			if header || len(item) < 8 || len(item) != 8+int(item[7]) || binary.LittleEndian.Uint16(item[3:]) != 0x0100 {
-				return result, errors.New("headset volume requires USB Audio 1")
+				return result, descriptorError("headset volume requires USB Audio 1")
 			}
 			header = true
 			expectedControlLength = int(binary.LittleEndian.Uint16(item[5:]))
-		case 2, 3, 6:
-			if item[3] == 1 {
-				if item[2] != 2 || len(item) != 12 || binary.LittleEndian.Uint16(item[4:]) != 0x0101 || item[7] < 1 || item[7] > 2 {
-					return result, errors.New("unexpected USB playback terminal")
-				}
-				input = true
-				result.Channels = item[7]
-			}
-			if item[3] == 2 {
-				if item[2] != 6 || len(item) < 8 || item[4] != 1 || item[5] != 1 || item[6]&1 == 0 {
-					return result, errors.New("unexpected headset playback feature unit")
-				}
-				feature = true
-				featureLength = len(item)
-				result.AdvertisedVolume = item[6]&2 != 0
-			}
-			if item[3] == 3 {
-				if item[2] != 3 || len(item) != 9 || binary.LittleEndian.Uint16(item[4:]) != 0x0301 || item[7] != 2 {
-					return result, errors.New("unexpected headset speaker terminal")
-				}
-				output = true
-			}
 		}
 	}
-	if !header || !input || !feature || !output || featureLength != 8+int(result.Channels) || controlLength != expectedControlLength {
-		return result, errors.New("headset playback volume path is incomplete")
+	if !header || controlLength != expectedControlLength {
+		return result, descriptorError("headset audio control descriptors are incomplete")
 	}
+	input := units[1]
+	if len(input) != 12 || input[2] != 2 || binary.LittleEndian.Uint16(input[4:]) != 0x0101 || input[7] != 2 {
+		return result, descriptorError("unexpected USB playback terminal 1; expected stereo USB input")
+	}
+	result.Channels = input[7]
+	feature := units[2]
+	if len(feature) != 8+int(result.Channels) || feature[2] != 6 || feature[4] != 8 || feature[5] != 1 || feature[6]&1 == 0 {
+		return result, descriptorError("unexpected headset playback feature unit 2; expected source mixer 8 and master mute")
+	}
+	mixer := units[8]
+	if len(mixer) != 13 || mixer[2] != 4 || mixer[4] != 2 || mixer[5] != 1 || mixer[6] != 7 || mixer[7] != result.Channels {
+		return result, descriptorError("unexpected headset mixer 8; expected USB input 1 and monitor feature 7")
+	}
+	monitor, microphone := units[7], units[10]
+	if len(monitor) != 9 || monitor[2] != 6 || monitor[4] != 10 || monitor[5] != 1 || len(microphone) != 12 || microphone[2] != 2 || binary.LittleEndian.Uint16(microphone[4:]) != 0x0201 || microphone[7] != 2 {
+		return result, descriptorError("unexpected headset monitor path; expected microphone 10 through feature 7")
+	}
+	output := units[3]
+	if len(output) != 9 || output[2] != 3 || binary.LittleEndian.Uint16(output[4:]) != 0x0402 || output[7] != 2 {
+		return result, descriptorError("unexpected headset output terminal 3; expected headset output from feature 2")
+	}
+	result.AdvertisedVolume = feature[6]&2 != 0
 	return result, nil
 }

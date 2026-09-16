@@ -110,7 +110,7 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 		} else if info, err := device.volumeAttachment.Descriptor(); err != nil {
 			add("headset volume descriptors", "BLOCKED", protocolDiagnosticError(err))
 		} else {
-			add("headset volume descriptors", "INFO", fmt.Sprintf("USB Audio 1; interface=%d; playback feature=2; channels=%d; advertised-volume=%t. Cached descriptors only; no volume request sent.", info.Interface, info.Channels, info.AdvertisedVolume))
+			add("headset volume descriptors", "INFO", fmt.Sprintf("USB Audio 1; interface=%d; playback path=1->8->2->3; channels=%d; advertised-volume=%t. Cached descriptors only; no volume request sent.", info.Interface, info.Channels, info.AdvertisedVolume))
 		}
 	}
 	for _, feature := range []string{"setting writes and read-back", "pairing/reset", "firmware installation/recovery", "microphone and speaker audio quality", "button/wheel behavior", "meeting-app call control", "USB reconnect and power cycle"} {
@@ -122,6 +122,10 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 func protocolDiagnosticError(err error) string {
 	if err == nil {
 		return "ready"
+	}
+	var descriptorErr *headsetvolume.DescriptorError
+	if errors.As(err, &descriptorErr) {
+		return descriptorErr.Error()
 	}
 	message := strings.ToLower(err.Error())
 	switch {
