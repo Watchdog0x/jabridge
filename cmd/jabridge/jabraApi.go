@@ -800,7 +800,7 @@ func registerUSBDevice(usbDevice usbDev) (*jabra_DeviceInfo, bool) {
 		powerSupply:      findPowerSupplyPath(usbDevice.vendorID, usbDevice.productID, usbDevice.serial),
 		featureFlags:     &featureFlags{},
 	}
-	if device.productID == headsetvolume.ProductID {
+	if headsetvolume.KnownModel(device.productID) {
 		device.volumeAttachment, _ = headsetvolume.Capture(device.usbDevicePath)
 	}
 	if device.isDongle {

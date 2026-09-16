@@ -50,10 +50,16 @@ You do not need to update firmware or reset your device to test it.
 
 ## Evolve2 30 SE volume test
 
-The direct volume command currently targets USB product 0b0e:0e36 with firmware
+Hardware testing has focused on USB product 0b0e:0e36 with firmware
 1.11.0. USB request handling, all 16 internal levels, and the digital gain path
 have passed execution of the original firmware in a bounded emulator. This
 models USB, storage, scheduling and DSP boundaries; it is not an audible test.
+
+The reporter in issue #44 has now confirmed that writes change audible volume
+on 0b0e:0e36 with firmware 1.11.0. The additional 0e37/0e38/0e39 descriptor
+profiles and the saved-level read have software evidence only. Silent audio
+after reconnecting is under investigation; the reporter is comparing reconnects
+with the service disabled before attributing it to Jabridge.
 
 The test build needs the new USB access rule from `jabridge setup`. Keep Linux
 volume steady while testing `jabridge headset volume 50`. A write response means
@@ -66,3 +72,9 @@ host-volume modes emitted a normal volume key when reaching an internal end
 level. Jabridge does not call PipeWire for this command, but it does not suppress
 those device-generated keys. Check both the audible result and Linux's volume
 when testing. This behavior is retained in the emulator evidence.
+
+`jabridge headset volume info` shows support without querying volume. The
+explicit `get` command reports the saved value and labels it accordingly.
+It cannot establish current loudness or successful playback. The debug report
+now also records the standard analog/digital profile, playback node/link state,
+and PipeWire percentage without private stream or profile names.

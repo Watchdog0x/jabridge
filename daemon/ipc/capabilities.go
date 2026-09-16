@@ -23,6 +23,12 @@ func serviceCapabilities(api API) ServiceCapabilities {
 		// so keep this explicit operation out of automatic read-only probing.
 		c.Changes = append(c.Changes, "device.volume")
 	}
+	if _, ok := api.(HeadsetVolumeReadAPI); ok {
+		c.Reads = append(c.Reads, "device.volume.info")
+		// Even GET_CUR can initialize firmware state. Only the explicit get
+		// command performs it; background capability checks read metadata.
+		c.Changes = append(c.Changes, "device.volume.get")
+	}
 	if _, ok := api.(SearchAPI); ok {
 		c.Reads = append(c.Reads, "bt.search.status")
 		c.Changes = append(c.Changes, "bt.search.stop")

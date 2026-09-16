@@ -104,7 +104,7 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 		}
 	}
 	checks = append(checks, diagnoseSettings(device, capabilities, ready)...)
-	if device.productID == headsetvolume.ProductID && device.deviceConnection == deviceConnectionType_USB {
+	if headsetvolume.KnownModel(device.productID) && device.deviceConnection == deviceConnectionType_USB {
 		if !headsetvolume.Supported(device.productID, device.firmwareVersion) {
 			add("headset volume", "UNAVAILABLE", "This direct volume path requires firmware 1.11.0.")
 		} else if info, err := device.volumeAttachment.Descriptor(); err != nil {

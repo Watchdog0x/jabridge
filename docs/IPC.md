@@ -155,7 +155,24 @@ and `topology`, as returned by `devices.list`. Supply integer `percent` from
 0 through 100 to request a level. The response contains `percent` and the signed USB `code`.
 A write response acknowledges the request, not immediate persistent readback.
 
-This currently covers direct USB Evolve2 30 SE (0b0e:0e36), firmware 1.11.0,
-with the expected USB Audio 1 playback path. It is serialized with device
+This covers the profiled direct USB Evolve2 30 SE variants, firmware 1.11.0,
+with their expected USB Audio 1 playback paths. It is serialized with device
 selection and settings changes. No PipeWire volume request is issued. Firmware-generated volume keys are not
 suppressed, so a desktop may still react to a volume key at an internal limit.
+
+`device.volume.info` takes the same captured `target` and returns per-model,
+per-firmware, per-connection capabilities. It reads metadata only. `read` is
+`saved` or `unavailable`; `setPercent` describes percentage writes. An
+unsupported combination includes a `reason`. Service method availability alone
+does not authorize volume changes for every connected device.
+
+`device.volume.get` takes only `target`. Its result adds `source: "saved"` to
+`percent` and `code`. This is the firmware's saved USB value, not a live playback
+reading or proof that a preceding write has been saved. GET_CUR can initialize
+firmware host-volume handling, so this method is serialized with mutations and
+is never included in automatic diagnostic reads.
+
+The profile registry includes the four original 1.11.0 USB layouts for 0e36,
+0e37, 0e38 and 0e39. Each layout has its own channel count and output-terminal
+type. Dongle connections require a separately verified headset command; a
+dongle's own USB audio controls do not authorize this direct headset route.

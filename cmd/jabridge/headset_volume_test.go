@@ -25,6 +25,8 @@ type volumeClientAPI struct {
 	percent    int
 	target     ipc.SettingTarget
 	mismatched bool
+	reads      int
+	infos      int
 }
 
 func TestHeadsetVolumePanicHistory(t *testing.T) {
@@ -46,7 +48,7 @@ func TestHeadsetVolumePanicHistory(t *testing.T) {
 	configureHistory()
 	device := &jabra_DeviceInfo{deviceID: 2, instance: strings.Repeat("a", 32), productID: headsetvolume.ProductID, firmwareVersion: headsetvolume.Firmware, deviceConnection: deviceConnectionType_USB}
 	withDeviceState(t, devices{2: device}, 2, -1)
-	openHeadsetVolume = func(context.Context, *headsetvolume.Attachment, string) (*headsetvolume.USB, error) {
+	openHeadsetVolume = func(context.Context, *headsetvolume.Attachment, uint16, string) (*headsetvolume.USB, error) {
 		panic("synthetic volume transport panic")
 	}
 	var recovered any
@@ -85,6 +87,16 @@ func (a *volumeClientAPI) SetHeadsetVolume(target ipc.SettingTarget, percent int
 		return headsetvolume.Value{Percent: percent - 1}, nil
 	}
 	return headsetvolume.Value{Percent: percent}, nil
+}
+func (a *volumeClientAPI) GetHeadsetVolume(target ipc.SettingTarget) (headsetvolume.Value, error) {
+	a.reads++
+	a.target = target
+	return headsetvolume.Value{Percent: 25, Source: "saved"}, nil
+}
+func (a *volumeClientAPI) HeadsetVolumeCapabilities(target ipc.SettingTarget) (headsetvolume.Capabilities, error) {
+	a.infos++
+	a.target = target
+	return headsetvolume.ForDevice(0x0e36, "1.11.0", "usb"), nil
 }
 func (a *volumeClientAPI) ChangeSound(pipewire.SoundTarget, string, int, string) (pipewire.SoundNode, error) {
 	return pipewire.SoundNode{}, errors.New("headset volume reached PipeWire")
@@ -133,10 +145,54 @@ func TestHeadsetVolumeCLIUsesBoundDeviceNotPipeWire(t *testing.T) {
 	if a.calls != 2 {
 		t.Fatal("incorrect request count")
 	}
+	for _, args := range [][]string{{"volume"}, {"volume", "get"}, {"volume", "info"}} {
+		command, err := parseHeadsetVolumeCommand(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err := runHeadsetVolumeCommand(client, command, &out); err != nil {
+			t.Fatal(err)
+		}
+		if command.Action == "get" && (!strings.Contains(out.String(), "Saved headset volume: 25%") || !strings.Contains(out.String(), "may differ")) {
+			t.Fatal("saved reading was described as live", out.String())
+		}
+		if command.Action == "info" && !strings.Contains(out.String(), "Set percentage: true") {
+			t.Fatal(out.String())
+		}
+	}
+	if a.calls != 2 || a.reads != 2 || a.infos != 1 {
+		t.Fatal("read or capability query changed volume", a.calls, a.reads, a.infos)
+	}
 	a.mismatched = true
 	var out bytes.Buffer
 	if err := runHeadsetVolumeClient(client, 50, &out); err == nil || !strings.Contains(err.Error(), "reply does not match") || out.Len() != 0 {
 		t.Fatal("mismatched reply reported success", err, out.String())
+	}
+}
+
+func TestHeadsetVolumeCapabilityLookupDoesNotProbeOrFallbackToDongle(t *testing.T) {
+	device := &jabra_DeviceInfo{deviceID: 2, instance: strings.Repeat("a", 32), productID: headsetvolume.ProductID, firmwareVersion: headsetvolume.Firmware, deviceConnection: deviceConnectionType_USB}
+	withDeviceState(t, devices{2: device}, 2, -1)
+	api := &jabraAPIBridge{}
+	// No USB attachment exists. A metadata-only query must still work.
+	c, err := api.HeadsetVolumeCapabilities(*settingTarget(device))
+	if err != nil || c.Read != "saved" || !c.SetPercent {
+		t.Fatal(c, err)
+	}
+	device.deviceConnection = deviceConnectionType_BT
+	c, err = api.HeadsetVolumeCapabilities(*settingTarget(device))
+	if err != nil || c.SetPercent || c.Read != "unavailable" {
+		t.Fatal("USB profile authorized a dongle path", c, err)
+	}
+	if _, err := api.SetHeadsetVolume(*settingTarget(device), 50); err == nil || !strings.Contains(err.Error(), "dongle") {
+		t.Fatal("unverified dongle route reached a write", err)
+	}
+	if _, err := api.GetHeadsetVolume(*settingTarget(device)); err == nil || !strings.Contains(err.Error(), "dongle") {
+		t.Fatal("unverified dongle route reached a query", err)
+	}
+	if _, err := api.GetHeadsetVolume(ipc.SettingTarget{ID: 2, Instance: strings.Repeat("b", 32)}); err == nil {
+		t.Fatal("stale saved-volume target accepted")
 	}
 }
 

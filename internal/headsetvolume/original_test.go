@@ -37,12 +37,9 @@ func TestLocalOriginalFirmwareDescriptors(t *testing.T) {
 		}
 		seen[v.PID] = true
 		info, err := Inspect(data)
-		if v.PID == ProductID {
-			if err != nil || info.Channels != 2 || !bytes.Equal(data, originalDescriptorFixture(t)) {
-				t.Fatal("original supported topology does not match regression fixture", info, err)
-			}
-		} else if err == nil {
-			t.Fatalf("unsupported PID %04x accepted", v.PID)
+		profile, known := profileForPID(v.PID)
+		if !known || err != nil || info.Channels != profile.channels || !bytes.Equal(data, originalModelDescriptors(t)[v.PID]) {
+			t.Fatal("original supported topology does not match model fixture", v.PID, info, err)
 		}
 	}
 	if !seen[ProductID] {

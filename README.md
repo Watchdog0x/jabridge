@@ -79,7 +79,7 @@ This updates the app, not your device firmware.
 
 ## Headset volume (experimental)
 
-For Evolve2 30 SE (0b0e:0e36) with firmware 1.11.0, connected directly by USB:
+For supported Evolve2 30 SE models with firmware 1.11.0, connected directly by USB:
 
 ```sh
 jabridge headset volume 50
@@ -90,8 +90,26 @@ The headset rounds requests to its internal steps. At a volume limit, it may
 also send a normal volume key to Linux.
 `jabridge sound volume` controls Linux volume separately.
 
-This new path has passed original firmware emulation. Testing on the reported
-headset is still pending for issue #44.
+Check support for your selected model and connection:
+
+```sh
+jabridge headset volume info
+```
+
+Read the saved headset level:
+
+```sh
+jabridge headset volume get
+```
+
+The saved level can differ from the current playback volume. Running
+`jabridge headset volume` without a value also reads the saved level.
+
+Volume writes are confirmed on the Evolve2 30 SE from [issue #44](https://github.com/Watchdog0x/jabridge/issues/44).
+The four USB variants (0e36, 0e37, 0e38 and 0e39) have model-specific checks tested
+against their original firmware. Other variants and the saved-level command
+still need physical testing. A verified headset-volume command through a Link
+dongle is still being investigated; it is not enabled yet.
 
 ## Device firmware
 

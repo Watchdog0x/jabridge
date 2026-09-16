@@ -147,3 +147,10 @@ route so Linux keeps its audio driver attached. It does not reset the device.
 An internal probe checks the saved USB value before each write. Writes report USB request acceptance;
 the firmware applies and saves changes asynchronously. History records these
 requests separately from PipeWire changes.
+
+`internal/headsetvolume/profiles.go` selects supported operations by model,
+firmware and connection. The client asks the service for support through
+`device.volume.info`, so the CLI does not maintain its own model allowlist.
+`device.volume.get` is an explicit saved-level read. Discovery and debug never
+run it automatically. A new transport needs its own verified protocol profile;
+the existing USB request must not be redirected to a dongle audio interface.

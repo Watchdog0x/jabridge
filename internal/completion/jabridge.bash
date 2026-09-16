@@ -13,7 +13,7 @@ _jabridge_completion() {
             if (( COMP_CWORD == 2 )); then
                 mapfile -t COMPREPLY < <(compgen -W 'volume --help' -- "$current")
             elif [[ "${COMP_WORDS[2]}" == "volume" && $COMP_CWORD -eq 3 ]]; then
-                mapfile -t COMPREPLY < <(compgen -W '0 10 20 30 40 50 60 70 80 90 100' -- "$current")
+                mapfile -t COMPREPLY < <(compgen -W 'get info 0 10 20 30 40 50 60 70 80 90 100' -- "$current")
             fi
             ;;
         history)

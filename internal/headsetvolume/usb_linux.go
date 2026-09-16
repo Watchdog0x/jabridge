@@ -24,6 +24,7 @@ type Attachment struct {
 	path         string
 	info         os.FileInfo
 	bus, address int
+	profile      usbProfile
 }
 
 func address(path string) (int, int, error) {
@@ -58,7 +59,16 @@ func Capture(path string) (*Attachment, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Attachment{path: real, info: info, bus: bus, address: device}
+	pidBytes, err := os.ReadFile(filepath.Join(real, "idProduct"))
+	if err != nil {
+		return nil, err
+	}
+	pid, err := strconv.ParseUint(strings.TrimSpace(string(pidBytes)), 16, 16)
+	profile, known := profileForPID(uint16(pid))
+	if err != nil || !known {
+		return nil, errors.New("no headset volume profile for this USB model")
+	}
+	a := &Attachment{path: real, info: info, bus: bus, address: device, profile: profile}
 	if err := a.validate(); err != nil {
 		return nil, err
 	}
@@ -77,7 +87,7 @@ func (a *Attachment) validate() error {
 	if err != nil || bus != a.bus || device != a.address {
 		return errors.New("headset USB address changed; select it again")
 	}
-	for name, wanted := range map[string]uint64{"idVendor": VendorID, "idProduct": ProductID, "bcdDevice": 0x0111} {
+	for name, wanted := range map[string]uint64{"idVendor": VendorID, "idProduct": uint64(a.profile.pid), "bcdDevice": 0x0111} {
 		b, err := os.ReadFile(filepath.Join(a.path, name))
 		if err != nil {
 			return err
@@ -109,6 +119,9 @@ func (a *Attachment) Descriptor() (Descriptor, error) {
 	if err != nil {
 		return Descriptor{}, err
 	}
+	if binary.LittleEndian.Uint16(data[10:]) != a.profile.pid {
+		return Descriptor{}, errors.New("cached headset descriptors belong to a different model")
+	}
 	if err := a.validate(); err != nil {
 		return Descriptor{}, err
 	}
@@ -117,12 +130,12 @@ func (a *Attachment) Descriptor() (Descriptor, error) {
 
 // Open sends only a standard device-descriptor read. No interface is claimed,
 // no kernel driver is detached, and no USB configuration or reset is issued.
-func Open(ctx context.Context, a *Attachment, version string) (*USB, error) {
-	if !Supported(ProductID, version) {
-		return nil, errors.New("direct headset volume is not validated for this firmware")
-	}
+func Open(ctx context.Context, a *Attachment, pid uint16, version string) (*USB, error) {
 	if err := a.validate(); err != nil {
 		return nil, err
+	}
+	if a.profile.pid != pid || !Supported(pid, version) {
+		return nil, errors.New("direct headset volume is not validated for this firmware")
 	}
 	if _, err := a.Descriptor(); err != nil {
 		return nil, err
@@ -146,7 +159,7 @@ func Open(ctx context.Context, a *Attachment, version string) (*USB, error) {
 	if err != nil {
 		return fail(err)
 	}
-	if n != 18 || actual[0] != 18 || actual[1] != 1 || binary.LittleEndian.Uint16(actual[8:]) != VendorID || binary.LittleEndian.Uint16(actual[10:]) != ProductID || binary.LittleEndian.Uint16(actual[12:]) != 0x0111 {
+	if n != 18 || actual[0] != 18 || actual[1] != 1 || binary.LittleEndian.Uint16(actual[8:]) != VendorID || binary.LittleEndian.Uint16(actual[10:]) != a.profile.pid || binary.LittleEndian.Uint16(actual[12:]) != 0x0111 {
 		return fail(errors.New("opened headset volume device has a different identity"))
 	}
 	if err := a.validate(); err != nil {

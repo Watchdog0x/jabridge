@@ -18,14 +18,13 @@ const (
 	maximum   = 12 * 256
 )
 
-func Supported(pid uint16, version string) bool { return pid == ProductID && version == Firmware }
-
 // Value describes the USB volume code, not a measured loudness. The firmware
 // rounds requests to its internal gain steps. GET_CUR returns its saved level;
 // recent physical button changes need not have been saved yet.
 type Value struct {
-	Percent int   `json:"percent"`
-	Code    int16 `json:"code"`
+	Percent int    `json:"percent"`
+	Code    int16  `json:"code"`
+	Source  string `json:"source,omitempty"`
 }
 
 type Control interface {
@@ -58,6 +57,17 @@ func readSaved(ctx context.Context, usb Control) (Value, error) {
 		return Value{}, errors.New("headset returned an unsupported volume range")
 	}
 	return Value{Code: code, Percent: (int(code) - minimum) * 100 / (maximum - minimum)}, nil
+}
+
+// ReadSaved is an explicit diagnostic operation. The returned value can lag
+// playback and is not a live volume readback. It may initialize the firmware's
+// host-volume handling, so it must not run automatically during discovery.
+func ReadSaved(ctx context.Context, usb Control) (Value, error) {
+	v, err := readSaved(ctx, usb)
+	if err == nil {
+		v.Source = "saved"
+	}
+	return v, err
 }
 
 func Set(ctx context.Context, usb Control, percent int) (Value, error) {

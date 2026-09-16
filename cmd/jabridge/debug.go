@@ -418,6 +418,9 @@ func writeAudioDiagnostic(out *bytes.Buffer) {
 				if node.Muted != nil {
 					fmt.Fprintf(out, "    PipeWire muted=%t (not necessarily the hardware mute state)\n", *node.Muted)
 				}
+				if node.Volume != nil && *node.Volume >= 0 && *node.Volume <= 100 {
+					fmt.Fprintf(out, "    PipeWire volume=%d%% (separate from the headset's own volume)\n", *node.Volume)
+				}
 			}
 			fmt.Fprintln(out, "Bluetooth audio visibility does not imply native headset settings or firmware support.")
 		}
@@ -430,6 +433,7 @@ func writeAudioDiagnostic(out *bytes.Buffer) {
 	fmt.Fprintf(out, "INFO: %d Jabra outputs, %d Jabra microphones\n", len(snapshot.JabraSinkNodes()), len(snapshot.JabraSourceNodes()))
 	fmt.Fprintf(out, "INFO: communication stream detected on a Jabra microphone=%t\n", pipewire.DetectCall(snapshot).InCall)
 	writeAudioFlowDiagnostic(out, snapshot)
+	writePlaybackDiagnostic(out, snapshot)
 	fmt.Fprintln(out, "A mono microphone is normal. A two-channel USB output does not establish stereo quality across the dongle's wireless link.")
 	fmt.Fprintln(out, "For Jabra Link recovery: sound music removes the USB microphone; sound calls restores it. Muting alone does not close an application's recording stream.")
 	fmt.Fprintln(out, "NOT TESTED: audible playback, microphone quality and button-to-call integration.")

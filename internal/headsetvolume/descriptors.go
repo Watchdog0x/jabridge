@@ -27,8 +27,12 @@ func descriptorError(format string, args ...any) error {
 // rather than that descriptor bit, establishes the endpoint compatibility route.
 func Inspect(data []byte) (Descriptor, error) {
 	var result Descriptor
-	if len(data) < 18 || data[0] != 18 || data[1] != 1 || binary.LittleEndian.Uint16(data[8:]) != VendorID || binary.LittleEndian.Uint16(data[10:]) != ProductID || binary.LittleEndian.Uint16(data[12:]) != 0x0111 || data[17] != 1 {
+	if len(data) < 18 || data[0] != 18 || data[1] != 1 || binary.LittleEndian.Uint16(data[8:]) != VendorID || binary.LittleEndian.Uint16(data[12:]) != 0x0111 || data[17] != 1 {
 		return result, descriptorError("not the validated Evolve2 30 SE USB firmware")
+	}
+	profile, ok := profileForPID(binary.LittleEndian.Uint16(data[10:]))
+	if !ok {
+		return result, descriptorError("no validated headset volume descriptor profile for this model")
 	}
 	if len(data) < 27 || data[18] != 9 || data[19] != 2 || int(binary.LittleEndian.Uint16(data[20:])) != len(data)-18 {
 		return result, descriptorError("invalid or multiple USB configurations")
@@ -81,8 +85,8 @@ func Inspect(data []byte) (Descriptor, error) {
 		return result, descriptorError("headset audio control descriptors are incomplete")
 	}
 	input := units[1]
-	if len(input) != 12 || input[2] != 2 || binary.LittleEndian.Uint16(input[4:]) != 0x0101 || input[7] != 2 {
-		return result, descriptorError("unexpected USB playback terminal 1; expected stereo USB input")
+	if len(input) != 12 || input[2] != 2 || binary.LittleEndian.Uint16(input[4:]) != 0x0101 || input[7] != profile.channels {
+		return result, descriptorError("unexpected USB playback terminal 1; expected %d channels for this model", profile.channels)
 	}
 	result.Channels = input[7]
 	feature := units[2]
@@ -98,8 +102,8 @@ func Inspect(data []byte) (Descriptor, error) {
 		return result, descriptorError("unexpected headset monitor path; expected microphone 10 through feature 7")
 	}
 	output := units[3]
-	if len(output) != 9 || output[2] != 3 || binary.LittleEndian.Uint16(output[4:]) != 0x0402 || output[7] != 2 {
-		return result, descriptorError("unexpected headset output terminal 3; expected headset output from feature 2")
+	if len(output) != 9 || output[2] != 3 || binary.LittleEndian.Uint16(output[4:]) != profile.outputTerminal || output[7] != 2 {
+		return result, descriptorError("unexpected headset output terminal 3; expected type %04x from feature 2", profile.outputTerminal)
 	}
 	result.AdvertisedVolume = feature[6]&2 != 0
 	return result, nil

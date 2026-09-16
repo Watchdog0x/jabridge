@@ -533,3 +533,19 @@ func (a *busylightAPI) SetHeadsetVolume(target ipc.SettingTarget, percent int) (
 	}
 	return volume.SetHeadsetVolume(target, percent)
 }
+
+func (a *busylightAPI) GetHeadsetVolume(target ipc.SettingTarget) (headsetvolume.Value, error) {
+	volume, ok := a.API.(ipc.HeadsetVolumeReadAPI)
+	if !ok {
+		return headsetvolume.Value{}, errors.New("headset volume reads are unavailable")
+	}
+	return volume.GetHeadsetVolume(target)
+}
+
+func (a *busylightAPI) HeadsetVolumeCapabilities(target ipc.SettingTarget) (headsetvolume.Capabilities, error) {
+	volume, ok := a.API.(ipc.HeadsetVolumeReadAPI)
+	if !ok {
+		return headsetvolume.Capabilities{}, errors.New("headset volume capabilities are unavailable")
+	}
+	return volume.HeadsetVolumeCapabilities(target)
+}
