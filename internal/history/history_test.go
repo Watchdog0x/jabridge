@@ -295,3 +295,27 @@ func TestInterruptedProcessLeavesStartForLaterDebug(t *testing.T) {
 		t.Fatal(events, err)
 	}
 }
+
+func TestHeadsetVolumeHistoryKeepsOnlyBoundedRequests(t *testing.T) {
+	for _, value := range []int{0, 50, 100} {
+		event := sanitize(Event{Component: "device", Action: "volume", Phase: "ok", Command: "headset", Subcommand: "volume", Method: "device.volume", VolumePercent: &value})
+		if event.VolumePercent == nil || *event.VolumePercent != value || event.Action != "volume" || event.Method != "device.volume" {
+			t.Fatal("volume history was lost", event)
+		}
+		if !strings.Contains(Describe(event), "requested-volume=") {
+			t.Fatal("volume request described as an observation")
+		}
+	}
+	for _, value := range []int{-1, 101} {
+		if sanitize(Event{Component: "device", Action: "volume", VolumePercent: &value}).VolumePercent != nil {
+			t.Fatal("out of range history value retained")
+		}
+	}
+	value := 50
+	if sanitize(Event{Component: "device", Action: "settings", VolumePercent: &value}).VolumePercent != nil {
+		t.Fatal("unrelated event carries a volume request")
+	}
+	if !TraceMethod("device.volume") {
+		t.Fatal("headset volume request not traced")
+	}
+}

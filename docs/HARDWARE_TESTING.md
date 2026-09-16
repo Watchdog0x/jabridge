@@ -47,3 +47,22 @@ You do not need to update firmware or reset your device to test it.
    ```
 
 2. Type `RECOVER` when asked. Leave everything plugged in until it finishes. If it fails or recovery is unavailable, stop and [send a debug report](#how-to-test).
+
+## Evolve2 30 SE volume test
+
+The direct volume command currently targets USB product 0b0e:0e36 with firmware
+1.11.0. USB request handling, all 16 internal levels, and the digital gain path
+have passed execution of the original firmware in a bounded emulator. This
+models USB, storage, scheduling and DSP boundaries; it is not an audible test.
+
+The test build needs the new USB access rule from `jabridge setup`. Keep Linux
+volume steady while testing `jabridge headset volume 50`. A write response means
+the headset accepted the request. Its saved value can lag behind the active
+volume. Send the latest `jabridge debug` report with the result; it includes
+history, including the requested volume percentage.
+
+Expanded firmware emulation also followed the USB feedback path. Two firmware
+host-volume modes emitted a normal volume key when reaching an internal end
+level. Jabridge does not call PipeWire for this command, but it does not suppress
+those device-generated keys. Check both the audible result and Linux's volume
+when testing. This behavior is retained in the emulator evidence.

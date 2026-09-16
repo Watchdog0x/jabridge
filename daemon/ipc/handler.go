@@ -274,7 +274,7 @@ func dispatch(req Request, api API) (response Response) {
 	// Serialize entire mutation/read-back transactions across clients. The
 	// transport lock alone only protects one packet exchange at a time.
 	switch req.Method {
-	case "settings.set", "device.select", "device.reset", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.stop", "bt.search.connect":
+	case "device.volume", "settings.set", "device.select", "device.reset", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.stop", "bt.search.connect":
 		mutationMu.Lock()
 		defer mutationMu.Unlock()
 	}
@@ -314,6 +314,8 @@ func dispatch(req Request, api API) (response Response) {
 		return dispatchButtons(req, api)
 	case "sound.list", "sound.default", "sound.volume", "sound.mute", "sound.mode":
 		return dispatchSound(req, api)
+	case "device.volume":
+		return dispatchHeadsetVolume(req, api)
 	case "history.status":
 		return SuccessResponse(req.ID, history.LiveStatus())
 	case "diagnostics.device":

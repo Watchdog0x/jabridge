@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
+	"github.com/Watchdog0x/jabridge/internal/headsetvolume"
 	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
@@ -103,6 +104,15 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 		}
 	}
 	checks = append(checks, diagnoseSettings(device, capabilities, ready)...)
+	if device.productID == headsetvolume.ProductID && device.deviceConnection == deviceConnectionType_USB {
+		if !headsetvolume.Supported(device.productID, device.firmwareVersion) {
+			add("headset volume", "UNAVAILABLE", "This direct volume path requires firmware 1.11.0.")
+		} else if info, err := device.volumeAttachment.Descriptor(); err != nil {
+			add("headset volume descriptors", "BLOCKED", protocolDiagnosticError(err))
+		} else {
+			add("headset volume descriptors", "INFO", fmt.Sprintf("USB Audio 1; interface=%d; playback feature=2; channels=%d; advertised-volume=%t. Cached descriptors only; no volume request sent.", info.Interface, info.Channels, info.AdvertisedVolume))
+		}
+	}
 	for _, feature := range []string{"setting writes and read-back", "pairing/reset", "firmware installation/recovery", "microphone and speaker audio quality", "button/wheel behavior", "meeting-app call control", "USB reconnect and power cycle"} {
 		add(feature, "NOT TESTED", "Needs a separate hardware test; not exercised by this read-only report.")
 	}

@@ -56,6 +56,9 @@ func runApp() error {
 	}
 
 	var err error
+	if os.Args[1] == "headset" {
+		return runHeadset(os.Args[2:])
+	}
 	if os.Args[1] == "sound" || os.Args[1] == "audio" {
 		return runSound(os.Args[2:])
 	}
@@ -158,6 +161,7 @@ Usage:
   jabridge buttons     inspect buttons or enable optional music control
   jabridge update      update the app
   jabridge firmware    check or download device firmware
+  jabridge headset volume <0..100>   request a headset volume level
   jabridge settings    list or change supported device settings
   jabridge model       match devices with the online capability catalog
   jabridge models      browse the online Jabra model catalog

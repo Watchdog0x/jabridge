@@ -26,12 +26,19 @@ jobs:
       - name: Test and build
         run: |
           make fmt vet test test-static completion-check
-          make build
-          test "$(dist/bin/jabridge --version)" = "Jabridge $(make -s version)"
+          version="$(make -s version)-review.${GITHUB_RUN_NUMBER}"
+          echo "REVIEW_VERSION=$version" >> "$GITHUB_ENV"
+          make build VERSION="$version"
+          test "$(dist/bin/jabridge --version)" = "Jabridge $version"
       - name: Build arm64
-        run: GOOS=linux GOARCH=arm64 make build BUILD_DIR=dist/arm64
+        run: GOOS=linux GOARCH=arm64 make build BUILD_DIR=dist/arm64 VERSION="$REVIEW_VERSION"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: jabridge-linux-amd64-review
           path: dist/bin/jabridge
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jabridge-linux-arm64-review
+          path: dist/arm64/jabridge
           retention-days: 7

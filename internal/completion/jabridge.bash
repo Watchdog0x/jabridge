@@ -4,11 +4,18 @@ _jabridge_completion() {
     COMPREPLY=()
 
     if (( COMP_CWORD == 1 )); then
-        mapfile -t COMPREPLY < <(compgen -W 'status battery diagnose debug history buttons settings model models sound use firmware update setup service ipc completion daemon --version --licenses --help' -- "$current")
+        mapfile -t COMPREPLY < <(compgen -W 'status battery diagnose debug history buttons settings model models headset sound use firmware update setup service ipc completion daemon --version --licenses --help' -- "$current")
         return
     fi
 
     case "${COMP_WORDS[1]}" in
+        headset)
+            if (( COMP_CWORD == 2 )); then
+                mapfile -t COMPREPLY < <(compgen -W 'volume --help' -- "$current")
+            elif [[ "${COMP_WORDS[2]}" == "volume" && $COMP_CWORD -eq 3 ]]; then
+                mapfile -t COMPREPLY < <(compgen -W '0 10 20 30 40 50 60 70 80 90 100' -- "$current")
+            fi
+            ;;
         history)
             mapfile -t COMPREPLY < <(compgen -W 'clear --help' -- "$current")
             ;;

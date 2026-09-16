@@ -147,3 +147,15 @@ still expose Bluetooth audio controls.
 
 Field details are in `daemon/ipc/handler.go` and `daemon/ipc/capabilities.go`
 in the matching release source.
+
+### Direct headset volume
+
+`device.volume` requires `target` with the selected device's `id`, `instance`
+and `topology`, as returned by `devices.list`. Supply integer `percent` from
+0 through 100 to request a level. The response contains `percent` and the signed USB `code`.
+A write response acknowledges the request, not immediate persistent readback.
+
+This currently covers direct USB Evolve2 30 SE (0b0e:0e36), firmware 1.11.0,
+with the expected USB Audio 1 playback path. It is serialized with device
+selection and settings changes. No PipeWire volume request is issued. Firmware-generated volume keys are not
+suppressed, so a desktop may still react to a volume key at an internal limit.

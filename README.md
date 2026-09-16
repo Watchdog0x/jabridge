@@ -77,6 +77,22 @@ You can also update directly:
 
 This updates the app, not your device firmware.
 
+## Headset volume
+
+For Evolve2 30 SE (0b0e:0e36) with firmware 1.11.0, connected directly by USB:
+
+```sh
+jabridge headset volume 50
+```
+
+Start audio playback, then use this command to change the headset’s own volume.
+The headset rounds requests to its internal steps. At a volume limit, it may
+also send a normal volume key to Linux.
+`jabridge sound volume` controls Linux volume separately.
+
+This new path has passed original firmware emulation. Testing on the reported
+headset is still pending for issue #44.
+
 ## Device firmware
 
 Open **Firmware** in the menu, choose your device and press Enter. Follow the prompts to update. Keep the device plugged in until it finishes.

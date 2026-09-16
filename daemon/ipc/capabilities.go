@@ -18,6 +18,11 @@ func serviceCapabilities(api API) ServiceCapabilities {
 	if _, ok := api.(DiagnosticAPI); ok {
 		c.Reads = append(c.Reads, "diagnostics.device")
 	}
+	if _, ok := api.(HeadsetVolumeAPI); ok {
+		// The firmware's volume access can initialize host-volume handling,
+		// so keep this explicit operation out of automatic read-only probing.
+		c.Changes = append(c.Changes, "device.volume")
+	}
 	if _, ok := api.(SearchAPI); ok {
 		c.Reads = append(c.Reads, "bt.search.status")
 		c.Changes = append(c.Changes, "bt.search.stop")
