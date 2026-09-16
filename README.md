@@ -25,7 +25,7 @@ Follow the prompts. Then open the menu:
 Or install with Go 1.27.1 or newer, run setup and open the menu:
 
 ```bash
-go install github.com/Watchdog0x/jabridge/cmd/jabridge@v1.1.0
+go install github.com/Watchdog0x/jabridge/cmd/jabridge@latest
 jabridge setup
 jabridge
 ```
