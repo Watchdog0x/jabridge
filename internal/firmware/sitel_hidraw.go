@@ -3,6 +3,7 @@ package firmware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,15 +22,23 @@ func (h *sitelRawHID) wait(ctx context.Context, events int16) error {
 }
 func (h *sitelRawHID) Write(ctx context.Context, raw []byte) error {
 	if len(raw) != h.out.ReportBytes || raw[0] != h.out.ReportID {
-		return errors.New("invalid firmware HID output layout")
+		return managementNotSent(errors.New("invalid firmware HID output layout"))
 	}
+	attempted := false
 	for {
 		if err := h.wait(ctx, unix.POLLOUT); err != nil {
+			if !attempted {
+				return managementNotSent(err)
+			}
 			return err
 		}
 		if err := ctx.Err(); err != nil {
+			if !attempted {
+				return managementNotSent(err)
+			}
 			return err
 		}
+		attempted = true
 		n, err := unix.Write(int(h.file.Fd()), raw)
 		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EINTR) {
 			continue
@@ -82,28 +91,36 @@ type sitelManagementIO struct {
 
 func (h *sitelManagementIO) Write(ctx context.Context, report []byte) error {
 	if len(report) < 6 || report[0] != 5 {
-		return errors.New("invalid Sitel management report")
+		return managementNotSent(errors.New("invalid Sitel management report"))
 	}
 	length := int(report[4] & 63)
 	kind := report[4] & 0xc0
 	if length < 5 || length+1 > len(report) || length == 5 && (kind != 0x80 || report[5] != 7) {
-		return errors.New("invalid Sitel management length")
+		return managementNotSent(errors.New("invalid Sitel management length"))
 	}
 	if kind == 0 {
-		if length != 8 || report[5] != 13 || (report[6] != 1 && report[6] != 2) || report[7] != 5 || report[8] != 0 {
-			return errors.New("unknown firmware subscription event")
+		subscription := length == 8 && report[5] == 13 && (report[6] == 1 || report[6] == 2) && report[7] == 5 && report[8] == 0
+		fileData := length >= 9 && report[5] == 3 && report[6] == 0 && report[7]&0xc0 == 0x40 && int(report[7]&0x3f) == length-7
+		if !subscription && !fileData {
+			return managementNotSent(errors.New("unknown firmware subscription event"))
 		}
 	} else if kind != 0x40 && kind != 0x80 {
-		return errors.New("invalid Sitel request flags")
+		return managementNotSent(errors.New("invalid Sitel request flags"))
 	}
 	packet := report[1 : length+1]
+	written := false
 	for len(packet) > 0 {
 		frame := make([]byte, h.raw.out.ReportBytes)
 		frame[0] = h.raw.out.ReportID
 		count := copy(frame[1:], packet)
 		if err := h.raw.Write(ctx, frame); err != nil {
+			var notSent *managementNotSentError
+			if written && errors.As(err, &notSent) {
+				return fmt.Errorf("partial management request: %w", notSent.cause)
+			}
 			return err
 		}
+		written = true
 		packet = packet[count:]
 	}
 	return nil
@@ -185,6 +202,10 @@ func openSitelBoot(device USBDevice) (*sitelRawHID, error) {
 	if !ok || device.ProductID != profile.BootPID || device.VendorID != JabraVendorID || device.ViaDongle {
 		return nil, errors.New("not a supported Sitel bootloader")
 	}
+	return openSitelFirmwareHID(device)
+}
+
+func openSitelFirmwareHID(device USBDevice) (*sitelRawHID, error) {
 	if err := validateUSBDevice(device); err != nil {
 		return nil, err
 	}

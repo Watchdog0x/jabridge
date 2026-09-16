@@ -28,20 +28,20 @@ func runTUIStartupTask(title, detail string, task func(context.Context) error) e
 	done := make(chan struct{})
 	go func() { defer close(done); result <- task(ctx) }()
 	defer func() { cancel(); <-done }()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
 	tick := 0
+	clock := newTUIFrameClock(time.Now())
 	draw := func() error {
 		w, h, err := term.GetSize(int(os.Stdout.Fd()))
 		if err != nil || w < 1 || h < 1 {
 			w, h = 80, 24
 		}
-		_, err = os.Stdout.WriteString(startupTaskFrame(w, h, title, detail, tick).render())
-		return err
+		return clock.writeFrame(startupTaskFrame(w, h, title, detail, tick))
 	}
 	if err := draw(); err != nil {
 		return err
 	}
+	ticker := time.NewTimer(clock.remaining())
+	defer ticker.Stop()
 	for {
 		select {
 		case err := <-result:
@@ -52,10 +52,11 @@ func runTUIStartupTask(title, detail string, task func(context.Context) error) e
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			tick++
+			tick = clock.animation(time.Now())
 			if err := draw(); err != nil {
 				return err
 			}
+			ticker.Reset(clock.remaining())
 		}
 	}
 }
@@ -75,7 +76,11 @@ func startupTaskFrame(w, h int, title, detail string, tick int) *frame {
 	f.setText(top+6, col, strings.Repeat("─", bar), styleHomeBorder)
 	// This is activity, not an invented download percentage.
 	length := min(6, bar)
-	position := tick % max(1, bar-length+1)
+	travel := bar - length
+	position := tick % max(1, 2*travel)
+	if position > travel {
+		position = 2*travel - position
+	}
 	f.setText(top+6, col+position, strings.Repeat("━", length), styleHomeTitle)
 	f.setText(top+8, col, trimToWidth("Please keep this window open.", inner), styleHomeMuted)
 	return f

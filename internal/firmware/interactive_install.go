@@ -18,6 +18,7 @@ type PreparedInstall struct {
 	binding    string
 	attachment string
 	archiveSHA string
+	wireless   *WirelessFirmwareSelection
 }
 
 func PrepareInteractiveInstall(path string, pid uint16, attachment string) (*PreparedInstall, error) {
@@ -45,6 +46,9 @@ func PrepareInteractiveInstall(path string, pid uint16, attachment string) (*Pre
 }
 
 func (p *PreparedInstall) validate() error {
+	if p != nil && p.wireless != nil {
+		return p.validateWireless()
+	}
 	if p == nil || p.binding == "" {
 		return errors.New("no firmware target prepared")
 	}
@@ -55,7 +59,22 @@ func (p *PreparedInstall) validate() error {
 	if attachment != p.attachment {
 		return errors.New("selected USB device changed; select it again before updating")
 	}
-	current, err := interactiveInstallBinding(p.path, p.pid)
+	devices, err := enumerateUSB()
+	if err != nil {
+		return err
+	}
+	device, err := selectInteractiveUSBTarget(devices, p.pid)
+	if err != nil {
+		return err
+	}
+	// The plan's archive was already parsed from a sealed snapshot. Hash the
+	// source here instead of copying and parsing a camera's multi-GB ZIP again.
+	// Install separately compares its own sealed snapshot to archiveSHA.
+	digest, err := firmwareArchiveSHA256(p.path)
+	if err != nil {
+		return err
+	}
+	current, err := interactiveBindingDigest(device, digest)
 	if err != nil {
 		return err
 	}
@@ -100,7 +119,7 @@ func (p *PreparedInstall) Install() (err error) {
 	if p == nil {
 		return errors.New("no firmware target prepared")
 	}
-	cmdInstallForTarget([]string{p.path}, p.validate, p.archiveSHA, p.pid)
+	cmdInstallForSelection([]string{p.path}, p.validate, p.archiveSHA, p.pid, p.wireless)
 	return nil
 }
 
@@ -123,22 +142,18 @@ func interactiveInstallBindingForDevices(path string, pid uint16, devices []USBD
 	if err != nil {
 		return "", err
 	}
-	manifest, err := parseFirmwareManifest(path)
+	format, err := detectFormat(path)
 	if err != nil {
 		return "", err
 	}
-	if isSitelManifest(manifest) {
-		profile, err := sitelProfileForManifest(manifest)
+	var manifest *BuildVector
+	if format != FormatCSRDFU2 {
+		manifest, err = parseFirmwareManifest(path)
 		if err != nil {
 			return "", err
 		}
-		if !profile.runtime(pid) && pid != profile.BootPID {
-			return "", fmt.Errorf("this firmware is for %s; it does not match the selected device (0b0e:%04x)", profile.Name, pid)
-		}
-		if _, _, err := loadSitelImages(path); err != nil {
-			return "", err
-		}
-	} else if isUSBDFUManifest(manifest) {
+	}
+	if format == FormatCSRDFU2 || isUSBDFUManifest(manifest) {
 		image, err := loadJabraDFUImage(path)
 		if err != nil {
 			return "", err
@@ -149,6 +164,56 @@ func interactiveInstallBindingForDevices(path string, pid uint16, devices []USBD
 		}
 		if selected.SysPath != device.SysPath {
 			return "", errors.New("firmware does not target the selected USB device")
+		}
+	} else if isPanaCast50Manifest(manifest) {
+		if _, err := loadPanaCast50Archive(path); err != nil {
+			return "", err
+		}
+		if !panacast50ModePID(pid) {
+			return "", errors.New("PanaCast 50 archive does not match the selected USB device")
+		}
+	} else if isUVCCameraManifest(manifest) {
+		if _, err := loadUVCCameraArchive(path); err != nil {
+			return "", err
+		}
+		if !uvcCameraPID(pid) {
+			return "", errors.New("PanaCast 20 archive does not match the selected USB camera")
+		}
+	} else if isBulkCameraManifest(manifest) {
+		archive, err := loadBulkCameraArchive(path)
+		if err != nil {
+			return "", err
+		}
+		if !containsPID(archive.Profile.RuntimePIDs, pid) {
+			return "", errors.New("camera archive does not match the selected USB device")
+		}
+	} else if isSitelDECTManifest(manifest) {
+		archive, err := loadSitelDECTArchive(path)
+		if err != nil {
+			return "", err
+		}
+		if !archive.Profile.runtime(pid) && pid != archive.Profile.BootPID {
+			return "", errors.New("DECT archive does not match the selected base")
+		}
+	} else if isConexantManifest(manifest) {
+		image, err := loadConexantImage(path)
+		if err != nil {
+			return "", err
+		}
+		pids, err := parseTargetPIDs(image.Manifest.TargetUSBPIDs)
+		if err != nil || len(pids) != 1 || pids[0] != pid {
+			return "", errors.New("UC Voice firmware does not match the selected USB device")
+		}
+	} else if isSitelManifest(manifest) {
+		profile, err := sitelProfileForManifest(manifest)
+		if err != nil {
+			return "", err
+		}
+		if !profile.runtime(pid) && pid != profile.BootPID {
+			return "", fmt.Errorf("this firmware is for %s; it does not match the selected device (0b0e:%04x)", profile.Name, pid)
+		}
+		if _, _, err := loadSitelImages(path); err != nil {
+			return "", err
 		}
 	} else {
 		check := validateNativeCSRArchive
@@ -177,6 +242,10 @@ func interactiveInstallBindingForDevices(path string, pid uint16, devices []USBD
 	if err != nil {
 		return "", err
 	}
+	return interactiveBindingDigest(device, digest)
+}
+
+func interactiveBindingDigest(device USBDevice, digest string) (string, error) {
 	bus, err := os.ReadFile(filepath.Join(device.SysPath, "busnum"))
 	if err != nil {
 		return "", err
@@ -187,7 +256,7 @@ func interactiveInstallBindingForDevices(path string, pid uint16, devices []USBD
 	}
 	// Replugging changes devnum. Neither a sibling model, another USB port,
 	// nor a replacement archive may consume the previous confirmation.
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%04x\n%s\n%s\n%s\n%s", pid, device.SysPath, strings.TrimSpace(string(bus)), strings.TrimSpace(string(address)), digest)))), nil
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%04x\n%s\n%s\n%s\n%s", device.ProductID, device.SysPath, strings.TrimSpace(string(bus)), strings.TrimSpace(string(address)), digest)))), nil
 }
 
 func selectInteractiveUSBTarget(devices []USBDevice, pid uint16) (USBDevice, error) {

@@ -116,7 +116,13 @@ func planSitelImages(manifest *BuildVector, files map[string][]byte) ([]sitelPla
 			return nil, errors.New("missing or ambiguous Sitel target metadata")
 		}
 		seen[file.SitelHidTargetID] = true
-		segments, err := parseIntelHexImage(files[file.Name])
+		var segments []hexImageSegment
+		var err error
+		if strings.HasSuffix(strings.ToLower(file.Name), ".bin") {
+			segments, err = parseSitelBinaryImage(file.SitelHidTargetID, files[file.Name])
+		} else {
+			segments, err = parseIntelHexImage(files[file.Name])
+		}
 		if err != nil {
 			return nil, fmt.Errorf("sitel image %q: %w", file.Name, err)
 		}
@@ -124,4 +130,28 @@ func planSitelImages(manifest *BuildVector, files map[string][]byte) ([]sitelPla
 	}
 	sort.SliceStable(result, func(i, j int) bool { return result[i].File.UpdateOrder < result[j].File.UpdateOrder })
 	return result, nil
+}
+
+// These BIN bases and padding are the target-specific ReadBinFile contract
+// in the reference updater. Live area bounds, image ID and version are still
+// checked before erase; a BIN is never placed at a guessed device address.
+func parseSitelBinaryImage(target string, data []byte) ([]hexImageSegment, error) {
+	if len(data) < 32 || len(data) > 16<<20 {
+		return nil, errors.New("invalid Sitel binary image size")
+	}
+	base, minimum := uint32(0x08005000), 0
+	switch target {
+	case "7", "12":
+	case "14":
+		base, minimum = 0x08002400, 0x1c00
+	default:
+		return nil, errors.New("binary image is not valid for this Sitel target")
+	}
+	size := max(minimum, (len(data)+511)&^511)
+	padded := make([]byte, size)
+	for i := range padded {
+		padded[i] = 0xff
+	}
+	copy(padded, data)
+	return []hexImageSegment{{Address: base, Data: padded}}, nil
 }

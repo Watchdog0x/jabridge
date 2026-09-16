@@ -276,6 +276,7 @@ func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceIn
 			instance: info.Instance, controlTopology: info.Topology,
 			vendorID: jabraVendorID, isDongle: info.IsDongle,
 			variantType: info.Variant, firmwareVersion: info.Firmware,
+			firmwareIdentity: info.FirmwareIdentity,
 			deviceConnection: connection, parentDeviceID: info.ParentID,
 			featureFlags: &featureFlags{
 				busyLight: features.BusyLight, factoryReset: features.FactoryReset,

@@ -33,6 +33,30 @@ func ValidateInstallInput(args []string) error {
 	if err != nil {
 		return err
 	}
+	if isBulkCameraManifest(manifest) {
+		_, err := loadBulkCameraArchive(path)
+		return err
+	}
+	if isUVCCameraManifest(manifest) {
+		_, err := loadUVCCameraArchive(path)
+		return err
+	}
+	if isPanaCast50Manifest(manifest) {
+		_, err := loadPanaCast50Archive(path)
+		return err
+	}
+	if isSitelOTAManifest(manifest) {
+		_, err := loadSitelOTAArchive(path)
+		return err
+	}
+	if isSitelDECTManifest(manifest) {
+		_, err := loadSitelDECTArchive(path)
+		return err
+	}
+	if isConexantManifest(manifest) {
+		_, err := loadConexantImage(path)
+		return err
+	}
 	if isUSBDFUManifest(manifest) {
 		_, err := loadJabraDFUImage(path)
 		return err

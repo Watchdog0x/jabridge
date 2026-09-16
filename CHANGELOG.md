@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.1.0 — 2026-09-16
+
+Fix missing controls and incomplete terminal screens caused by the keyboard
+reader changing shared terminal output flags. Search polling and device
+selection now run outside the UI loop, keeping navigation and resizing
+responsive while the service is busy.
+
+Redraws are capped at 30 FPS. Rapid input is processed without drawing a
+separate frame for every key, and idle screens do not redraw repeatedly.
+Search messages are centered, and startup progress animates at 30 FPS.
+
+Terminal checks cover output backpressure, slow service replies, rapid input,
+resizing and visible key hints.
+
+Firmware support adds USB DFU model profiles, Sitel wired devices and DECT
+bases, wireless Engage updates, UC Voice headsets and PanaCast camera paths.
+Engage 75 and 75 SE include all nine components and a standalone Bluetooth
+flash program. Recovery checks preserve the selected archive and device
+identity, and interrupted radio settings are completed on retry.
+
+Engage 75 and 75 SE validation uses the simulator. No physical device was
+available for those models. Pro 9460/9465/9470 and Pro 925/935 are outside
+this release's added support.
+
 ## 1.0.2 — 2026-09-15
 
 Interactive startup now checks for a new Jabridge app version and asks whether

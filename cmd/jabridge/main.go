@@ -262,8 +262,7 @@ func runTUIWithBackend(backend *tuiIPCBackend) error {
 	defer fmt.Print("\x1b[0m\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l")
 
 	clearScreen()
-	startUi(pollContext)
-	return nil
+	return startUi(pollContext)
 }
 
 // jabraAPIBridge adapts the jabraApi.go global functions to the ipc.API interface.
@@ -284,9 +283,10 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			Instance: dev.instance, Topology: dev.controlTopology,
 			Variant: dev.variantType, Serial: "", IsDongle: dev.isDongle,
 			Connection: connection, ParentID: dev.parentDeviceID,
-			Firmware: dev.firmwareVersion,
-			Selected: int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
-			Parts:    ipcControlParts(dev),
+			Firmware:         dev.firmwareVersion,
+			FirmwareIdentity: firmware.WirelessFirmwareIdentity(dev.productID, dev.serialNumber, dev.variantType),
+			Selected:         int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
+			Parts:            ipcControlParts(dev),
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)

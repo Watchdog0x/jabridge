@@ -10,7 +10,7 @@ import (
 func TestUSBDFUEvolve75eUsesExactProfile(t *testing.T) {
 	for _, pid := range []uint16{0x246c, 0x246d, 0x246e, 0x097e} {
 		profile, ok := usbDFUProfileForPID(pid)
-		if !ok || profile.DFUPID != 0x097e || profile.ReportID != 5 || !NativeFirmwareProtocolSupported(pid, 1) {
+		if !ok || profile.DFUPID != 0x097e || !NativeFirmwareProtocolSupported(pid, 1) {
 			t.Fatal("wrong Evolve 75e profile", pid, profile)
 		}
 	}

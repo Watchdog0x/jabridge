@@ -13,6 +13,10 @@ import (
 // Independent wire peer. No production encoder, CRC or reply parser creates
 // its answers. These fixtures model the documented update path, not the CPU.
 type sitelTestDevice struct {
+	ota                                                            bool
+	applicationMode                                                bool
+	runtimeAddress                                                 byte
+	noSerial                                                       bool
 	imageInfoOffset                                                uint32
 	bootPID                                                        uint16
 	wanted                                                         string
@@ -34,7 +38,7 @@ type sitelTestDevice struct {
 }
 
 func makeEngageWorld(controller bool) *sitelTestDevice {
-	w := &sitelTestDevice{pid: 0x4056, bootPID: 0x4050, wanted: "4.1.3", imageInfoOffset: 0x100, version: "4.0.0", controllerVersion: "4.0.0", memory: map[uint32]byte{}, areas: map[byte]sitelArea{0: {Address: 0x60000, Size: 4096}, 4: {Address: 0xe2000, Size: 4096}, 3: {Address: 0x102000, Size: 4096}}}
+	w := &sitelTestDevice{runtimeAddress: 1, pid: 0x4056, bootPID: 0x4050, wanted: "4.1.3", imageInfoOffset: 0x100, version: "4.0.0", controllerVersion: "4.0.0", memory: map[uint32]byte{}, areas: map[byte]sitelArea{0: {Address: 0x60000, Size: 4096}, 4: {Address: 0xe2000, Size: 4096}, 3: {Address: 0x102000, Size: 4096}}}
 	if controller {
 		w.pid = 0x4052
 	}
@@ -79,7 +83,11 @@ func (w *sitelTestDevice) device() USBDevice {
 	if w.wrongPort && w.generation > 0 {
 		path = "/isolated/usb/1-3"
 	}
-	return USBDevice{VendorID: JabraVendorID, ProductID: pid, SysPath: path, Serial: "fixture-usb", attachment: &usbAttachment{fingerprint: fmt.Sprint(w.generation)}}
+	serial := "fixture-usb"
+	if w.noSerial {
+		serial = ""
+	}
+	return USBDevice{VendorID: JabraVendorID, ProductID: pid, SysPath: path, Serial: serial, attachment: &usbAttachment{fingerprint: fmt.Sprint(w.generation)}}
 }
 func (w *sitelTestDevice) runtime(ctx context.Context, device USBDevice) (*sitelRuntime, sitelIdentity, func() error, error) {
 	r := &sitelRuntime{io: &sitelRuntimePeer{world: w}}
@@ -124,7 +132,7 @@ func (p *sitelRuntimePeer) Write(ctx context.Context, raw []byte) error {
 		return err
 	}
 	w := p.world
-	if len(raw) != 64 || raw[0] != 5 || (raw[1] != 1 && raw[1] != 3) {
+	if len(raw) != 64 || raw[0] != 5 || (raw[1] != w.runtimeAddress && raw[1] != 3) {
 		return errors.New("bad runtime route")
 	}
 	kind := raw[4] & 0xc0
@@ -142,6 +150,10 @@ func (p *sitelRuntimePeer) Write(ctx context.Context, raw []byte) error {
 			binary.LittleEndian.PutUint16(data, w.pid)
 		case 1:
 			text := "fixture-headset"
+			if raw[1] == w.runtimeAddress && w.noSerial {
+				data = []byte{0}
+				break
+			}
 			if raw[1] == 3 && w.controllerHasNoSerial {
 				p.queue = append(p.queue, []byte{5, 0, 3, raw[3], 0xc6, 0xfe, 1})
 				return nil
@@ -224,6 +236,9 @@ func (p *sitelRuntimePeer) Read(ctx context.Context) ([]byte, error) {
 
 type sitelBootPeer struct {
 	world             *sitelTestDevice
+	endpoints         map[byte]*sitelTestDevice
+	onBoot            func(byte) error
+	onPacket          func([]byte) ([]byte, error)
 	queue             [][]byte
 	fragment, message byte
 	incoming          []byte
@@ -342,8 +357,22 @@ func independentSitelCRC(data []byte) uint16 {
 	return crc
 }
 func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
+	if p.onPacket != nil {
+		return p.onPacket(packet)
+	}
 	w := p.world
-	if len(packet) < 6 || packet[0] != 1 || packet[1] != 0 || packet[4] != 15 || packet[3]&0xc0 != 0x40 {
+	wireAddress, areaMode := byte(1), byte(3)
+	if p.endpoints != nil && len(packet) > 0 {
+		w = p.endpoints[packet[0]]
+		if w == nil {
+			return nil, errors.New("unknown DECT component address")
+		}
+		wireAddress = packet[0]
+	}
+	if w.ota {
+		wireAddress, areaMode = 4, 1
+	}
+	if len(packet) < 6 || packet[0] != wireAddress || packet[1] != 0 || packet[4] != 15 || packet[3]&0xc0 != 0x40 {
 		return nil, errors.New("bad FWU message")
 	}
 	op := packet[5]
@@ -365,8 +394,14 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 		binary.LittleEndian.PutUint32(body[8:], sector)
 		binary.LittleEndian.PutUint32(body[12:], 128)
 		body[17] = 1
+		if w.applicationMode {
+			body[16] = 1
+		}
+		if w.ota {
+			body[16] = 1
+		}
 	case 1:
-		if len(args) != 2 || args[0] != 3 {
+		if len(args) != 2 || args[0] != areaMode {
 			return nil, errors.New("bad area query")
 		}
 		area := w.areas[args[1]]
@@ -376,6 +411,9 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 		body[16] = 5
 		copy(body[17:], "4.0.0")
 	case 2, 3, 4:
+		if op != 4 && w.checkpoint != nil && !w.checkpoint() {
+			return nil, errors.New("flash write before durable checkpoint")
+		}
 		if len(args) < 4 {
 			return nil, errors.New("missing address")
 		}
@@ -399,7 +437,7 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 			}
 			w.writes++
 			if w.failWrite > 0 && w.writes == w.failWrite {
-				return []byte{0, 1, packet[2], 0xc6, 0xfe, 1}, nil
+				return []byte{0, wireAddress, packet[2], 0xc6, 0xfe, 1}, nil
 			}
 			for i, b := range args[4:] {
 				w.memory[address+uint32(i)] = b
@@ -426,20 +464,32 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 			binary.LittleEndian.PutUint16(body, crc)
 		}
 	case 5:
+		if w.ota {
+			return nil, errors.New("wireless update sent a USB boot command")
+		}
 		if !bytes.Equal(args, []byte{3}) {
 			return nil, errors.New("wrong boot mode")
+		}
+		if w.applicationMode {
+			w.applicationMode = false
+			break
 		}
 		for _, image := range w.images {
 			for _, segment := range image.Segments {
 				for i, b := range segment.Data {
 					if w.memory[segment.Address+uint32(i)] != b {
-						return nil, errors.New("boot before every image verified")
+						return nil, fmt.Errorf("boot before every image verified: component %d, image %s, address %x got %02x want %02x", wireAddress, image.File.Name, segment.Address+uint32(i), w.memory[segment.Address+uint32(i)], b)
 					}
 				}
 			}
 		}
 		w.bootMode = false
 		w.version = w.wanted
+		if p.onBoot != nil {
+			if err := p.onBoot(wireAddress); err != nil {
+				return nil, err
+			}
+		}
 	default:
 		return nil, errors.New("unknown FWU opcode")
 	}
@@ -447,5 +497,5 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 	if w.zeroSequence {
 		sequence = 0
 	}
-	return append([]byte{0, 1, sequence, 0xc0 | byte(6+len(body)), 15, op}, body...), nil
+	return append([]byte{0, wireAddress, sequence, 0xc0 | byte(6+len(body)), 15, op}, body...), nil
 }

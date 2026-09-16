@@ -23,20 +23,21 @@ import (
 
 // DeviceInfo is the JSON-serializable device representation for IPC.
 type DeviceInfo struct {
-	ID         uint16            `json:"id"`
-	Instance   string            `json:"instance,omitempty"`
-	Topology   string            `json:"topology,omitempty"`
-	Name       string            `json:"name"`
-	PID        uint16            `json:"pid"`
-	Variant    string            `json:"variant,omitempty"`
-	Serial     string            `json:"serial"`
-	IsDongle   bool              `json:"isDongle"`
-	Connection string            `json:"connection"`
-	ParentID   uint16            `json:"parentId,omitempty"`
-	Battery    *BatteryInfo      `json:"battery,omitempty"`
-	Firmware   string            `json:"firmware,omitempty"`
-	Selected   bool              `json:"selected"`
-	Parts      []ControlPartInfo `json:"parts,omitempty"`
+	ID               uint16            `json:"id"`
+	Instance         string            `json:"instance,omitempty"`
+	Topology         string            `json:"topology,omitempty"`
+	Name             string            `json:"name"`
+	PID              uint16            `json:"pid"`
+	Variant          string            `json:"variant,omitempty"`
+	Serial           string            `json:"serial"`
+	IsDongle         bool              `json:"isDongle"`
+	Connection       string            `json:"connection"`
+	ParentID         uint16            `json:"parentId,omitempty"`
+	Battery          *BatteryInfo      `json:"battery,omitempty"`
+	Firmware         string            `json:"firmware,omitempty"`
+	FirmwareIdentity string            `json:"firmwareIdentity,omitempty"`
+	Selected         bool              `json:"selected"`
+	Parts            []ControlPartInfo `json:"parts,omitempty"`
 }
 
 type ControlPartInfo struct {

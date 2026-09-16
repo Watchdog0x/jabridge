@@ -383,6 +383,7 @@ func reloadAndTriggerUdev() error {
 		{"trigger", "--subsystem-match=usb", "--attr-match=idVendor=0b0e", "--action=add"},
 		{"trigger", "--subsystem-match=hidraw", "--action=add"},
 		{"trigger", "--subsystem-match=input", "--action=add"},
+		{"trigger", "--subsystem-match=video4linux", "--action=add"},
 		{"settle", "--timeout=5"},
 	}
 	for _, arguments := range commands {

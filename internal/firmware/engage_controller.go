@@ -179,4 +179,6 @@ func verifyEngageControllerReattach(ctx context.Context, backend sitelInstallBac
 	}
 }
 
-func engageHasController(pid uint16) bool { return pid >= 0x4051 && pid <= 0x4054 }
+func engageHasController(pid uint16) bool {
+	return pid >= 0x4001 && pid <= 0x4004 || pid >= 0x4051 && pid <= 0x4054 || pid >= 0x4061 && pid <= 0x4064
+}

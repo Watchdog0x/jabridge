@@ -11,6 +11,7 @@ import (
 )
 
 type sitelIdentity struct {
+	Address                                                byte
 	PID, BootPID                                           uint16
 	Port, Instance, Serial, Variant, Version               string
 	ControllerSerial, ControllerVariant, ControllerVersion string
@@ -18,6 +19,20 @@ type sitelIdentity struct {
 }
 
 var errSitelRejected = errors.New("sitel request rejected")
+
+// Only errors before any transport write attempt carry this marker. Once a
+// write has been attempted, a missing reply is ambiguous and cannot authorize
+// replaying activation or reset. Keep the underlying cause for cancellation.
+var errManagementNotSent = errors.New("management request was not sent")
+
+type managementNotSentError struct{ cause error }
+
+func (e *managementNotSentError) Error() string {
+	return fmt.Sprintf("%s: %v", errManagementNotSent, e.cause)
+}
+func (e *managementNotSentError) Unwrap() error        { return e.cause }
+func (e *managementNotSentError) Is(target error) bool { return target == errManagementNotSent }
+func managementNotSent(err error) error                { return &managementNotSentError{cause: err} }
 
 func sitelIdentityHash(id sitelIdentity) string {
 	return extendedRecoveryIdentity(csrExtendedIdentity{PID: id.PID, Port: id.Port, Serial: id.Serial, Variant: id.Variant})
@@ -30,8 +45,15 @@ type sitelRuntime struct {
 }
 
 func (r *sitelRuntime) exchange(ctx context.Context, address, class, flags byte, body []byte) ([]byte, error) {
-	if address == 0 || len(body) > 57 {
-		return nil, errors.New("invalid Sitel management request")
+	return r.exchangeTimeout(ctx, address, class, flags, body, 3*time.Second)
+}
+
+func (r *sitelRuntime) exchangeTimeout(ctx context.Context, address, class, flags byte, body []byte, timeout time.Duration) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, managementNotSent(err)
+	}
+	if address == 0 || len(body) > 58 {
+		return nil, managementNotSent(errors.New("invalid Sitel management request"))
 	}
 	r.sequence++
 	if r.sequence == 0 {
@@ -40,7 +62,7 @@ func (r *sitelRuntime) exchange(ctx context.Context, address, class, flags byte,
 	packet := make([]byte, 64)
 	copy(packet, []byte{5, address, 0, r.sequence, flags | byte(5+len(body)), class})
 	copy(packet[6:], body)
-	wait, cancel := context.WithTimeout(ctx, 3*time.Second)
+	wait, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if err := r.io.Write(wait, packet); err != nil {
 		return nil, err
@@ -69,7 +91,7 @@ func (r *sitelRuntime) exchange(ctx context.Context, address, class, flags byte,
 		if flags == 0x80 && reply[4] == 0xff && len(reply) == 10 && bytes.Equal(reply[5:10], packet[1:6]) {
 			return nil, nil
 		}
-		if flags == 0x40 && len(body) == 1 && len(reply) >= 6 && reply[4] == class && reply[5] == body[0] {
+		if flags == 0x40 && len(body) >= 1 && len(reply) >= 6 && reply[4] == class && reply[5] == body[0] {
 			return reply[6:], nil
 		}
 	}
@@ -132,32 +154,43 @@ func (r *sitelRuntime) identify(ctx context.Context, device USBDevice) (sitelIde
 		return id, errors.New("not a bound supported Sitel runtime device")
 	}
 	id.Instance = device.attachment.fingerprint
-	pids, err := r.query(ctx, 1, 0x11)
-	if err != nil || len(pids) != 2 || (binary.LittleEndian.Uint16(pids) != id.PID && binary.LittleEndian.Uint16(pids) != profile.BootPID) {
+	// Runtime management can use address 1 or the older address 8. Select
+	// only a reply whose product ID matches this bound device/profile.
+	for _, address := range []byte{1, 8} {
+		pids, err := r.query(ctx, address, 0x11)
+		if err == nil && len(pids) == 2 && (binary.LittleEndian.Uint16(pids) == id.PID || binary.LittleEndian.Uint16(pids) == profile.BootPID) {
+			id.Address = address
+			break
+		}
+	}
+	if id.Address == 0 {
 		return id, errors.New("sitel management PID does not match USB device")
 	}
+	var err error
 	id.Serial = device.Serial
 	if id.Serial == "" {
-		id.Serial, err = r.serial(ctx, 1)
+		id.Serial, err = r.serial(ctx, id.Address)
 		if err != nil {
 			return id, err
 		}
 	}
-	if id.Serial == "" {
+	if id.Serial == "" && !profile.LegacySingleImage {
 		return id, errors.New("headset has no readable serial identity")
 	}
-	id.Variant, err = r.variant(ctx, 1)
+	// Legacy devices which explicitly report no serial remain bound by the
+	// selected USB attachment, port, model and live variant; never invent one.
+	id.Variant, err = r.variant(ctx, id.Address)
 	if err != nil {
 		return id, err
 	}
-	id.Version, err = r.text(ctx, 1, 3)
+	id.Version, err = r.text(ctx, id.Address, 3)
 	if err != nil {
 		return id, err
 	}
 	if _, err = parseVersionTriplet(id.Version); err != nil {
 		return id, err
 	}
-	boot, err := r.query(ctx, 1, 0x13)
+	boot, err := r.query(ctx, id.Address, 0x13)
 	if err != nil || len(boot) != 2 {
 		return id, errors.New("sitel bootloader PID is unavailable")
 	}
@@ -165,7 +198,7 @@ func (r *sitelRuntime) identify(ctx context.Context, device USBDevice) (sitelIde
 	if id.BootPID != profile.BootPID {
 		return id, errors.New("bootloader identity does not match the selected model")
 	}
-	protocols, err := r.query(ctx, 1, 0x14)
+	protocols, err := r.query(ctx, id.Address, 0x14)
 	if err != nil || !bytes.Contains(protocols, []byte{4}) {
 		return id, errors.New("sitel device does not report firmware protocol 4")
 	}

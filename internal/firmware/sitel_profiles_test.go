@@ -21,9 +21,9 @@ func syntheticEvolve2Archive(t *testing.T, bootPID uint16) string {
 func TestSitelUnsupportedModelDoesNotSelectEngageOrCSR(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
-			path := syntheticEvolve2Archive(t, 0x4060)
+			path := syntheticEvolve2Archive(t, 0x7ffe)
 			if legacy {
-				manifest := `<buildVector version="3.8.0" productName="Jabra_Evolve_20"><targetUsbPids><usbPid>0x0304</usbPid></targetUsbPids><files><file name="headset.hex"><content>firmware</content></file></files></buildVector>`
+				manifest := `<buildVector version="3.8.0" productName="Unknown Sitel"><targetUsbPids><usbPid>0x7ffd</usbPid></targetUsbPids><files><file name="headset.hex"><content>firmware</content></file></files></buildVector>`
 				path = writeFirmwareArchiveFixture(t, manifest, map[string][]byte{"headset.hex": []byte(hexRecord(0, 0, 1, 2) + hexRecord(0, 1))})
 			}
 			manifest, err := parseFirmwareManifest(path)

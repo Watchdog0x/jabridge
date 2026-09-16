@@ -28,44 +28,54 @@ func confirmTUIAppUpdate(current, available string) (bool, error) {
 	defer cancel()
 	keys := make(chan keyEvent, 32)
 	done := make(chan struct{})
-	go func() { defer close(done); startKeysPressedListener(ctx, keys) }()
+	go func() { defer close(done); defer close(keys); startKeysPressedListener(ctx, keys) }()
 	defer func() { cancel(); <-done }()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
 	yes := false
+	dirty := false
 	lastWidth, lastHeight := 0, 0
+	clock := newTUIFrameClock(time.Now())
 	draw := func() error {
 		w, h, err := term.GetSize(int(os.Stdout.Fd()))
 		if err != nil || w < 1 || h < 1 {
 			w, h = 80, 24
 		}
 		lastWidth, lastHeight = w, h
-		_, err = os.Stdout.WriteString(appUpdateFrame(w, h, current, available, yes).render())
-		return err
+		return clock.writeFrame(appUpdateFrame(w, h, current, available, yes))
 	}
 	if err := draw(); err != nil {
 		return false, err
 	}
+	ticker := time.NewTimer(clock.remaining())
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return false, ctx.Err()
-		case event := <-keys:
+		case event, ok := <-keys:
+			if !ok {
+				return false, nil
+			}
+			previous := yes
 			decided, accepted := handleAppUpdateKey(event, &yes)
 			if decided {
 				return accepted, nil
 			}
+			dirty = dirty || yes != previous
+		case <-ticker.C:
+		}
+		if !clock.due(time.Now()) {
+			continue
+		}
+		w, h, err := term.GetSize(int(os.Stdout.Fd()))
+		if dirty || err == nil && (w != lastWidth || h != lastHeight) {
 			if err := draw(); err != nil {
 				return false, err
 			}
-		case <-ticker.C:
-			w, h, err := term.GetSize(int(os.Stdout.Fd()))
-			if err == nil && (w != lastWidth || h != lastHeight) {
-				if err := draw(); err != nil {
-					return false, err
-				}
-			}
+			dirty = false
+		} else {
+			clock.advance(time.Now())
 		}
+		ticker.Reset(clock.remaining())
 	}
 }
 

@@ -15,12 +15,16 @@ type sitelRequest interface {
 
 func sitelAreaKind(target byte) (byte, error) {
 	switch target {
-	case 3:
+	case 0, 1, 3, 6, 7, 12, 14, 21, 22:
 		return 0, nil
 	case 29:
 		return 4, nil
-	case 27:
+	case 27, 28:
 		return 3, nil
+	case 4:
+		return 2, nil
+	case 5:
+		return 1, nil
 	default:
 		return 0, errors.New("unknown Sitel target")
 	}
@@ -47,56 +51,88 @@ func prepareSitelTransfer(ctx context.Context, peer sitelRequest, images []sitel
 	if err := profile.validateImages(images, wanted); err != nil {
 		return info, nil, err
 	}
+	prepared, err := prepareSitelTargets(ctx, peer, images, info, 3, "1")
+	return info, prepared, err
+}
+
+// Callers validate their model, image set and mode before sharing the area,
+// bounds and metadata checks. Each image has its own manifest version.
+func prepareSitelTargets(ctx context.Context, peer sitelRequest, images []sitelPlannedImage, info sitelDeviceInfo, mode byte, address string) ([]sitelPreparedImage, error) {
 	var prepared []sitelPreparedImage
 	seen := map[byte]bool{}
 	for _, image := range images {
 		// Manifest target IDs are decimal; 29 is secondary-controller target
 		// 0x1d, not a GNP address and not hexadecimal target 0x29.
 		n, err := strconv.ParseUint(image.File.SitelHidTargetID, 10, 8)
-		if err != nil || seen[byte(n)] || image.File.GNPAddress != "1" {
-			return info, nil, errors.New("invalid or duplicate Sitel target")
+		if err != nil || seen[byte(n)] || image.File.GNPAddress != address {
+			return nil, errors.New("invalid or duplicate Sitel target")
 		}
 		target := byte(n)
 		seen[target] = true
 		kind, err := sitelAreaKind(target)
 		if err != nil {
-			return info, nil, err
+			return nil, err
 		}
-		body, err := peer.request(ctx, 1, []byte{3, kind})
+		body, err := peer.request(ctx, 1, []byte{mode, kind})
 		if err != nil {
-			return info, nil, err
+			return nil, err
 		}
 		area, err := decodeSitelArea(body)
 		if err != nil {
-			return info, nil, err
+			return nil, err
 		}
-		value, err := prepareSitelImage(target, image.Segments, area, info, wanted)
+		value, err := prepareSitelImage(target, image.Segments, area, info, image.File.Version)
 		if err != nil {
-			return info, nil, fmt.Errorf("target %d: %w", target, err)
+			return nil, fmt.Errorf("target %d: %w", target, err)
 		}
 		for _, prior := range prepared {
 			if uint64(area.Address) < uint64(prior.Area.Address)+uint64(prior.Area.Size) && uint64(prior.Area.Address) < uint64(area.Address)+uint64(area.Size) {
-				return info, nil, errors.New("overlapping Sitel target areas")
+				return nil, errors.New("overlapping Sitel target areas")
 			}
 		}
 		prepared = append(prepared, value)
 	}
-	return info, prepared, nil
+	return prepared, nil
 }
 
 func sitelCRCMatches(ctx context.Context, peer sitelRequest, segment hexImageSegment) (bool, error) {
-	payload := make([]byte, 8)
-	binary.LittleEndian.PutUint32(payload, segment.Address)
-	binary.LittleEndian.PutUint32(payload[4:], uint32(len(segment.Data)))
-	body, err := peer.request(ctx, 4, payload)
-	if err != nil {
-		return false, err
+	if len(segment.Data) == 0 || uint64(segment.Address)+uint64(len(segment.Data)) > 1<<32 {
+		return false, errors.New("invalid Sitel CRC range")
 	}
-	if len(body) != 2 {
-		return false, errors.New("invalid Sitel CRC reply")
+	legacy, corrected := true, true
+	check := func(start, end int) (bool, error) {
+		payload := make([]byte, 8)
+		binary.LittleEndian.PutUint32(payload, segment.Address+uint32(start))
+		binary.LittleEndian.PutUint32(payload[4:], uint32(end-start))
+		body, err := peer.request(ctx, 4, payload)
+		if err != nil {
+			return false, err
+		}
+		if len(body) != 2 {
+			return false, errors.New("invalid Sitel CRC reply")
+		}
+		got := binary.LittleEndian.Uint16(body)
+		legacy = legacy && got == sitelCRC(segment.Data[start:end], true)
+		corrected = corrected && got == sitelCRC(segment.Data[start:end], false)
+		return legacy || corrected, nil
 	}
-	got := binary.LittleEndian.Uint16(body)
-	return got == sitelCRC(segment.Data, true) || got == sitelCRC(segment.Data, false), nil
+	if match, err := check(0, len(segment.Data)); err != nil || !match {
+		return match, err
+	}
+	// A real image sector has the same CRC16 as erased flash. One checksum
+	// can therefore skip a block that was never written. Check four disjoint
+	// subranges too, requiring one consistent CRC variant for every reply.
+	// These remain device CRC checks, not a claim of cryptographic readback.
+	for part := 0; part < 4; part++ {
+		start, end := part*len(segment.Data)/4, (part+1)*len(segment.Data)/4
+		if start == end || end-start == len(segment.Data) {
+			continue
+		}
+		if match, err := check(start, end); err != nil || !match {
+			return match, err
+		}
+	}
+	return true, nil
 }
 
 func sitelStatus(body []byte, err error) error {

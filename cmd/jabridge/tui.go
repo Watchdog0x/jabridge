@@ -41,17 +41,22 @@ const (
 const keyRuneBase keyEvent = 0x110000
 const keyPasteBase keyEvent = 0x220000
 
+const tuiFrameInterval = time.Second / 30
+
 type actionResult struct {
-	installPlan            *firmware.PreparedInstall
-	activityID             uint64
-	message                string
-	err                    error
-	returnToMainMenu       bool
-	clearSearchResults     bool
-	refreshDongleSettings  bool
-	refreshHeadsetSettings bool
-	settingsLoad           *settingsLoadResult
-	firmwareRequest        uint64
+	installPlan             *firmware.PreparedInstall
+	activityID              uint64
+	message                 string
+	err                     error
+	returnToMainMenu        bool
+	clearSearchResults      bool
+	refreshDongleSettings   bool
+	refreshHeadsetSettings  bool
+	settingsLoad            *settingsLoadResult
+	searchLoad              *searchLoadResult
+	searchCommandGeneration uint64
+	selectedDevice          *deviceSelectionResult
+	firmwareRequest         uint64
 }
 
 type settingsLoadResult struct {
@@ -60,6 +65,14 @@ type settingsLoadResult struct {
 	lines      []menuItem
 	values     []deviceSettingValue
 }
+
+type deviceSelectionResult struct {
+	registryID int
+	instance   string
+	generation uint64
+}
+
+var deviceSelectionGeneration uint64 // UI loop only
 
 var (
 	verticalLine      = "┃"
@@ -170,22 +183,36 @@ func restoreTerminal(oldSettings *unix.Termios) {
 
 func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 	fd := int(os.Stdin.Fd())
-	nonblocking := unix.SetNonblock(fd, true) == nil
-	if nonblocking {
-		defer func() { _ = unix.SetNonblock(fd, false) }()
-	} else {
-		return // never leave an uninterruptible stdin reader during handoff
-	}
-
+	// stdin and stdout can be dup'd from the same terminal open-file
+	// description. Changing O_NONBLOCK on stdin changes stdout too and can
+	// silently truncate screen writes. Poll for input without changing flags.
 	buf := make([]byte, 16)
 	decoder := &keyDecoder{rawText: true}
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		default:
 		}
-
+		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		ready, err := unix.Poll(fds, 20)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil || fds[0].Revents&(unix.POLLERR|unix.POLLNVAL) != 0 {
+			return
+		}
+		if ready == 0 {
+			if event := decoder.flushEscape(time.Now()); event != keyNone {
+				select {
+				case keyEvents <- event:
+				case <-ctx.Done():
+					return
+				}
+			}
+			continue
+		}
+		if fds[0].Revents&unix.POLLIN == 0 {
+			return
+		}
 		n, err := unix.Read(fd, buf)
 		if n > 0 {
 			for _, event := range decoder.feed(buf[:n]) {
@@ -198,20 +225,10 @@ func startKeysPressedListener(ctx context.Context, keyEvents chan<- keyEvent) {
 			continue
 		}
 
-		if err != nil {
-			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
-				if event := decoder.flushEscape(time.Now()); event != keyNone {
-					select {
-					case keyEvents <- event:
-					case <-ctx.Done():
-						return
-					}
-				}
-				time.Sleep(20 * time.Millisecond)
-				continue
-			}
-			time.Sleep(100 * time.Millisecond)
+		if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR) {
+			continue
 		}
+		return // EOF or disconnected input; never spin on an empty read.
 	}
 }
 
@@ -447,12 +464,7 @@ func handleBackKey(results chan<- actionResult) bool {
 		return true
 	case screenSearch:
 		returnToStartMenu()
-		runUIAction(results, "Search stopped", func() error {
-			if currentTUIBackend() != nil {
-				return runIPCAction("bt.search.stop", nil)
-			}
-			return stopNativeSearch()
-		})
+		queueSearchCommand(results, false)
 	case screenPairedDevices, screenDongleSettings, screenHeadsetSettings, screenSwitchDevice, screenFirmware:
 		resetConfirmUntil = time.Time{}
 		forgetConfirmUntil = time.Time{}
@@ -493,17 +505,10 @@ func handleEnterKey(results chan<- actionResult) bool {
 		}
 		registryID := switchDeviceItems[currentSelection].RegistryID
 		if currentTUIBackend() != nil {
-			if err := runIPCAction("device.select", map[string]uint16{"id": uint16(registryID)}); err != nil {
-				setStatus(err.Error(), true)
-				return false
-			}
-			name, _, _, err := selectRegistryDeviceState(registryID)
-			if err != nil {
-				setStatus(err.Error(), true)
-				return false
-			}
-			setStatus("Now using "+name, false)
-			returnToStartMenu()
+			deviceSelectionGeneration++
+			selection := &deviceSelectionResult{registryID: registryID, instance: switchDeviceItems[currentSelection].Device.instance, generation: deviceSelectionGeneration}
+			setStatus("Switching device...", false)
+			runUIAction(results, "Device selected", func() error { return runIPCAction("device.select", map[string]uint16{"id": uint16(registryID)}) }, func(result *actionResult) { result.selectedDevice = selection }, withReturnToMainMenu())
 			return false
 		}
 		name, err := selectRegistryDevice(registryID)
@@ -520,6 +525,9 @@ func handleEnterKey(results chan<- actionResult) bool {
 }
 
 func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
+	if item.id == 0 && !queueSearchCommand(results, true) {
+		return false
+	}
 	currentSelection = 0
 
 	switch item.id {
@@ -527,12 +535,6 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 		menuState = screenSearch
 		clearSearchResults()
 		setStatus("Searching for devices...", false)
-		runUIAction(results, "Device search started", func() error {
-			if currentTUIBackend() != nil {
-				return runIPCAction("bt.search", nil)
-			}
-			return searchForNewDevices()
-		})
 	case 1:
 		menuState = screenPairedDevices
 	case 2:
@@ -935,7 +937,25 @@ func advanceFirmwareTarget() bool {
 }
 
 func applyActionResult(result actionResult, results chan<- actionResult) {
+	if result.searchLoad != nil {
+		applySearchLoad(result.searchLoad)
+		return
+	}
 	endUIActivity(result.activityID)
+	if result.searchCommandGeneration != 0 && result.searchCommandGeneration != searchCommandGeneration {
+		return
+	}
+	if selection := result.selectedDevice; selection != nil && result.err == nil {
+		result.returnToMainMenu = result.returnToMainMenu && menuState == screenSwitchDevice && selection.generation == deviceSelectionGeneration
+		device, exists := deviceAt(selection.registryID)
+		if !exists || device.instance != selection.instance {
+			result.err = errors.New("device changed; select it again")
+		} else {
+			name, _, _, err := selectRegistryDeviceState(selection.registryID)
+			result.err = err
+			result.message = "Now using " + name
+		}
+	}
 	if result.firmwareRequest != 0 {
 		firmwareViewMu.RLock()
 		matches := firmwareView.request == result.firmwareRequest
@@ -1097,6 +1117,12 @@ func indexOfStartMenuID(id int) int {
 
 // returnToStartMenu goes home and puts the highlight on the first action.
 func returnToStartMenu() {
+	if menuState == screenSwitchDevice {
+		deviceSelectionGeneration++
+	}
+	if menuState == screenSearch {
+		cancelSearchRefresh()
+	}
 	menuState = screenStartMenu
 	currentSelection = 0
 	startMenuSelectionID = -1
@@ -1168,9 +1194,8 @@ type cell struct {
 	style string
 }
 
-// frame is an off-screen character buffer. A render pass paints a complete
-// frame and flushFrame emits it in a single write, so the terminal is never
-// shown a cleared or half-drawn screen.
+// frame is an off-screen character buffer. Compose the screen before sending
+// it to reduce visible redraws. Terminal output can still arrive in chunks.
 type frame struct {
 	baseStyle                                string
 	width                                    int
@@ -1269,9 +1294,9 @@ func (f *frame) render() string {
 	return b.String()
 }
 
-// flushFrame writes the composed frame to the terminal in one syscall.
-func flushFrame(f *frame) {
-	_, _ = os.Stdout.WriteString(f.render())
+// flushFrame sends the composed frame and reports any output failure.
+func flushFrame(f *frame) error {
+	return writeTerminalFrame(f.render())
 }
 
 // clearScreen is only used once when entering the alternate screen.
@@ -1321,7 +1346,7 @@ func panelBounds() (left, right, bottom int) {
 	if panelWidth < 20 {
 		panelWidth = 20
 	}
-	left = (width - panelWidth) / 2
+	left = (width-panelWidth-1)/2 + 1
 	right = left + panelWidth
 	bottom = height - 6
 	if height < 14 {
@@ -1406,42 +1431,8 @@ func renderHomeSummary() {
 	}
 }
 
-func refreshSearchDeviceList() {
-	if menuState != screenSearch || time.Now().Before(nextSearchRefresh) {
-		return
-	}
-	nextSearchRefresh = time.Now().Add(time.Second)
-
-	var update *pairingList
-	if currentTUIBackend() != nil {
-		var state ipc.SearchState
-		if err := tuiIPCCall("bt.search.status", nil, &state); err != nil {
-			searchViewState = ipc.SearchState{State: "failed", Error: err.Error()}
-			return
-		}
-		searchViewState = state
-		update = &pairingList{count: uint16(len(state.Devices)), listType: searchResult}
-		for _, result := range state.Devices {
-			update.pairedDevices = append(update.pairedDevices, pairedDevice{deviceName: result.Name, isConnected: result.Connected})
-		}
-	} else {
-		dongle, exists := selectedDongleSnapshot()
-		if !exists {
-			return
-		}
-		update = getSearchDeviceList(dongle.deviceID)
-	}
-	if update == nil {
-		return
-	}
-	searchDeviceList.count = update.count
-	searchDeviceList.listType = update.listType
-	searchDeviceList.pairedDevices = update.pairedDevices
-	currentSelection = clampSelection(currentSelection, len(searchDeviceList.pairedDevices))
-	requestUIRedraw()
-}
-
 func clearSearchResults() {
+	cancelSearchRefresh()
 	searchViewState = ipc.SearchState{State: "starting"}
 	searchDeviceList.count = 0
 	searchDeviceList.listType = searchResult
@@ -1452,19 +1443,22 @@ func clearSearchResults() {
 func menuSearchForNewDevices() {
 	drawingBox()
 	drawListHeading("Find headset", currentSelection, len(searchDeviceList.pairedDevices))
+	_, _, bottom := panelBounds()
+	messageRow := max(7, (bottom+4)/2)
+	hintRow := min(messageRow+2, bottom-1)
 	if len(searchDeviceList.pairedDevices) == 0 {
 		if searchViewState.State == "starting" || searchViewState.State == "searching" {
-			drawCentered(8, "Searching for headsets...", false)
-			drawCentered(10, "Put your headset in pairing mode.", false)
+			drawCentered(messageRow, loadingGlyph()+" Searching for headsets...", false)
+			drawCentered(hintRow, "Put your headset in pairing mode.", false)
 		} else if searchViewState.State == "timed_out" {
-			drawCentered(8, "Search timed out", false)
-			drawCentered(10, "No completion reply received. Try again.", false)
+			drawCentered(messageRow, "Search timed out", false)
+			drawCentered(hintRow, "No completion reply received. Try again.", false)
 		} else if searchViewState.Error != "" {
-			drawCentered(8, "Search could not finish", false)
-			drawCentered(10, searchViewState.Error, false)
+			drawCentered(messageRow, "Search could not finish", false)
+			drawCentered(hintRow, searchViewState.Error, false)
 		} else {
-			drawCentered(8, "No headsets found", false)
-			drawCentered(10, "Put your headset in pairing mode and try again.", false)
+			drawCentered(messageRow, "No headsets found", false)
+			drawCentered(hintRow, "Put your headset in pairing mode and try again.", false)
 		}
 	} else {
 		drawPairingRows(searchDeviceList.pairedDevices)
@@ -2013,10 +2007,13 @@ func composeFrame() *frame {
 	return screen
 }
 
-func startUi(parent context.Context) {
+func startUi(parent context.Context) error {
 	ctx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 	uiResultContext = ctx
+	resetSearchCommands()
+	defer resetSearchCommands()
+	defer cancelSearchRefresh()
 	defer func() {
 		activityMu.Lock()
 		activities = map[uint64]uiActivity{}
@@ -2030,60 +2027,90 @@ func startUi(parent context.Context) {
 	keyEvents := make(chan keyEvent, 32)
 	actionResults := make(chan actionResult, 8)
 	keysDone := make(chan struct{})
-	go func() { defer close(keysDone); startKeysPressedListener(ctx, keyEvents) }()
+	go func() { defer close(keysDone); defer close(keyEvents); startKeysPressedListener(ctx, keyEvents) }()
 	defer func() { stopSignals(); <-keysDone }()
 
 	// Poll for slow device and terminal changes, but redraw only when state
 	// changes. This keeps the TUI quiet and avoids wasting CPU.
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
-	lastRevision := ^uint64(0)
-	lastWidth, lastHeight := -1, -1
+	resizeEvents := make(chan os.Signal, 1)
+	signal.Notify(resizeEvents, syscall.SIGWINCH)
+	defer signal.Stop(resizeEvents)
+	getScreenSize()
+	updateSelectionState()
+	frameClock := newTUIFrameClock(time.Now())
+	lastRevision, err := paintTUIRevision(composeFrame, frameClock.writeFrame)
+	if err != nil {
+		return fmt.Errorf("draw terminal: %w", err)
+	}
+	frames := time.NewTimer(frameClock.remaining())
+	defer frames.Stop()
+	lastWidth, lastHeight := width, height
+	dirty := false
 
 	for {
-		forceRedraw := false
+		if ctx.Err() != nil {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
-			return
-		case event := <-keyEvents:
-			if handleKeyEvent(event, actionResults) {
-				return
+			return nil
+		case event, ok := <-keyEvents:
+			if !ok {
+				return nil
 			}
-			forceRedraw = true
+			if handleKeyEvent(event, actionResults) {
+				return nil
+			}
+			dirty = true
 		case result := <-actionResults:
 			applyActionResult(result, actionResults)
 			if pendingFirmwareInstall != nil {
-				return
+				return nil
 			}
-			forceRedraw = true
+			dirty = true
+		case <-resizeEvents:
+			dirty = true
+		case <-frames.C:
 		case <-ticker.C:
-			animationFrame++
-
-			firmwareViewMu.RLock()
-			firmwareLoading := firmwareView.loading
-			firmwareViewMu.RUnlock()
-			if uiBusy() || menuState == screenFirmware && firmwareLoading {
-				forceRedraw = true
-			}
 			ensureFirmwareView(actionResults)
 			resetExpiredFactoryConfirmation()
 			resetExpiredForgetConfirmation()
 			clearExpiredStatus()
-			refreshSearchDeviceList()
+			refreshSearchDeviceList(actionResults)
 			if !firstScanComplete.Load() {
-				forceRedraw = true
+				dirty = true
 			}
 		}
 
-		getScreenSize()
-		revision := uiRevision.Load()
-		if !forceRedraw && revision == lastRevision && width == lastWidth && height == lastHeight {
+		// Check elapsed time after every event, including input bursts. The
+		// timer wakes an idle loop; it does not decide which event may paint.
+		now := time.Now()
+		if !frameClock.due(now) {
 			continue
 		}
-		lastRevision = revision
-		lastWidth, lastHeight = width, height
-
-		updateSelectionState()
-		flushFrame(composeFrame())
+		animationFrame = uint64(frameClock.animation(now))
+		firmwareViewMu.RLock()
+		firmwareLoading := firmwareView.loading
+		firmwareViewMu.RUnlock()
+		searching := menuState == screenSearch && (searchViewState.State == "starting" || searchViewState.State == "searching")
+		if uiBusy() || menuState == screenFirmware && firmwareLoading || searching {
+			dirty = true
+		}
+		getScreenSize()
+		revision := uiRevision.Load()
+		if dirty || revision != lastRevision || width != lastWidth || height != lastHeight {
+			dirty = false
+			lastWidth, lastHeight = width, height
+			updateSelectionState()
+			lastRevision, err = paintTUIRevision(composeFrame, frameClock.writeFrame)
+			if err != nil {
+				return fmt.Errorf("draw terminal: %w", err)
+			}
+		} else {
+			frameClock.advance(time.Now())
+		}
+		frames.Reset(frameClock.remaining())
 	}
 }

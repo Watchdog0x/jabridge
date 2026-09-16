@@ -49,7 +49,7 @@ func usbDFUDevicePath(device USBDevice) (string, error) {
 }
 
 // USBFirmwareAccessPaths lists only the USB nodes needed by registered native
-// DFU profiles. Merely enumerating/opening these nodes sends no USB request.
+// DFU and bulk camera profiles. Opening these nodes sends no USB request.
 func USBFirmwareAccessPaths() ([]string, error) {
 	devices, err := enumerateUSB()
 	if err != nil {
@@ -57,7 +57,21 @@ func USBFirmwareAccessPaths() ([]string, error) {
 	}
 	var paths []string
 	for _, device := range devices {
-		if _, ok := usbDFUProfileForPID(device.ProductID); !ok {
+		if uvcCameraPID(device.ProductID) {
+			bound, err := bindUSBDevice(device)
+			if err != nil {
+				return nil, err
+			}
+			video, err := cameraVideoPaths(bound)
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, video...)
+			continue
+		}
+		_, dfu := usbDFUProfileForPID(device.ProductID)
+		_, camera := bulkCameraProfileForPID(device.ProductID)
+		if !dfu && !camera {
 			continue
 		}
 		path, err := usbDFUDevicePath(device)
@@ -209,7 +223,10 @@ func dfuControlPath(device USBDevice) (string, byte, error) {
 		}
 		candidate := filepath.Join("/dev", node.Name())
 		layout, err := InspectControlLayout(candidate)
-		if err != nil || layout.OutputID != profile.ReportID || layout.OutputBytes < 33 || layout.OutputBytes > 65 {
+		// The descriptor must identify the unambiguous FF00:0001 management
+		// interface. Its report ID can differ between runtime variants; the
+		// same descriptor-derived layout is used to read the runtime version.
+		if err != nil || layout.OutputID == 0 || layout.OutputBytes < 33 || layout.OutputBytes > 65 {
 			continue
 		}
 		if path != "" {

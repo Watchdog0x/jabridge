@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Watchdog0x/jabridge/internal/firmware"
@@ -38,6 +39,9 @@ func selectFirmwareTargetNumber(number int, results chan<- actionResult) {
 
 func handleFirmwareKey(event keyEvent, results chan<- actionResult) bool {
 	if menuState != screenFirmware {
+		return false
+	}
+	if navigationKey(event) == keyBack {
 		return false
 	}
 	if uiBusy() {
@@ -89,8 +93,11 @@ func startFirmwareUpdate(results chan<- actionResult) {
 	device := *target.Device
 
 	if device.deviceConnection != deviceConnectionType_USB {
-		setStatus("Connect this headset directly by USB to install firmware", true)
-		return
+		parent, ok := deviceAt(int(device.parentDeviceID))
+		if !ok || !firmware.SupportsWirelessFirmware(parent.productID, device.productID) {
+			setStatus("Connect this headset directly by USB to install firmware", true)
+			return
+		}
 	}
 	startRealFirmwarePreparation(results, device, view)
 }
@@ -98,9 +105,22 @@ func startFirmwareUpdate(results chan<- actionResult) {
 func startRealFirmwarePreparation(results chan<- actionResult, device jabra_DeviceInfo, view firmwareViewState) {
 	activity := beginUIActivity("Downloading and checking firmware. No device writes yet.")
 	ctx := currentUIResultContext()
+	var parent *jabra_DeviceInfo
+	if device.deviceConnection == deviceConnectionType_BT {
+		parent, _ = deviceAt(int(device.parentDeviceID))
+	}
 	go func() {
 		result := actionResult{activityID: activity, firmwareRequest: view.request}
-		attachment, err := firmware.CaptureInstallAttachment(device.productID)
+		if device.deviceConnection == deviceConnectionType_BT && (parent == nil || !firmware.SupportsWirelessFirmware(parent.productID, device.productID) || device.firmwareIdentity == "") {
+			result.err = errors.New("wait for the headset identity check, then try again")
+			sendUIResult(ctx, results, result)
+			return
+		}
+		capturePID := device.productID
+		if parent != nil {
+			capturePID = parent.productID
+		}
+		attachment, err := firmware.CaptureInstallAttachment(capturePID)
 		if err != nil {
 			result.err = err
 			sendUIResult(ctx, results, result)
@@ -109,7 +129,11 @@ func startRealFirmwarePreparation(results chan<- actionResult, device jabra_Devi
 		file, err := downloadFirmwareForTUI(&device)
 		if err == nil {
 			applyFirmwareDownload(view.request, view.targetKey, file.Path, file.Version)
-			result.installPlan, err = firmware.PrepareInteractiveInstall(file.Path, device.productID, attachment)
+			if parent != nil {
+				result.installPlan, err = firmware.PrepareWirelessInteractiveInstall(file.Path, firmware.WirelessFirmwareSelection{ParentPID: parent.productID, ChildPID: device.productID, ChildIdentity: device.firmwareIdentity, ParentAttachment: attachment})
+			} else {
+				result.installPlan, err = firmware.PrepareInteractiveInstall(file.Path, device.productID, attachment)
+			}
 		}
 		result.err = err
 		sendUIResult(ctx, results, result)

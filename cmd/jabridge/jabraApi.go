@@ -42,6 +42,7 @@ type jabra_DeviceInfo struct {
 	serialNumber     string
 	variantType      string
 	firmwareVersion  string
+	firmwareIdentity string
 	deviceConnection deviceConnectionType
 	parentDeviceID   uint16
 	featureFlags     *featureFlags
@@ -1093,23 +1094,39 @@ func refreshSelectedDeviceData() {
 func refreshDongleChildDevice() {
 	defer applySelectedConnectionPreference()
 	dongle, exists := selectedDongleSnapshot()
+	if headset, ok := selectedHeadsetSnapshot(); ok {
+		if headset.deviceConnection == deviceConnectionType_USB && firmwaretool.WirelessFirmwareParent(headset.productID) {
+			dongle, exists = headset, true
+		} else if headset.deviceConnection == deviceConnectionType_BT {
+			if parent, ok := deviceAt(int(headset.parentDeviceID)); ok && firmwaretool.WirelessFirmwareParent(parent.productID) {
+				dongle, exists = parent, true
+			}
+		}
+	}
 	if !exists || dongle.hidrawPath == "" {
 		removeDongleChildAfterMiss()
 		return
 	}
 
 	gnpIOMu.Lock()
-	transport, err := firmwaretool.OpenHidraw(dongle.hidrawPath)
+	transport, err := firmwaretool.OpenControlHidraw(dongle.hidrawPath)
 	if err == nil {
 		defer func() { _ = transport.Close() }()
 	}
 	var productID uint16
 	var name string
+	var serial string
 	if err == nil {
 		productID, err = firmwaretool.QueryChildProductID(transport, nextSeq(), 750*time.Millisecond)
 	}
 	if err == nil && productID != 0 {
 		name, err = firmwaretool.QueryChildName(transport, nextSeq(), 750*time.Millisecond)
+	}
+	if err == nil && firmwaretool.SupportsWirelessFirmware(dongle.productID, productID) {
+		serial, err = firmwaretool.QueryChildSerial(transport, nextSeq(), 750*time.Millisecond)
+		if err == nil && serial == "" {
+			err = errors.New("wireless headset serial is unavailable")
+		}
 	}
 	gnpIOMu.Unlock()
 	if err != nil || productID == 0 {
@@ -1119,7 +1136,7 @@ func refreshDongleChildDevice() {
 	if strings.TrimSpace(name) == "" {
 		name = fmt.Sprintf("Jabra headset (PID %04x)", productID)
 	}
-	changed := upsertDongleChild(dongle.deviceID, productID, name)
+	changed := upsertDongleChildIdentity(dongle.deviceID, productID, name, serial)
 	if refreshDongleChildMetadata(dongle.deviceID) {
 		changed = true
 	}
@@ -1129,6 +1146,10 @@ func refreshDongleChildDevice() {
 }
 
 func upsertDongleChild(parentID, productID uint16, name string) bool {
+	return upsertDongleChildIdentity(parentID, productID, name, "")
+}
+
+func upsertDongleChildIdentity(parentID, productID uint16, name, serial string) bool {
 	deviceStateMu.Lock()
 	defer deviceStateMu.Unlock()
 	dongleChildMisses = 0
@@ -1141,9 +1162,14 @@ func upsertDongleChild(parentID, productID uint16, name string) bool {
 	}
 	for _, device := range deviceManager {
 		if device != nil && device.deviceConnection == deviceConnectionType_BT && device.parentDeviceID == parentID {
-			changed := device.productID != productID || device.deviceName != name || device.hidrawPath != controlPath
+			changed := device.productID != productID || device.deviceName != name || device.hidrawPath != controlPath || serial != "" && serial != device.serialNumber
 			if changed {
 				device.instance = newDeviceInstance()
+				device.firmwareVersion, device.variantType, device.serialNumber = "", "", ""
+				device.metadataProbeAt = time.Time{}
+			}
+			if serial != "" {
+				device.serialNumber = serial
 			}
 			device.productID = productID
 			device.deviceName = name
@@ -1164,6 +1190,7 @@ func upsertDongleChild(parentID, productID uint16, name string) bool {
 		productID:        productID,
 		vendorID:         jabraVendorID,
 		deviceName:       name,
+		serialNumber:     serial,
 		hidrawPath:       controlPath,
 		parentDeviceID:   parentID,
 		deviceConnection: deviceConnectionType_BT,

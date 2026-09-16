@@ -121,16 +121,16 @@ func prepareSitelImage(target byte, segments []hexImageSegment, area sitelArea, 
 	}
 	version := ""
 	switch target {
-	case 27:
+	case 4, 5, 27, 28:
 		header, err := readSitelImage(segments, area.Address, 34)
 		if err != nil {
 			return sitelPreparedImage{}, err
 		}
 		if binary.LittleEndian.Uint32(header[30:]) != info.ID {
-			return sitelPreparedImage{}, errors.New("sitel tune image device ID mismatch")
+			return sitelPreparedImage{}, errors.New("sitel resource image device ID mismatch")
 		}
 		version = string(bytesBeforeNUL(header[11:21]))
-	case 3, 29:
+	case 0, 1, 3, 6, 7, 12, 14, 21, 22, 29:
 		offset := info.ImageInfoOffset
 		deviceID := info.ID
 		if target == 29 {
@@ -147,7 +147,7 @@ func prepareSitelImage(target byte, segments []hexImageSegment, area sitelArea, 
 		}
 		var virtualOffset uint32
 		first := binary.LittleEndian.Uint32(header)
-		if target == 3 && first > 0x10000000 && first < 0x60000000 {
+		if target != 29 && first > 0x10000000 && first < 0x60000000 {
 			if uint64(headerAddress)+40 > 1<<32 {
 				return sitelPreparedImage{}, errors.New("sitel virtual header address overflow")
 			}

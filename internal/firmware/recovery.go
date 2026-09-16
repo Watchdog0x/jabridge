@@ -19,22 +19,28 @@ import (
 const firmwareRecoveryStateVersion = 1
 
 type firmwareRecoveryState struct {
-	FormatVersion            int      `json:"formatVersion"`
-	ArchiveSHA256            string   `json:"archiveSha256"`
-	ProductName              string   `json:"productName"`
-	FirmwareVersion          string   `json:"firmwareVersion"`
-	TargetUSBPIDs            []string `json:"targetUsbPids"`
-	Attempt                  int      `json:"attempt"`
-	StartedAt                string   `json:"startedAt"`
-	USBPort                  string   `json:"usbPort,omitempty"`
-	TargetIdentitySHA256     string   `json:"targetIdentitySha256,omitempty"`
-	Language                 uint16   `json:"language,omitempty"`
-	Protocol                 int      `json:"protocol,omitempty"`
-	RuntimePID               uint16   `json:"runtimePid,omitempty"`
-	BootPID                  uint16   `json:"bootPid,omitempty"`
-	Phase                    string   `json:"phase,omitempty"`
-	ControllerIdentitySHA256 string   `json:"controllerIdentitySha256,omitempty"`
-	USBSerialSHA256          string   `json:"usbSerialSha256,omitempty"`
+	FormatVersion            int                 `json:"formatVersion"`
+	ArchiveSHA256            string              `json:"archiveSha256"`
+	ProductName              string              `json:"productName"`
+	FirmwareVersion          string              `json:"firmwareVersion"`
+	TargetUSBPIDs            []string            `json:"targetUsbPids"`
+	Attempt                  int                 `json:"attempt"`
+	StartedAt                string              `json:"startedAt"`
+	USBPort                  string              `json:"usbPort,omitempty"`
+	TargetIdentitySHA256     string              `json:"targetIdentitySha256,omitempty"`
+	Language                 uint16              `json:"language,omitempty"`
+	Protocol                 int                 `json:"protocol,omitempty"`
+	RuntimePID               uint16              `json:"runtimePid,omitempty"`
+	BootPID                  uint16              `json:"bootPid,omitempty"`
+	Phase                    string              `json:"phase,omitempty"`
+	ControllerIdentitySHA256 string              `json:"controllerIdentitySha256,omitempty"`
+	USBSerialSHA256          string              `json:"usbSerialSha256,omitempty"`
+	Conexant                 *conexantRecovery   `json:"conexant,omitempty"`
+	SitelOTA                 *sitelOTARecovery   `json:"sitelOta,omitempty"`
+	SitelDECT                *sitelDECTRecovery  `json:"sitelDect,omitempty"`
+	Camera                   *cameraRecovery     `json:"camera,omitempty"`
+	UVCCamera                *uvcCameraRecovery  `json:"uvcCamera,omitempty"`
+	PanaCast50               *panacast50Recovery `json:"panaCast50,omitempty"`
 }
 
 type firmwareTransferPreparation struct {
@@ -163,7 +169,13 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 		state.ProductName == "" || state.FirmwareVersion == "" || len(state.TargetUSBPIDs) == 0 || state.Attempt < 1 {
 		return firmwareRecoveryState{}, errors.New("firmware recovery state is incomplete")
 	}
-	if state.Protocol == 4 {
+	if state.Protocol == 4 && state.SitelDECT != nil {
+		if err := validSitelDECTRecovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	} else if state.SitelDECT != nil {
+		return firmwareRecoveryState{}, errors.New("unexpected DECT recovery record")
+	} else if state.Protocol == 4 {
 		profile, ok := sitelProfileForPID(state.RuntimePID)
 		pids, err := parseTargetPIDs(state.TargetUSBPIDs)
 		if !ok || !profile.runtime(state.RuntimePID) || state.BootPID != profile.BootPID || state.USBPort == "" || err != nil || len(pids) != 1 || pids[0] != profile.BootPID {
@@ -190,6 +202,41 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 			return firmwareRecoveryState{}, errors.New("sitel recovery headset identity is missing")
 		}
 	}
+	if state.Protocol == 5 {
+		if err := validConexantRecovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	} else if state.Conexant != nil {
+		return firmwareRecoveryState{}, errors.New("unexpected UC Voice recovery record")
+	}
+	if state.Protocol == 12 {
+		if err := validSitelOTARecovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	} else if state.SitelOTA != nil {
+		return firmwareRecoveryState{}, errors.New("unexpected wireless Engage recovery record")
+	}
+	if state.Protocol == 18 {
+		if err := validCameraRecovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	} else if state.Camera != nil {
+		return firmwareRecoveryState{}, errors.New("unexpected camera recovery record")
+	}
+	if state.Protocol == 11 {
+		if err := validUVCCameraRecovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	} else if state.UVCCamera != nil {
+		return firmwareRecoveryState{}, errors.New("unexpected PanaCast 20 recovery record")
+	}
+	if state.Protocol == 10 || state.Protocol == 13 {
+		if err := validPanaCast50Recovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	} else if state.PanaCast50 != nil {
+		return firmwareRecoveryState{}, errors.New("unexpected PanaCast 50 recovery record")
+	}
 	return state, nil
 }
 
@@ -205,7 +252,8 @@ func saveFirmwareRecoveryState(state firmwareRecoveryState) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	newParents, err := createFirmwareStateDirectory(filepath.Dir(path))
+	if err != nil {
 		return err
 	}
 	encoded, err := json.MarshalIndent(state, "", "  ")
@@ -241,7 +289,48 @@ func saveFirmwareRecoveryState(state firmwareRecoveryState) error {
 		return err
 	}
 	cleanup = false
+	// The rename itself must be durable before an installer changes hardware.
+	// Syncing only the temporary file does not persist its directory entry.
+	if err := syncFirmwareStateDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
+	for _, parent := range newParents {
+		if err := syncFirmwareStateDirectory(parent); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func createFirmwareStateDirectory(path string) ([]string, error) {
+	var parents []string
+	for current := path; ; current = filepath.Dir(current) {
+		info, err := os.Stat(current)
+		if err == nil {
+			if !info.IsDir() {
+				return nil, errors.New("firmware state parent is not a directory")
+			}
+			break
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil, err
+		}
+		parents = append(parents, parent)
+	}
+	return parents, os.MkdirAll(path, 0o700)
+}
+
+func syncFirmwareStateDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = directory.Close() }()
+	return directory.Sync()
 }
 
 func clearFirmwareRecoveryState() error {
@@ -259,5 +348,8 @@ func clearFirmwareRecoveryState() error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("refusing to remove non-regular firmware recovery state %s", path)
 	}
-	return os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return syncFirmwareStateDirectory(filepath.Dir(path))
 }

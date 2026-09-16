@@ -16,6 +16,16 @@ Testing a device does not mean every feature or firmware update has been tested.
 Tested another device? [Open an issue](https://github.com/Watchdog0x/jabridge/issues/new)
 with its name, what worked and your debug report so we can add it to this list.
 
+## Firmware simulator tests
+
+Engage 75 and 75 SE firmware updates were tested in a simulator with the full
+firmware package for both Bluetooth chip variants. Tests cover all nine
+components, interrupted updates, recovery and final version checks.
+
+No physical Engage 75 or 75 SE was available. These results do not establish
+physical flash timing or USB reliability. See [firmware coverage](https://github.com/Watchdog0x/jabridge/blob/main/docs/FIRMWARE.md)
+for the other update paths and their test limits.
+
 ## How to test
 
 Use your device normally. Try sound, microphone, buttons and settings. Then save a report:

@@ -166,7 +166,7 @@ func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device US
 		if err = checkpoint("entering-bootloader"); err != nil {
 			return err
 		}
-		_, err = runtime.exchange(ctx, 1, 7, 0x80, nil)
+		_, err = runtime.exchange(ctx, id.Address, 7, 0x80, nil)
 		if err != nil && !sitelDisconnect(err) {
 			return fmt.Errorf("enter Sitel bootloader: %w", err)
 		}
@@ -358,7 +358,7 @@ func installSitelChecked(snapshot *firmwareSnapshot, accepted bool, validateTarg
 		if transfer.Recovery {
 			word = "RECOVER"
 		}
-		fmt.Fprintf(os.Stderr, "Firmware: %s %s\nSelected USB: 0b0e:%04x\nKeep the headset connected.\n", manifest.ProductName, manifest.Version, device.ProductID)
+		fmt.Fprintf(os.Stderr, "Firmware: %s %s\nSelected USB: 0b0e:%04x\nKeep the device connected.\n", manifest.ProductName, manifest.Version, device.ProductID)
 		if engageHasController(lookupPID) {
 			fmt.Fprintln(os.Stderr, "Keep Link Call Control connected too.")
 		}

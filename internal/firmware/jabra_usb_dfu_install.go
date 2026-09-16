@@ -8,12 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/history"
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 	"golang.org/x/sys/unix"
 )
 
@@ -235,11 +235,16 @@ func verifyUSBDFURelease(ctx context.Context, image *jabraDFUImage, device USBDe
 		lookupPID = image.Profile.RuntimePIDs[0]
 	}
 	evidence, err := firmwareModelCatalog.FirmwareRelease(ctx, lookupPID, image.Manifest.Version)
-	if err != nil || !firmwareReleaseMatchesDevice(image.MD5, lookupPID, evidence) ||
-		!slices.Contains(evidence.FirmwareProtocols, 1) {
+	if err != nil || !usbDFUReleaseMatches(image.MD5, lookupPID, evidence) {
 		return fmt.Errorf("USB DFU firmware does not match the official protocol-1 release: %w", errors.Join(err, errors.New("release validation failed")))
 	}
 	return nil
+}
+
+func usbDFUReleaseMatches(checksum string, pid uint16, evidence *modelcatalog.ReleaseEvidence) bool {
+	return firmwareReleaseMatchesDevice(checksum, pid, evidence) &&
+		!evidence.HasUnspecifiedFirmwareProtocol && len(evidence.FirmwareProtocols) == 1 &&
+		evidence.FirmwareProtocols[0] == 1
 }
 
 func runUSBDFU(ctx context.Context, original USBDevice, address byte, image *jabraDFUImage, backend usbDFUBackend) (resultErr error) {

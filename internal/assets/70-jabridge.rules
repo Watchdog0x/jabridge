@@ -4,4 +4,8 @@ SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="0b0e", MODE="0660", TA
 # Jabra media-button events, without granting access to other input devices.
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="0b0e", MODE="0660", TAG+="uaccess"
 # Native USB DFU profiles and their documented recovery identities.
-SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="0411|0412|0420|0421|0422|0971|0982|2456|2475", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="030b|030c|030d|030e|0310|0311|0410|0411|0412|0420|0421|0422|090a|090f|0910|091b|091c|0948|0949|094e|0954|096a|096c|0971|0976|097a|097e|0982|0994|0995|0997|0998|2400|2401|2402|2450|2451|2452|2453|2454|2456|245d|245e|2465|2466|2467|246c|246d|246e|2475|2476|2477|24ae|24b0|24b1|24b2|24cb|24e8|a345|a346|a347", MODE="0660", TAG+="uaccess"
+# PanaCast 40 VBS and U30 firmware bulk interfaces.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="3081|3085|3086|3092|3093|3094", MODE="0660", TAG+="uaccess"
+# PanaCast 20 firmware uses its video extension controls.
+SUBSYSTEM=="video4linux", KERNEL=="video*", ATTRS{idVendor}=="0b0e", ATTRS{idProduct}=="3020|3021|3029|302a", MODE="0660", TAG+="uaccess"

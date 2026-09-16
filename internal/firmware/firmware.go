@@ -155,6 +155,7 @@ type USBDevice struct {
 	Serial       string
 	ViaDongle    bool
 	Firmware     string
+	Parent       *USBDevice
 }
 
 // enumerateUSB walks /sys/bus/usb/devices and returns all devices matching
@@ -348,6 +349,26 @@ func DiagnoseFirmware(ctx context.Context, pid uint16, cacheDir string) (Firmwar
 	result.ChecksumMatches = true
 	result.Stage = "native layout"
 	for _, protocol := range result.Protocols {
+		if (protocol == 10 || protocol == 13) && NativeFirmwareProtocolSupported(pid, protocol) {
+			_, err := loadPanaCast50Archive(path)
+			result.NativeLayout = err == nil
+			break
+		}
+		if protocol == 11 && NativeFirmwareProtocolSupported(pid, protocol) {
+			_, err := loadUVCCameraArchive(path)
+			result.NativeLayout = err == nil
+			break
+		}
+		if protocol == 12 && NativeFirmwareProtocolSupported(pid, protocol) {
+			_, err := loadSitelOTAArchive(path)
+			result.NativeLayout = err == nil
+			break
+		}
+		if protocol == 5 && NativeFirmwareProtocolSupported(pid, protocol) {
+			_, err := loadConexantImage(path)
+			result.NativeLayout = err == nil
+			break
+		}
 		if protocol == 1 && NativeFirmwareProtocolSupported(pid, protocol) {
 			_, err := loadJabraDFUImage(path)
 			result.NativeLayout = err == nil
@@ -362,8 +383,13 @@ func DiagnoseFirmware(ctx context.Context, pid uint16, cacheDir string) (Firmwar
 			break
 		}
 		if protocol == 4 && NativeFirmwareProtocolSupported(pid, protocol) {
-			_, _, err := loadSitelImages(path)
-			result.NativeLayout = err == nil
+			if _, dect := sitelDECTProfileForPID(pid); dect {
+				_, err := loadSitelDECTArchive(path)
+				result.NativeLayout = err == nil
+			} else {
+				_, _, err := loadSitelImages(path)
+				result.NativeLayout = err == nil
+			}
 			break
 		}
 	}
@@ -715,6 +741,7 @@ type GnVFile struct {
 	Content          string `xml:"content"`
 	Version          string `xml:"version"`
 	Target           string `xml:"target"`
+	Subtarget        string `xml:"subtarget"`
 	Partition        int    `xml:"partition"`
 	CRC              string `xml:"crc"`
 	SitelHidTargetID string `xml:"sitelHidTargetId"`
@@ -733,8 +760,20 @@ func parseFirmwareManifest(path string) (*BuildVector, error) {
 		return nil, fmt.Errorf("open zip: %w", err)
 	}
 	defer func() { _ = r.Close() }()
+	return parseFirmwareManifestFiles(r.File)
+}
+
+func parseFirmwareManifestAt(reader io.ReaderAt, size int64) (*BuildVector, error) {
+	r, err := zip.NewReader(reader, size)
+	if err != nil {
+		return nil, err
+	}
+	return parseFirmwareManifestFiles(r.File)
+}
+
+func parseFirmwareManifestFiles(files []*zip.File) (*BuildVector, error) {
 	manifestCount := 0
-	for _, file := range r.File {
+	for _, file := range files {
 		if filepath.Base(file.Name) == "info.xml" {
 			manifestCount++
 		}
@@ -742,7 +781,7 @@ func parseFirmwareManifest(path string) (*BuildVector, error) {
 	if manifestCount != 1 {
 		return nil, errors.New("archive needs exactly one info.xml")
 	}
-	for _, file := range r.File {
+	for _, file := range files {
 		if filepath.Base(file.Name) != "info.xml" {
 			continue
 		}
@@ -1188,6 +1227,14 @@ func cmdManifest(args []string) {
 		printUSBDFUManifest(args[0])
 		return
 	}
+	if manifest, err := parseFirmwareManifest(args[0]); err == nil && isBulkCameraManifest(manifest) {
+		archive, err := loadBulkCameraArchive(args[0])
+		if err != nil {
+			die("camera firmware: %v", err)
+		}
+		fmt.Printf("Product: %s\nVersion: %s\nCamera package: %d bytes\nPayload and metadata checksums match. No device was changed.\n", archive.Profile.Name, archive.Manifest.Version, archive.Size)
+		return
+	}
 	bv, contents, err := parseGnVArchive(args[0])
 	if err != nil {
 		die("parse: %v", err)
@@ -1199,8 +1246,44 @@ func cmdManifest(args []string) {
 	fmt.Printf("Min updater:    %s\n", bv.MinFirmwareUpdaterAppVersion)
 	fmt.Printf("Partial upload: %s\n", bv.PartialUploadAllowed)
 	fmt.Printf("Files (%d):\n", len(bv.Files))
+	if isPanaCast50Manifest(bv) {
+		archive, err := loadPanaCast50Archive(args[0])
+		if err != nil {
+			die("PanaCast 50 firmware: %v", err)
+		}
+		fmt.Printf("PanaCast 50: %s; %d-byte upgrade bundle checked\n", bv.Version, len(archive.Data))
+		fmt.Println("Native installation selects the camera's GNP file transfer or USB storage mode. No device was changed.")
+		return
+	}
+	if isUVCCameraManifest(bv) {
+		archive, err := loadUVCCameraArchive(args[0])
+		if err != nil {
+			die("PanaCast 20 firmware: %v", err)
+		}
+		fmt.Printf("PanaCast 20: main %s, bootloader %s\n", archive.Main.File.Version, archive.Boot.File.Version)
+		fmt.Println("The installer selects the required components from the connected camera's version. No device was changed.")
+		return
+	}
 	if isUSBDFUManifest(bv) {
 		printUSBDFUManifest(args[0])
+		return
+	}
+	if isSitelOTAManifest(bv) {
+		archive, err := loadSitelOTAArchive(args[0])
+		if err != nil {
+			die("wireless Engage image validation: %v", err)
+		}
+		fmt.Printf("Wireless Engage: firmware %s, sound prompts %s, region %d\n", bv.Version, archive.Images[1].File.Version, archive.Region)
+		fmt.Println("Native installation uses the paired Link 400 or Engage base. The charging cable is not a firmware route. No device was changed.")
+		return
+	}
+	if isSitelDECTManifest(bv) {
+		archive, err := loadSitelDECTArchive(args[0])
+		if err != nil {
+			die("DECT firmware: %v", err)
+		}
+		fmt.Printf("DECT base: %s; %d ordered components\n", archive.Profile.Name, len(archive.Profile.Targets))
+		fmt.Println("Native installation requires the matching base and its docked headset. No device was changed.")
 		return
 	}
 	for _, file := range bv.Files {
@@ -1219,6 +1302,15 @@ func cmdManifest(args []string) {
 		} else {
 			fmt.Println("Image checks passed. This Sitel model is not supported by the native installer. No device was changed.")
 		}
+		return
+	}
+	if isConexantManifest(bv) {
+		image, err := loadConexantImage(args[0])
+		if err != nil {
+			die("UC Voice firmware: %v", err)
+		}
+		fmt.Printf("UC Voice: %s %s; %d ordered patch records\n", image.Manifest.ProductName, image.Manifest.Version, len(image.Records))
+		fmt.Println("Image checks passed. Native UC Voice installation is available. Real-device installation and recovery still need testing. No device was changed.")
 		return
 	}
 	if isExtendedCSRManifest(bv) {
@@ -1380,15 +1472,14 @@ func cmdStatus() {
 func connectedDongleChildren(devices []USBDevice) []USBDevice {
 	var children []USBDevice
 	for _, device := range devices {
-		if !isDonglePID(device.ProductID) {
+		if !isDonglePID(device.ProductID) && !sitelOTAParentPID(device.ProductID) {
 			continue
 		}
-		probe := &JabraDevice{VendorID: device.VendorID, ProductID: device.ProductID, SerialNumber: device.Serial}
-		hidrawPath, err := findHidrawForDevice(probe)
+		parent, err := bindUSBDevice(device)
 		if err != nil {
 			continue
 		}
-		transport, err := OpenHidraw(hidrawPath)
+		transport, err := openBoundManagement(parent)
 		if err != nil {
 			continue
 		}
@@ -1413,6 +1504,7 @@ func connectedDongleChildren(devices []USBDevice) []USBDevice {
 			Product:   name,
 			ViaDongle: true,
 			Firmware:  firmwareVersion,
+			Parent:    &parent,
 		})
 	}
 	return children
@@ -1579,6 +1671,10 @@ func cmdInstallChecked(args []string, validateTarget func() error, expectedDiges
 }
 
 func cmdInstallForTarget(args []string, validateTarget func() error, expectedDigest string, preferredPID uint16) {
+	cmdInstallForSelection(args, validateTarget, expectedDigest, preferredPID, nil)
+}
+
+func cmdInstallForSelection(args []string, validateTarget func() error, expectedDigest string, preferredPID uint16, wireless *WirelessFirmwareSelection) {
 	path, accepted, err := parseInstallArgs(args)
 	if err != nil {
 		die("firmware install: %v", err)
@@ -1621,6 +1717,42 @@ func cmdInstallForTarget(args []string, validateTarget func() error, expectedDig
 	manifest, err := parseFirmwareManifest(path)
 	if err != nil {
 		die("firmware manifest: %v", err)
+	}
+	if isBulkCameraManifest(manifest) {
+		if err := installBulkCameraChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+			die("camera firmware: %v", err)
+		}
+		return
+	}
+	if isUVCCameraManifest(manifest) {
+		if err := installUVCCameraChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+			die("PanaCast 20 firmware: %v", err)
+		}
+		return
+	}
+	if isPanaCast50Manifest(manifest) {
+		if err := installPanaCast50Checked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+			die("PanaCast 50 firmware: %v", err)
+		}
+		return
+	}
+	if isSitelOTAManifest(manifest) {
+		if err := installSitelOTAChecked(snapshot, accepted, validateTarget, preferredPID, wireless); err != nil {
+			die("wireless Engage firmware: %v", err)
+		}
+		return
+	}
+	if isSitelDECTManifest(manifest) {
+		if err := installSitelDECTChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+			die("DECT firmware: %v", err)
+		}
+		return
+	}
+	if isConexantManifest(manifest) {
+		if err := installConexantChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+			die("UC Voice firmware: %v", err)
+		}
+		return
 	}
 	if isSitelManifest(manifest) {
 		if err := installSitelChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
@@ -1785,6 +1917,18 @@ func cmdVerify(args []string) {
 	format, err := detectFormat(args[0])
 	if err != nil {
 		die("detect: %v", err)
+	}
+	if format == FormatGnVArchive {
+		if manifest, err := parseFirmwareManifest(args[0]); err == nil && isBulkCameraManifest(manifest) {
+			if _, err := loadBulkCameraArchive(args[0]); err != nil {
+				die("verify camera payload: %v", err)
+			}
+			if err := validateAttachedFirmwareTarget(args[0]); err != nil {
+				die("verify camera: %v", err)
+			}
+			fmt.Println("Camera payload and official archive checksums match an attached model. No device was changed.")
+			return
+		}
 	}
 	if format == FormatCSRDFU2 || format == FormatGnVArchive {
 		image, parseErr := loadJabraDFUImage(args[0])

@@ -13,8 +13,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Native install families fit within the existing expanded-archive limit.
-// Downloading other formats does not authorize allocating them for installation.
+// Headset archives remain bounded by the expanded-archive limit. Only known
+// bulk-camera manifests may use the larger streamed-archive budget.
 const maxNativeArchive = MaxExpandedArchiveSize
 const firmwareSeals = unix.F_SEAL_WRITE | unix.F_SEAL_GROW | unix.F_SEAL_SHRINK | unix.F_SEAL_SEAL
 
@@ -34,9 +34,28 @@ func freezeFirmwareFile(path string) (*firmwareSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = input.Close() }()
-	if info.Size() > maxNativeArchive {
-		return nil, fmt.Errorf("native firmware archive exceeds %d bytes", maxNativeArchive)
+	defer func() {
+		if input != nil {
+			_ = input.Close()
+		}
+	}()
+	limit := maxNativeArchive
+	if info.Size() > limit {
+		manifest, err := parseFirmwareManifestAt(input, info.Size())
+		if err != nil || !isBulkCameraManifest(manifest) || info.Size() > maxCameraArchive {
+			return nil, fmt.Errorf("native firmware archive exceeds its supported size limit")
+		}
+		limit = maxCameraArchive
+	}
+	// Reopening an already sealed snapshot keeps the same immutable inode;
+	// do not duplicate a multi-gigabyte camera archive for nested validation.
+	if seals, err := unix.FcntlInt(input.Fd(), unix.F_GET_SEALS, 0); err == nil && seals&firmwareSeals == firmwareSeals {
+		snapshot, err := describeFirmwareSnapshot(input)
+		if err != nil {
+			return nil, err
+		}
+		input = nil
+		return snapshot, nil
 	}
 	fd, err := unix.MemfdCreate("jabridge-firmware", unix.MFD_CLOEXEC|unix.MFD_ALLOW_SEALING)
 	if err != nil {
@@ -49,19 +68,27 @@ func freezeFirmwareFile(path string) (*firmwareSnapshot, error) {
 			_ = file.Close()
 		}
 	}()
-	n, err := io.Copy(file, io.LimitReader(input, maxNativeArchive+1))
+	n, err := io.Copy(file, io.LimitReader(input, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("copy firmware snapshot: %w", err)
 	}
 	after, err := input.Stat()
-	if err != nil || n != info.Size() || after.Size() != info.Size() || n > maxNativeArchive {
+	if err != nil || n != info.Size() || after.Size() != info.Size() || n > limit {
 		return nil, errors.New("firmware changed while creating snapshot")
 	}
 	if _, err := unix.FcntlInt(file.Fd(), unix.F_ADD_SEALS, firmwareSeals); err != nil {
 		return nil, fmt.Errorf("seal firmware snapshot: %w", err)
 	}
-	// Hash only after sealing: the digest must describe the immutable object,
-	// not the source pathname or buffers used while constructing it.
+	snapshot, err := describeFirmwareSnapshot(file)
+	if err != nil {
+		return nil, err
+	}
+	keep = true
+	return snapshot, nil
+}
+
+// Hash only the sealed object, never the mutable source pathname.
+func describeFirmwareSnapshot(file *os.File) (*firmwareSnapshot, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -69,8 +96,7 @@ func freezeFirmwareFile(path string) (*firmwareSnapshot, error) {
 	if _, err := io.Copy(digest, file); err != nil {
 		return nil, err
 	}
-	keep = true
-	return &firmwareSnapshot{file: file, path: fmt.Sprintf("/proc/self/fd/%d", fd), digest: hex.EncodeToString(digest.Sum(nil))}, nil
+	return &firmwareSnapshot{file: file, path: fmt.Sprintf("/proc/self/fd/%d", file.Fd()), digest: hex.EncodeToString(digest.Sum(nil))}, nil
 }
 
 // Ordinary input symlinks and special files are rejected. The sole symlink
