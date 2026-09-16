@@ -77,7 +77,7 @@ You can also update directly:
 
 This updates the app, not your device firmware.
 
-## Headset volume
+## Headset volume (experimental)
 
 For Evolve2 30 SE (0b0e:0e36) with firmware 1.11.0, connected directly by USB:
 

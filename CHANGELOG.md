@@ -24,6 +24,12 @@ Engage 75 and 75 SE validation uses the simulator. No physical device was
 available for those models. Pro 9460/9465/9470 and Pro 925/935 are outside
 this release's added support.
 
+Add an experimental `jabridge headset volume PERCENT` command for Evolve2 30 SE
+(0b0e:0e36), firmware 1.11.0, connected directly by USB. It requests the headset's
+own volume and records the request in debug history. Original firmware
+emulation passed; physical headset feedback for issue #44 is still pending.
+At its volume limits, the headset may also send a normal volume key to Linux.
+
 ## 1.0.2 — 2026-09-15
 
 Interactive startup now checks for a new Jabridge app version and asks whether
