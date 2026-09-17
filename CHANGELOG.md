@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 — 2026-09-16
+## 1.1.0 — 2026-09-17
 
 Fix missing controls and incomplete terminal screens caused by the keyboard
 reader changing shared terminal output flags. Search polling and device
@@ -27,8 +27,9 @@ this release's added support.
 Add an experimental `jabridge headset volume PERCENT` command for Evolve2 30 SE
 (0b0e:0e36), firmware 1.11.0, connected directly by USB. It requests the headset's
 own volume and records the request in debug history. The reporter in issue #44
-confirmed that volume writes work on his headset. Other variants and saved-level
-reads have software test coverage and still need physical testing.
+confirmed that volume writes work on his headset and tested saved-level reads.
+Saved readings can stay stale and differ from current playback. Other USB
+variants have software test coverage and still need physical testing.
 At its volume limits, the headset may also send a normal volume key to Linux.
 
 Headset volume support now uses model, firmware and connection profiles. The

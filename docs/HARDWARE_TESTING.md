@@ -56,10 +56,16 @@ have passed execution of the original firmware in a bounded emulator. This
 models USB, storage, scheduling and DSP boundaries; it is not an audible test.
 
 The reporter in issue #44 has now confirmed that writes change audible volume
-on 0b0e:0e36 with firmware 1.11.0. The additional 0e37/0e38/0e39 descriptor
-profiles and the saved-level read have software evidence only. Silent audio
-after reconnecting is under investigation; the reporter is comparing reconnects
-with the service disabled before attributing it to Jabridge.
+on 0b0e:0e36 with firmware 1.11.0 and has tested saved-level reads, including
+readings that remain stale after a write. The additional 0e37/0e38/0e39 descriptor
+profiles have software evidence only.
+
+The same reporter reproduced silent audio after reconnecting with Jabridge
+fully disabled on kernel 7.2.6 and reports normal playback on 6.18 LTS. The
+[upstream USB audio change](https://kernel.googlesource.com/pub/scm/linux/kernel/git/tiwai/sound/+/3c87a903a6820a0789bbab61681dd570d6030260)
+keeps a mixer available when its volume readback is unreliable. These results
+describe this tester's setup; they do not establish the cause of every audio
+problem on other systems.
 
 The test build needs the new USB access rule from `jabridge setup`. Keep Linux
 volume steady while testing `jabridge headset volume 50`. A write response means

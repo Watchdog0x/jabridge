@@ -105,10 +105,12 @@ jabridge headset volume get
 The saved level can differ from the current playback volume. Running
 `jabridge headset volume` without a value also reads the saved level.
 
-Volume writes are confirmed on the Evolve2 30 SE from [issue #44](https://github.com/Watchdog0x/jabridge/issues/44).
+Volume writes and saved-level reads have been tested on the Evolve2 30 SE
+(0b0e:0e36) from [issue #44](https://github.com/Watchdog0x/jabridge/issues/44).
 The four USB variants (0e36, 0e37, 0e38 and 0e39) have model-specific checks tested
-against their original firmware. Other variants and the saved-level command
-still need physical testing. A verified headset-volume command through a Link
+against their original firmware. The other three variants still need physical
+testing. Saved readings can stay unchanged for several seconds after a volume
+request and do not verify current playback. A headset-volume command through a Link
 dongle is still being investigated; it is not enabled yet.
 
 ## Device firmware
