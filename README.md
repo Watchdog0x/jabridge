@@ -6,7 +6,7 @@ Jabra headset and dongle controls for Linux. Think Jabra Direct, built by the co
 
 ![Jabridge main menu with a Link 390 dongle and Evolve3 85 headset](docs/tui-example.png)
 
-*Main menu with a Link 390 and Evolve3 85, using sample data. Your menus depend on your device.*
+*Jabridge 1.1.0 with a Link 390 and Evolve3 85, using sample data. Your menus depend on your device.*
 
 ## Start
 
@@ -57,6 +57,10 @@ With a Link 380, choose **Find headset** and put your headset in pairing mode. Q
 When you open Jabridge in a terminal, it checks for a new app version. If one
 is available, the menu shows an update screen. Press `Y` to update or `N` to
 continue. You can also use the arrow keys and Enter; No is selected by default.
+![Jabridge update screen with Yes and Not now choices](docs/update-example.png)
+
+*Example update from 1.0.2 to 1.1.0. No is selected by default.*
+
 The command line asks:
 
 ```text
