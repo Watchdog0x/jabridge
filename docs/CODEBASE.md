@@ -133,3 +133,24 @@ repomap . --query 'firmware install recovery' --mentioned-symbol PrepareInteract
 
 Then read the named functions and their callers. A map is a starting point;
 tests and the actual code establish how the path behaves.
+
+## Headset volume
+
+`jabridge headset volume` follows `cmd/jabridge/headset_volume.go` through the
+`device.volume` IPC method into `internal/headsetvolume`. It controls the
+selected headset's USB audio gain. `jabridge sound volume` continues to use
+PipeWire through `daemon/pipewire`.
+
+The headset path checks the model, firmware, USB attachment and Audio 1
+playback descriptors. It uses the Evolve2 30 SE firmware's endpoint request
+route so Linux keeps its audio driver attached. It does not reset the device.
+An internal probe checks the saved USB value before each write. Writes report USB request acceptance;
+the firmware applies and saves changes asynchronously. History records these
+requests separately from PipeWire changes.
+
+`internal/headsetvolume/profiles.go` selects supported operations by model,
+firmware and connection. The client asks the service for support through
+`device.volume.info`, so the CLI does not maintain its own model allowlist.
+`device.volume.get` is an explicit saved-level read. Discovery and debug never
+run it automatically. A new transport needs its own verified protocol profile;
+the existing USB request must not be redirected to a dongle audio interface.

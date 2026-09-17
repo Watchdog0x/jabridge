@@ -14,7 +14,7 @@ import (
 func newDeviceInstance() string {
 	var data [16]byte
 	if _, err := rand.Read(data[:]); err != nil {
-		return ""
+		panic("cannot create device attachment identity")
 	}
 	return hex.EncodeToString(data[:])
 }
@@ -34,8 +34,8 @@ func validateSettingTarget(device *jabra_DeviceInfo, target *ipc.SettingTarget) 
 }
 
 func currentSettingDevice(device *jabra_DeviceInfo) error {
-	if device != nil && device.instance != "" {
-		return validateSettingTarget(deviceForID(device.deviceID), settingTarget(device))
+	if device == nil || device.instance == "" {
+		return errors.New("device attachment identity is unavailable; reconnect and select it again")
 	}
-	return nil
+	return validateSettingTarget(deviceForID(device.deviceID), settingTarget(device))
 }

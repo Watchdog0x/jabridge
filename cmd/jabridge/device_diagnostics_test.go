@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
+	"github.com/Watchdog0x/jabridge/internal/headsetvolume"
 	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
@@ -98,5 +99,9 @@ func TestProtocolFailuresAreUsefulWithoutRawData(t *testing.T) {
 	}
 	if got := safeFirmwareDiagnostic("PRIVATE_SERIAL"); got != "version format unrecognized" {
 		t.Fatal(got)
+	}
+	_, err := headsetvolume.Inspect(nil)
+	if got := protocolDiagnosticError(fmt.Errorf("PRIVATE_PATH: %w", err)); got != "not the validated Evolve2 30 SE USB firmware" {
+		t.Fatal("descriptor rejection was hidden or leaked its wrapper", got)
 	}
 }

@@ -9,3 +9,8 @@ SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idPro
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="3081|3085|3086|3092|3093|3094", MODE="0660", TAG+="uaccess"
 # PanaCast 20 firmware uses its video extension controls.
 SUBSYSTEM=="video4linux", KERNEL=="video*", ATTRS{idVendor}=="0b0e", ATTRS{idProduct}=="3020|3021|3029|302a", MODE="0660", TAG+="uaccess"
+# Evolve2 30 SE native playback volume uses bounded USB control requests.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="0e36", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="0e37", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="0e38", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0b0e", ATTR{idProduct}=="0e39", MODE="0660", TAG+="uaccess"

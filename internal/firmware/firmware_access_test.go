@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Watchdog0x/jabridge/internal/assets"
+	"github.com/Watchdog0x/jabridge/internal/headsetvolume"
 )
 
 // Keep installed OS permissions in sync with native transport support. A
@@ -30,6 +31,9 @@ func TestFirmwareUSBProfilesHaveInstalledAccessRules(t *testing.T) {
 		}
 	}
 	wanted := map[string]bool{}
+	for _, pid := range []uint16{headsetvolume.ProductID, 0x0e37, 0x0e38, 0x0e39} {
+		wanted[fmt.Sprintf("%04x", pid)] = true
+	}
 	for _, profile := range usbDFUProfiles {
 		for _, pid := range append(append([]uint16(nil), profile.RuntimePIDs...), profile.DFUPID) {
 			wanted[fmt.Sprintf("%04x", pid)] = true

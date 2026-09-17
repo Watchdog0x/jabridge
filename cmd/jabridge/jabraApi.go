@@ -26,12 +26,14 @@ import (
 	"time"
 
 	firmwaretool "github.com/Watchdog0x/jabridge/internal/firmware"
+	"github.com/Watchdog0x/jabridge/internal/headsetvolume"
 	"golang.org/x/sys/unix"
 )
 
 // ── Types (unchanged from original) ──────────────────────────────────
 
 type jabra_DeviceInfo struct {
+	volumeAttachment *headsetvolume.Attachment
 	deviceID         uint16
 	instance         string
 	productID        uint16
@@ -797,6 +799,9 @@ func registerUSBDevice(usbDevice usbDev) (*jabra_DeviceInfo, bool) {
 		hidrawPath:       findHidrawForPID(usbDevice.vendorID, usbDevice.productID),
 		powerSupply:      findPowerSupplyPath(usbDevice.vendorID, usbDevice.productID, usbDevice.serial),
 		featureFlags:     &featureFlags{},
+	}
+	if headsetvolume.KnownModel(device.productID) {
+		device.volumeAttachment, _ = headsetvolume.Capture(device.usbDevicePath)
 	}
 	if device.isDongle {
 		device.pairingList = &pairingList{listType: searchComplete, pairedDevices: []pairedDevice{}}

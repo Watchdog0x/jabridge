@@ -24,6 +24,7 @@ import (
 	"github.com/Watchdog0x/jabridge/daemon/buttons"
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/daemon/pipewire"
+	"github.com/Watchdog0x/jabridge/internal/headsetvolume"
 	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
@@ -523,4 +524,28 @@ func removeStaleSocket(socketPath string) error {
 		return fmt.Errorf("remove stale socket: %w", err)
 	}
 	return nil
+}
+
+func (a *busylightAPI) SetHeadsetVolume(target ipc.SettingTarget, percent int) (headsetvolume.Value, error) {
+	volume, ok := a.API.(ipc.HeadsetVolumeAPI)
+	if !ok {
+		return headsetvolume.Value{}, errors.New("direct headset volume is unavailable")
+	}
+	return volume.SetHeadsetVolume(target, percent)
+}
+
+func (a *busylightAPI) GetHeadsetVolume(target ipc.SettingTarget) (headsetvolume.Value, error) {
+	volume, ok := a.API.(ipc.HeadsetVolumeReadAPI)
+	if !ok {
+		return headsetvolume.Value{}, errors.New("headset volume reads are unavailable")
+	}
+	return volume.GetHeadsetVolume(target)
+}
+
+func (a *busylightAPI) HeadsetVolumeCapabilities(target ipc.SettingTarget) (headsetvolume.Capabilities, error) {
+	volume, ok := a.API.(ipc.HeadsetVolumeReadAPI)
+	if !ok {
+		return headsetvolume.Capabilities{}, errors.New("headset volume capabilities are unavailable")
+	}
+	return volume.HeadsetVolumeCapabilities(target)
 }

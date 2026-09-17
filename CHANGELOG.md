@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 — 2026-09-16
+## 1.1.0 — 2026-09-17
 
 Fix missing controls and incomplete terminal screens caused by the keyboard
 reader changing shared terminal output flags. Search polling and device
@@ -23,6 +23,20 @@ identity, and interrupted radio settings are completed on retry.
 Engage 75 and 75 SE validation uses the simulator. No physical device was
 available for those models. Pro 9460/9465/9470 and Pro 925/935 are outside
 this release's added support.
+
+Add an experimental `jabridge headset volume PERCENT` command for Evolve2 30 SE
+(0b0e:0e36), firmware 1.11.0, connected directly by USB. It requests the headset's
+own volume and records the request in debug history. The reporter in issue #44
+confirmed that volume writes work on his headset and tested saved-level reads.
+Saved readings can stay stale and differ from current playback. Other USB
+variants have software test coverage and still need physical testing.
+At its volume limits, the headset may also send a normal volume key to Linux.
+
+Headset volume support now uses model, firmware and connection profiles. The
+four Evolve2 30 SE USB layouts have separate checks. `headset volume get` reads
+the saved level, and `headset volume info` shows supported operations without
+sending a volume query. Debug reports include the playback profile, route state
+and PipeWire volume to help investigate silent audio after reconnecting.
 
 ## 1.0.2 — 2026-09-15
 

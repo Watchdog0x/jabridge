@@ -10,6 +10,57 @@ import (
 	"github.com/Watchdog0x/jabridge/daemon/pipewire"
 )
 
+// Keep only standard audio-profile labels. Custom card, stream and profile
+// names may contain user data and do not belong in a shareable report.
+func safePlaybackProfile(name string) string {
+	switch name {
+	case "output:analog-stereo":
+		return "analog-stereo"
+	case "output:analog-stereo+input:mono-fallback":
+		return "analog-stereo+microphone"
+	case "output:iec958-stereo":
+		return "digital-stereo"
+	case "output:iec958-stereo+input:mono-fallback":
+		return "digital-stereo+microphone"
+	case "off", "pro-audio":
+		return name
+	default:
+		return "unknown"
+	}
+}
+
+func safePlaybackState(state string) string {
+	switch state {
+	case "running", "idle", "suspended", "creating", "error":
+		return state
+	default:
+		return "unknown"
+	}
+}
+
+func writePlaybackDiagnostic(out *bytes.Buffer, snapshot *pipewire.Snapshot) {
+	if snapshot == nil {
+		return
+	}
+	for _, sink := range snapshot.JabraSinkNodes() {
+		profile := "unknown"
+		if device, ok := snapshot.Devices[sink.Props.DeviceID]; ok && device.Known {
+			profile = safePlaybackProfile(device.Profile.Name)
+		}
+		incoming, active := 0, 0
+		for _, link := range snapshot.Links {
+			if link.InputNodeID == sink.ID {
+				incoming++
+				if link.State == "active" {
+					active++
+				}
+			}
+		}
+		fmt.Fprintf(out, "Playback output %d: state=%s; profile=%s; incoming-links=%d; active-links=%d\n", sink.ID, safePlaybackState(sink.State), profile, incoming, active)
+	}
+	fmt.Fprintln(out, "An active playback link shows the software route, not whether sound is audible.")
+}
+
 func safeControlEvent(value any) string {
 	data, err := json.Marshal(value)
 	if err != nil {
