@@ -6,4 +6,4 @@ const (
 )
 
 // Version can be overridden by release builds with -ldflags -X.
-var Version = "1.1.0"
+var Version = "1.1.1-issue43.1"

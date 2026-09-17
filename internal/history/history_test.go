@@ -54,7 +54,7 @@ func TestHistorySurvivesFreshRecorderAndScrubsPrivateStrings(t *testing.T) {
 }
 
 func TestFirmwareStageHistoryOmitsPrivateValues(t *testing.T) {
-	for _, action := range []string{"dfu-enter", "dfu-runtime", "dfu-transfer", "dfu-verify"} {
+	for _, action := range []string{"dfu-enter", "dfu-runtime", "dfu-transfer", "dfu-verify", "sitel-plan", "sitel-identify", "sitel-enter", "sitel-wait-boot", "sitel-open-boot", "sitel-prepare", "sitel-restart-boot", "sitel-transfer", "sitel-verify", "sitel-start-runtime", "sitel-wait-runtime", "sitel-activate"} {
 		event := sanitize(Event{Component: "firmware", Action: action, Phase: "observed", USBProduct: 0x0422, Connection: "usb", Setting: "PRIVATE_SERIAL", Input: "PRIVATE_BYTES"})
 		if event.Component != "firmware" || event.Action != action || event.Setting != "" || strings.Contains(event.Input, "PRIVATE") {
 			t.Fatal(event)

@@ -151,7 +151,9 @@ Before opening an issue, save a debug report:
 ./jabridge debug --output jabridge-debug.txt
 ```
 
-Check `jabridge-debug.txt` before sharing it. Then [open an issue](https://github.com/Watchdog0x/jabridge/issues/new), attach the file and tell us your device model and what went wrong. Debug does not change settings or firmware.
+If that file already exists, Jabridge saves a new report as `jabridge-debug-1.txt`, then `jabridge-debug-2.txt`, and so on. The command shows the exact file to attach.
+
+Check that file before sharing it. Then [open an issue](https://github.com/Watchdog0x/jabridge/issues/new), attach the file and tell us your device model and what went wrong. Debug does not change settings or firmware.
 
 ## Build your own app
 

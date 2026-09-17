@@ -50,6 +50,15 @@ func writeFirmwareDiagnostic(out *bytes.Buffer, pids []uint16) {
 			fmt.Fprintln(out, "NOT TESTED: additional firmware targets exceed the metadata budget")
 			continue
 		}
+		recovery, recoveryErr := firmware.ReadSitelRecoveryInfo(pid)
+		if recovery.UpdateMode {
+			fmt.Fprintf(out, "USB 0b0e:%04x is in firmware update mode. Audio and normal headset controls are unavailable in this mode.\n", pid)
+			if recoveryErr != nil {
+				fmt.Fprintln(out, "  Recovery record: unavailable. The original saved record is needed to match the firmware safely.")
+				continue
+			}
+			fmt.Fprintf(out, "  Recovery record: runtime PID 0x%04x; firmware %s; last saved stage %s\n", recovery.RuntimePID, safeFirmwareDiagnostic(recovery.Version), recovery.Phase)
+		}
 		result, err := diagnoseFirmwareFile(ctx, pid, "firmware")
 		fmt.Fprintf(out, "USB 0b0e:%04x\n", pid)
 		if result.Latest.Version != "" {
@@ -148,7 +157,14 @@ func reportNextSteps(body string) []string {
 		add("The app cannot reach its service: check the service state and whether the app and service run on the same host/session.")
 	}
 	if strings.Contains(body, "GNP descriptor unsupported") || strings.Contains(body, "no supported management usage") {
-		add("An accessible HID interface lacks the currently supported management report: extend transport support from the descriptor evidence; do not assume permissions are the cause.")
+		if strings.Contains(body, "is in firmware update mode.") {
+			add("Firmware update interfaces do not provide normal management controls. For any other attached devices, check their HID report layouts separately.")
+		} else {
+			add("An accessible HID interface lacks the currently supported management report: extend transport support from the descriptor evidence; do not assume permissions are the cause.")
+		}
+	}
+	if strings.Contains(body, "is in firmware update mode.") {
+		add("The headset is in firmware update mode. Check the firmware history and saved recovery stage to find where the update stopped; missing audio and normal controls are expected in this mode.")
 	}
 	if strings.Contains(body, "reply timed out") || strings.Contains(body, "IDENT/") && strings.Contains(body, "timeout") {
 		add("A known query received no matching reply: investigate interface, destination, packet framing and firmware behavior. This alone does not prove a udev problem.")

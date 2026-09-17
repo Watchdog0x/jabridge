@@ -18,6 +18,7 @@ archive belongs to a device or contains the right images.
 | `csr_extended_install.go`, `csr_extended_update.go` | Protocols 16 and 17 |
 | `sitel_profiles.go` | Protocol 4 model IDs and required images |
 | `sitel_install.go` | Sitel update sequence and recovery |
+| `sitel_recovery_metadata.go` | Match update-mode devices to their saved runtime model and firmware |
 | `sitel_runtime.go`, `sitel_hidraw.go` | Runtime identity and HID connections |
 | `sitel_link.go`, `sitel_hid_frames.go` | Sitel messages and fragments |
 | `sitel_images.go`, `sitel_flash.go` | Image bounds, transfer and CRC verification |
@@ -242,6 +243,14 @@ Link Call Control only for Engage variants with that controller.
 Recovery retains the archive digest, model, original USB port and device
 identity. A different archive, device or model cannot inherit the record.
 
+The headset temporarily disappears from the audio panel while in update mode.
+Keep it connected until the installer finishes. If the reboot reply is lost,
+the updater checks for the expected new USB attachment before continuing. It
+does not resend the reboot command. A retry uses the saved runtime model and
+original firmware version, with both the published checksum and saved archive
+hash checked. The debug report includes the saved recovery stage and firmware
+stage history.
+
 ## Why issue 43 happened
 
 The Evolve2 40 and Engage 50 II both use protocol 4. Version 1.0.0 treated every
@@ -251,6 +260,13 @@ requirement. That rejected the Evolve2 40's valid two-image archive.
 The shared updater now reads one model profile across preflight, menu binding,
 diagnostics, installation and recovery. Engage controller behavior remains
 separate. Unimplemented Sitel layouts receive an explicit error.
+
+The 1.1.0 follow-up exposed a retry failure: the download check used update-mode
+PID `0e44`, which is absent from the model catalog. Recovery now looks up the
+recorded runtime PID and original release. Tests also reproduce a lost reboot
+reply leaving the headset in update mode; the new reconnect check handles that
+case. The report does not establish which error stopped the tester's first
+attempt, so confirmation on his headset is still needed.
 
 ## Validation and adding a model
 

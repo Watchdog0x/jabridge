@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Watchdog0x/jabridge/internal/history"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -91,6 +93,17 @@ func sitelDisconnect(err error) bool {
 	return errors.Is(err, unix.ENODEV) || errors.Is(err, unix.ENXIO) || errors.Is(err, unix.ESHUTDOWN) || errors.Is(err, io.EOF)
 }
 
+// A runtime reboot can remove HID before its reply arrives. This only permits
+// waiting for the already-requested transition, never resending the command.
+// The caller still verifies the new attachment, expected PID, port and identity
+// before opening the bootloader or writing firmware.
+func sitelRebootMayHaveStarted(err error) bool {
+	if errors.Is(err, errManagementNotSent) || errors.Is(err, errSitelRejected) {
+		return false
+	}
+	return sitelDisconnect(err) || errors.Is(err, unix.EIO) || errors.Is(err, context.DeadlineExceeded)
+}
+
 func waitSitelDevice(ctx context.Context, backend sitelInstallBackend, previous USBDevice, pid uint16) (USBDevice, error) {
 	device, err := backend.wait(ctx, previous, pid)
 	if err != nil {
@@ -104,13 +117,30 @@ func waitSitelDevice(ctx context.Context, backend sitelInstallBackend, previous 
 
 // The recovery record is bound to the archive, original runtime identity and
 // USB port. It is saved before entering the bootloader, not after a failed flash.
-func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device USBDevice, images []sitelPlannedImage, wanted string, state *firmwareRecoveryState, save func() error, progress func(byte, int, int)) error {
+func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device USBDevice, images []sitelPlannedImage, wanted string, state *firmwareRecoveryState, save func() error, progress func(byte, int, int)) (resultErr error) {
 	if backend == nil || state == nil || save == nil || state.ArchiveSHA256 == "" || wanted == "" {
 		return errors.New("incomplete Sitel installation plan")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	stage := "sitel-plan"
+	finish := history.Begin(history.Event{Component: "firmware", Action: stage, USBProduct: device.ProductID, Connection: "usb"})
+	nextStage := func(action string) {
+		finish(nil)
+		stage = action
+		finish = history.Begin(history.Event{Component: "firmware", Action: stage, USBProduct: device.ProductID, Connection: "usb"})
+	}
+	defer func() {
+		if value := recover(); value != nil {
+			finish(history.ErrPanic)
+			panic(value)
+		}
+		finish(resultErr)
+		if resultErr != nil {
+			resultErr = fmt.Errorf("%s: %w", stage, resultErr)
+		}
+	}()
 	profile, ok := sitelProfileForPID(device.ProductID)
 	if !ok || device.VendorID != JabraVendorID || device.ViaDongle || device.attachment == nil {
 		return errors.New("unsupported Sitel installation target")
@@ -133,6 +163,7 @@ func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device US
 	}()
 	var err error
 	if profile.runtime(device.ProductID) {
+		nextStage("sitel-identify")
 		runtime, id, closeConnection, err = backend.runtime(ctx, device)
 		if err != nil {
 			return err
@@ -166,13 +197,15 @@ func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device US
 		if err = checkpoint("entering-bootloader"); err != nil {
 			return err
 		}
+		nextStage("sitel-enter")
 		_, err = runtime.exchange(ctx, id.Address, 7, 0x80, nil)
-		if err != nil && !sitelDisconnect(err) {
+		if err != nil && !sitelRebootMayHaveStarted(err) {
 			return fmt.Errorf("enter Sitel bootloader: %w", err)
 		}
 		_ = closeConnection()
 		closeConnection = nil
 		{
+			nextStage("sitel-wait-boot")
 			wait, cancel := context.WithTimeout(ctx, 30*time.Second)
 			device, err = waitSitelDevice(wait, backend, device, state.BootPID)
 			cancel()
@@ -187,30 +220,36 @@ func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device US
 		if err = checkpoint("flashing"); err != nil {
 			return err
 		}
+		nextStage("sitel-open-boot")
 		peer, closeBoot, openErr := backend.boot(ctx, device)
 		if openErr != nil {
 			return openErr
 		}
 		closeConnection = closeBoot
+		nextStage("sitel-prepare")
 		info, prepared, prepareErr := prepareSitelTransfer(ctx, peer, images, wanted)
 		if prepareErr != nil && info.ID == expectedID && info.Mode == 1 {
+			nextStage("sitel-restart-boot")
 			_, err = peer.request(ctx, 5, []byte{3})
 			if err != nil && (!peer.link.lastWriteComplete || !sitelDisconnect(err)) {
 				return err
 			}
 			_ = closeConnection()
 			closeConnection = nil
+			nextStage("sitel-wait-boot")
 			wait, cancel := context.WithTimeout(ctx, 30*time.Second)
 			device, err = waitSitelDevice(wait, backend, device, state.BootPID)
 			cancel()
 			if err != nil {
 				return err
 			}
+			nextStage("sitel-open-boot")
 			peer, closeBoot, err = backend.boot(ctx, device)
 			if err != nil {
 				return err
 			}
 			closeConnection = closeBoot
+			nextStage("sitel-prepare")
 			info, prepared, prepareErr = prepareSitelTransfer(ctx, peer, images, wanted)
 		}
 		if prepareErr != nil {
@@ -219,6 +258,7 @@ func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device US
 		if info.ID != expectedID {
 			return errors.New("sitel bootloader image identity mismatch")
 		}
+		nextStage("sitel-transfer")
 		for _, image := range prepared {
 			if err := transferSitelImage(ctx, peer, image, info, func(done, total int) {
 				if progress != nil {
@@ -228,6 +268,7 @@ func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device US
 				return err
 			}
 		}
+		nextStage("sitel-verify")
 		for _, image := range prepared {
 			if err := verifySitelImage(ctx, peer, image, info.SectorSize); err != nil {
 				return err
@@ -236,24 +277,28 @@ func runSitelInstall(ctx context.Context, backend sitelInstallBackend, device US
 		if err = checkpoint("booting-runtime"); err != nil {
 			return err
 		}
+		nextStage("sitel-start-runtime")
 		_, err = peer.request(ctx, 5, []byte{3})
 		if err != nil && (!peer.link.lastWriteComplete || !sitelDisconnect(err)) {
 			return fmt.Errorf("sitel runtime boot: %w", err)
 		}
 		_ = closeConnection()
 		closeConnection = nil
+		nextStage("sitel-wait-runtime")
 		wait, cancel := context.WithTimeout(ctx, 60*time.Second)
 		device, err = waitSitelDevice(wait, backend, device, state.RuntimePID)
 		cancel()
 		if err != nil {
 			return err
 		}
+		nextStage("sitel-identify")
 		runtime, id, closeConnection, err = backend.runtime(ctx, device)
 		if err != nil {
 			return err
 		}
 	}
 activate:
+	nextStage("sitel-activate")
 	if id.Version != wanted || sitelIdentityHash(id) != state.TargetIdentitySHA256 {
 		return errors.New("sitel headset firmware or identity did not verify after restart")
 	}

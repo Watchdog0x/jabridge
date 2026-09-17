@@ -13,6 +13,7 @@ import (
 // Independent wire peer. No production encoder, CRC or reply parser creates
 // its answers. These fixtures model the documented update path, not the CPU.
 type sitelTestDevice struct {
+	bootLayout                                                     *sitelHIDLayout
 	ota                                                            bool
 	applicationMode                                                bool
 	runtimeAddress                                                 byte
@@ -107,7 +108,7 @@ func (w *sitelTestDevice) wait(ctx context.Context, _ USBDevice, pid uint16) (US
 }
 func (w *sitelTestDevice) boot(ctx context.Context, _ USBDevice) (*sitelRequester, func() error, error) {
 	peer := &sitelBootPeer{world: w}
-	layout := sitelHIDLayout{ReportID: 10, ReportBytes: 64, MaxMessage: 1024}
+	layout := peer.layout()
 	link := &sitelLink{io: peer, in: layout, out: layout, timeout: 10 * time.Millisecond}
 	if err := link.start(ctx); err != nil {
 		return nil, nil, err
@@ -250,9 +251,15 @@ type sitelBootPeer struct {
 	dropAck           int
 }
 
+func (p *sitelBootPeer) layout() sitelHIDLayout {
+	if p.world != nil && p.world.bootLayout != nil {
+		return *p.world.bootLayout
+	}
+	return sitelHIDLayout{ReportID: 10, ReportBytes: 64, MaxMessage: 1024}
+}
 func (p *sitelBootPeer) control(kind, value byte) {
-	raw := make([]byte, 64)
-	raw[0] = 10
+	raw := make([]byte, p.layout().ReportBytes)
+	raw[0] = p.layout().ReportID
 	raw[1] = kind<<4 | p.fragment
 	raw[2] = value
 	p.fragment = (p.fragment + 1) & 15
@@ -260,8 +267,8 @@ func (p *sitelBootPeer) control(kind, value byte) {
 }
 func (p *sitelBootPeer) reply(data []byte) {
 	for offset := 0; offset < len(data); {
-		raw := make([]byte, 64)
-		raw[0] = 10
+		raw := make([]byte, p.layout().ReportBytes)
+		raw[0] = p.layout().ReportID
 		head := 2
 		if offset == 0 {
 			raw[1] = 0x30 | p.fragment
@@ -282,7 +289,7 @@ func (p *sitelBootPeer) Write(ctx context.Context, raw []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(raw) != 64 || raw[0] != 10 {
+	if len(raw) != p.layout().ReportBytes || raw[0] != p.layout().ReportID {
 		return errors.New("bad HP report")
 	}
 	if raw[1]>>4 == 1 {
@@ -300,12 +307,12 @@ func (p *sitelBootPeer) Write(ctx context.Context, raw []byte) error {
 	case 3:
 		p.total = int(binary.LittleEndian.Uint16(raw[2:4]))
 		p.currentMessage = raw[4]
-		p.incoming = append([]byte(nil), raw[5:min(64, 5+p.total)]...)
+		p.incoming = append([]byte(nil), raw[5:min(len(raw), 5+p.total)]...)
 	case 4:
 		if len(p.incoming) >= p.total {
 			return errors.New("orphan continuation")
 		}
-		n := min(62, p.total-len(p.incoming))
+		n := min(len(raw)-2, p.total-len(p.incoming))
 		p.incoming = append(p.incoming, raw[2:2+n]...)
 	default:
 		return errors.New("unknown HP message")
