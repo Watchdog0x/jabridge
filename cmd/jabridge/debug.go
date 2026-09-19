@@ -131,7 +131,7 @@ func writeDebugReport(destination io.Writer) error {
 			for _, report := range reports {
 				fmt.Fprintf(out, "    report %d %s: %d bytes\n", report.ID, report.Kind, report.Bytes)
 				for _, field := range report.Fields {
-					fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x usages=%x range=%x..%x logical=%d..%d flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.Usages, field.UsageMin, field.UsageMax, field.LogicalMin, field.LogicalMax, field.Flags)
+					fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x collection-page=%04x usages=%x range=%x..%x logical=%d..%d flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.CollectionUsagePage(), field.Usages, field.UsageMin, field.UsageMax, field.LogicalMin, field.LogicalMax, field.Flags)
 				}
 			}
 			for _, candidate := range vendorControlCandidates(reports) {

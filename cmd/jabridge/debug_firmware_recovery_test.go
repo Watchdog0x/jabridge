@@ -30,6 +30,9 @@ func TestFirmwareDebugExplainsUpdateModeAndSavedStage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "jabridge", "firmware-recovery.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	oldCheck := checkSitelBootAccess
+	checkSitelBootAccess = func(uint16) error { return nil }
+	t.Cleanup(func() { checkSitelBootAccess = oldCheck })
 	old := diagnoseFirmwareFile
 	t.Cleanup(func() { diagnoseFirmwareFile = old })
 	diagnoseFirmwareFile = func(context.Context, uint16, string) (firmware.FirmwareDiagnostic, error) {
@@ -38,7 +41,7 @@ func TestFirmwareDebugExplainsUpdateModeAndSavedStage(t *testing.T) {
 	var report bytes.Buffer
 	writeFirmwareDiagnostic(&report, []uint16{0x0e44})
 	text := report.String()
-	for _, want := range []string{"is in firmware update mode", "runtime PID 0x0e41", "firmware 2.11.1", "last saved stage entering-bootloader"} {
+	for _, want := range []string{"is in firmware update mode", "runtime PID 0x0e41", "firmware 2.11.1", "last saved stage entering-bootloader", "Native update interface check: ready", "no device commands sent"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in %s", want, text)
 		}

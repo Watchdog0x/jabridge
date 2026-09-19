@@ -54,12 +54,12 @@ func (nativeSitelBackend) boot(ctx context.Context, device USBDevice) (*sitelReq
 			link := &sitelLink{io: raw, in: raw.in, out: raw.out, timeout: 2 * time.Second}
 			if err := link.start(ready); err != nil {
 				_ = raw.file.Close()
-				return nil, nil, err
+				return nil, nil, hidAccessFailure("hid-handshake", err)
 			}
 			return &sitelRequester{link: link, address: 1, timeout: 30 * time.Second}, raw.file.Close, nil
 		}
 		if waitErr := waitDFU(ready, 100*time.Millisecond); waitErr != nil {
-			return nil, nil, fmt.Errorf("sitel bootloader did not become ready: %v: %w", err, waitErr)
+			return nil, nil, fmt.Errorf("sitel bootloader did not become ready: %w: %w", err, waitErr)
 		}
 	}
 }

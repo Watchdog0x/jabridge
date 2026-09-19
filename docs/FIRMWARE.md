@@ -12,6 +12,7 @@ archive belongs to a device or contains the right images.
 | `interactive_install.go` | Bind the menu's selected file and USB device |
 | `firmware_snapshot.go` | Freeze the selected archive for installation |
 | `usb_attachment.go` | Keep device handles tied to the selected attachment |
+| `hid_access.go` | Read-only updater interface checks and retained failure reasons |
 | `recovery.go` | Save and load an interrupted transfer |
 | `usb_dfu_profiles.go`, `jabra_usb_dfu_install.go` | Protocol 1 USB DFU models |
 | `csr_release.go`, `csr_ota_updater.go` | Protocol 7 release matching and transfer |
@@ -274,6 +275,20 @@ attempt, so confirmation on his headset is still needed.
 wrong identities, incomplete images and original-archive transfers through
 an independent wire peer. `engage_install_test.go` and
 `engage_evidence_test.go` retain Engage and controller checks.
+
+`hid_access_kernel_test.go` adds opt-in Linux UHID tests for the real hidraw
+open, handle-identity, descriptor and unnumbered-handshake paths. It requires
+`JABRIDGE_TEST_UHID=1` and access to a loaded UHID driver. USB ancestry is supplied
+by a synthetic test tree; this is not a physical USB reconnect or headset flash.
+Normal tests also check that a timeout preserves the underlying access failure
+without copying private paths or device identifiers into history.
+
+When a supported device is already in firmware update mode, `jabridge debug`
+uses the same interface-opening checks as the installer without starting its
+protocol or sending a device command. The report includes the enclosing HID
+collection page and a specific check result, such as `hid-identity`, `hid-layout`
+or `hid-open-permission`. This is intended to diagnose the remaining #43 failure,
+not to claim that the headset update has been fixed.
 
 For original files kept outside the repository:
 

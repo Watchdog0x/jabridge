@@ -206,9 +206,21 @@ func EndDeferred(finish func(error), result *error) {
 	finish(*result)
 }
 
+const hidAccessErrorCodes = "hid-usb-binding hid-scan hid-no-match hid-open hid-open-permission hid-open-missing hid-open-symlink hid-open-busy hid-open-disconnected hid-identity hid-handle-type hid-handle-stat hid-handle-parent hid-info-ioctl hid-info-mismatch hid-descriptor hid-parse hid-layout hid-ambiguous hid-handshake hid-handshake-timeout"
+
 func Classify(err error) string {
 	if err == nil {
 		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	var coded interface{ HistoryCode() string }
+	if errors.As(err, &coded) {
+		code := coded.HistoryCode()
+		if code != "" && allowed(code, hidAccessErrorCodes) == code {
+			return code
+		}
 	}
 	switch {
 	case errors.Is(err, ErrPanic):
@@ -301,7 +313,7 @@ func sanitize(event Event) Event {
 		event.Address = 0
 	}
 	event.Method = allowed(event.Method, "service.ping service.capabilities service.shutdown history.status version devices.list device.select settings.list settings.set device.battery device.firmware device.volume device.volume.get device.volume.info device.features device.reset device.busylight bt.list bt.search bt.search.list bt.search.connect bt.connect bt.disconnect bt.forget bt.pair bt.autopair subscribe diagnostics.device sound.list sound.default sound.volume sound.mute sound.mode sound.recover sound.changed buttons.status buttons.configure device.button buttons.changed media.action")
-	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed service-capabilities readback-mismatch")
+	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed service-capabilities readback-mismatch "+hidAccessErrorCodes)
 	if _, ok := settings.Load(event.Setting); !ok {
 		event.Setting = ""
 	}

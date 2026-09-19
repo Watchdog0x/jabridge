@@ -206,63 +206,70 @@ func openSitelBoot(device USBDevice) (*sitelRawHID, error) {
 }
 
 func openSitelFirmwareHID(device USBDevice) (*sitelRawHID, error) {
+	return openSitelFirmwareHIDAt(device, linuxHidrawPaths())
+}
+
+func openSitelFirmwareHIDAt(device USBDevice, paths hidrawPaths) (*sitelRawHID, error) {
 	if err := validateUSBDevice(device); err != nil {
-		return nil, err
+		return nil, hidAccessFailure("hid-usb-binding", err)
 	}
-	nodes, err := os.ReadDir("/sys/class/hidraw")
+	nodes, err := os.ReadDir(paths.class)
 	if err != nil {
-		return nil, err
+		return nil, hidAccessFailure("hid-scan", err)
 	}
 	var selected *sitelRawHID
 	var scanErrors []error
 	for _, node := range nodes {
-		parent, err := filepath.EvalSymlinks(filepath.Join("/sys/class/hidraw", node.Name(), "device"))
+		parent, err := filepath.EvalSymlinks(filepath.Join(paths.class, node.Name(), "device"))
 		if err != nil || !strings.HasPrefix(parent, device.attachment.realPath+string(filepath.Separator)) {
 			continue
 		}
-		path := filepath.Join("/dev", node.Name())
+		path := filepath.Join(paths.dev, node.Name())
 		fd, err := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if err != nil {
-			scanErrors = append(scanErrors, err)
+			scanErrors = append(scanErrors, hidAccessFailure("hid-open", err))
 			continue
 		}
 		file := os.NewFile(uintptr(fd), path)
-		if err := validateOpenedHID(file, device); err != nil {
-			scanErrors = append(scanErrors, err)
+		if err := validateOpenedHIDAt(file, device, paths.char); err != nil {
+			scanErrors = append(scanErrors, hidAccessFailure("hid-identity", err))
 			_ = file.Close()
 			continue
 		}
 		descriptor, err := readHidrawReportDescriptorFile(file)
 		if err != nil {
-			scanErrors = append(scanErrors, err)
+			scanErrors = append(scanErrors, hidAccessFailure("hid-descriptor", err))
 			_ = file.Close()
 			continue
 		}
 		reports, err := parseHIDReports(descriptor)
 		if err != nil {
-			scanErrors = append(scanErrors, err)
+			scanErrors = append(scanErrors, hidAccessFailure("hid-parse", err))
 			_ = file.Close()
 			continue
 		}
 		in, out, err := selectSitelLayouts(reports)
 		if err != nil {
-			scanErrors = append(scanErrors, err)
+			scanErrors = append(scanErrors, hidAccessFailure("hid-layout", err))
 			_ = file.Close()
 			continue
 		}
 		if selected != nil {
 			_ = selected.file.Close()
 			_ = file.Close()
-			return nil, errors.New("multiple Sitel bootloader interfaces")
+			return nil, hidAccessFailure("hid-ambiguous", errors.New("multiple Sitel bootloader interfaces"))
 		}
 		selected = &sitelRawHID{file: file, in: in, out: out}
 	}
 	if selected == nil {
-		return nil, errors.Join(append([]error{errors.New("sitel bootloader HID interface is unavailable")}, scanErrors...)...)
+		if len(scanErrors) == 0 {
+			return nil, hidAccessFailure("hid-no-match", errors.New("no HID interface belongs to this USB attachment"))
+		}
+		return nil, errors.Join(scanErrors...)
 	}
 	if err := validateUSBDevice(device); err != nil {
 		_ = selected.file.Close()
-		return nil, err
+		return nil, hidAccessFailure("hid-usb-binding", err)
 	}
 	return selected, nil
 }

@@ -15,6 +15,7 @@ import (
 )
 
 var diagnoseFirmwareFile = firmware.DiagnoseFirmware
+var checkSitelBootAccess = firmware.CheckSitelBootAccess
 
 const nativeWordBits = strconv.IntSize
 
@@ -53,6 +54,8 @@ func writeFirmwareDiagnostic(out *bytes.Buffer, pids []uint16) {
 		recovery, recoveryErr := firmware.ReadSitelRecoveryInfo(pid)
 		if recovery.UpdateMode {
 			fmt.Fprintf(out, "USB 0b0e:%04x is in firmware update mode. Audio and normal headset controls are unavailable in this mode.\n", pid)
+			accessErr := checkSitelBootAccess(pid)
+			fmt.Fprintf(out, "  Native update interface check: %s (open and descriptor checks only; no device commands sent)\n", firmware.HIDAccessFailureCode(accessErr))
 			if recoveryErr != nil {
 				fmt.Fprintln(out, "  Recovery record: unavailable. The original saved record is needed to match the firmware safely.")
 				continue
