@@ -131,6 +131,15 @@ with `percent` from 0 to 100; `sound.mute` with `mode` on, off or toggle;
 Music mode can remove the microphone until calls mode is restored.
 PipeWire mute is not necessarily the headset's or meeting app's mute.
 
+`sound.recover` takes an output `target` from `sound.list`. It is an explicit,
+experimental recovery command for Evolve2 30 SE over USB. It briefly opens that
+headset's microphone, discards capture, sends Suspend and Start to playback,
+then closes its capture stream. Calls, existing capture, changed identities and
+unsupported models are rejected. Profiles, volume, mute and defaults are not
+changed. A result with `sequenceCompleted` and `captureStopped` confirms the
+sequence and cleanup, not audible sound. Do not call it during discovery or
+automatically when a headset connects.
+
 Check errors and returned state. A timeout does not mean a write did nothing.
 Read again before retrying. Never automatically repeat resets or firmware writes.
 

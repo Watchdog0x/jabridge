@@ -145,6 +145,25 @@ See all commands:
 
 ## Problems
 
+### Silent playback on Evolve2 30 SE
+
+If audio is playing but you hear nothing, this experimental command tries the
+recovery sequence reported in [issue #44](https://github.com/Watchdog0x/jabridge/issues/44).
+It currently supports Evolve2 30 SE connected directly by USB.
+
+Stop calls and recordings first, keep audio playback running, then run:
+
+```sh
+jabridge sound recover
+```
+
+This briefly opens the headset microphone and discards the captured audio while
+restarting playback. It leaves volume, mute and the selected audio profile alone.
+Check whether you can hear sound afterward. The sequence needs further testing
+on physical headsets and does not fix the separate Linux kernel mixer problem.
+
+### Debug report
+
 Before opening an issue, save a debug report:
 
 ```bash

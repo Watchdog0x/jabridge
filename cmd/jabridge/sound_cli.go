@@ -143,6 +143,11 @@ func printSoundUsage() {
   jabridge sound mic mute on|off|toggle [NODE_ID]
   jabridge sound music [NODE_ID]   USB music profile (headset mic off)
   jabridge sound calls [NODE_ID]   restore USB microphone availability
+  jabridge sound recover [NODE_ID] recover silent Evolve2 30 SE USB playback
+
+Recovery is experimental. Start playback first and stop calls or recordings.
+It briefly opens the headset microphone, discards capture and restarts playback.
+It does not change volume, mute, the audio profile or default device.
 
 The service handles sound. Direct Bluetooth audio can appear here, but
 Bluetooth headset settings and firmware are not supported.`)

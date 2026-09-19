@@ -154,3 +154,24 @@ firmware and connection. The client asks the service for support through
 `device.volume.get` is an explicit saved-level read. Discovery and debug never
 run it automatically. A new transport needs its own verified protocol profile;
 the existing USB request must not be redirected to a dongle audio interface.
+
+## Silent USB playback recovery
+
+`jabridge sound recover` calls `sound.recover` in the service.
+`daemon/pipewire/audio_recovery.go` binds the output and microphone to the same
+Evolve2 30 SE audio card, waits for its temporary capture to be active, sends
+Suspend then Start to playback, and closes capture. Every stage checks the graph
+identity and profile again. Existing calls/capture and other models are refused.
+
+`audio_recovery_process.go` runs `pw-cat` with a specific object serial and no
+fallback, movement or reconnect to another microphone. Captured data is discarded.
+The process has a time limit and a parent-death signal. Failure cleanup attempts
+to restart only the original playback node before closing capture. Like the
+existing `wpctl` controls, `pw-cli` resolves a numeric ID separately from the
+snapshot check; this is not an atomic native PipeWire transaction.
+
+`cmd/jabridge/debug_usb_audio.go` reports numeric hub/controller IDs and matches
+sticky-mixer warnings to the current USB port. These warnings may belong to an
+earlier attachment on the same port. Raw kernel logs and USB serials are omitted.
+The kernel mixer issue and hub-dependent silent playback remain distinct clues,
+not diagnoses inferred from a kernel version or controller name alone.

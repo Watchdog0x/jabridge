@@ -15,6 +15,10 @@ type SoundModeAPI interface {
 	ChangeSoundMode(pipewire.SoundTarget, string) (pipewire.SoundState, error)
 }
 
+type SoundRecoveryAPI interface {
+	RecoverSound(pipewire.SoundTarget) (pipewire.RecoveryResult, error)
+}
+
 func dispatchSound(req Request, api API) Response {
 	sound, ok := api.(SoundAPI)
 	if !ok {
@@ -32,6 +36,26 @@ func dispatchSound(req Request, api API) Response {
 	var err error
 	action := ""
 	switch req.Method {
+	case "sound.recover":
+		var p struct {
+			Target pipewire.SoundTarget `json:"target"`
+		}
+		if err := decodeParams(req.Params, &p); err != nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "invalid sound.recover parameters")
+		}
+		_, tokenErr := hex.DecodeString(p.Target.Token)
+		if tokenErr != nil || len(p.Target.Token) != 64 || p.Target.ID <= 0 {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "sound.recover needs a complete output target")
+		}
+		recovery, ok := api.(SoundRecoveryAPI)
+		if !ok {
+			return ErrorResponse(req.ID, ErrCodeMethodNF, "audio recovery unavailable; update the service")
+		}
+		result, err := recovery.RecoverSound(p.Target)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, result)
 	case "sound.mode":
 		var p struct {
 			Target pipewire.SoundTarget `json:"target"`

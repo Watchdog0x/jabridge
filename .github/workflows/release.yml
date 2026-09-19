@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test/issue-43-firmware'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test/issue-44-recovery'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           version=$(make -s version)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-issue43\.[0-9]+)?$ ]]
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-issue(43|44)\.[0-9]+)?$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
       - name: Check and package
         env:

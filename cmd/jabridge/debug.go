@@ -118,6 +118,7 @@ func writeDebugReport(destination io.Writer) error {
 	inventory := readDiagnosticInventory(os.DirFS("/"))
 	nodes := inventory.HID
 	writeConnectionDiagnostic(out, inventory)
+	writeUSBAudioDiagnostic(out)
 	for _, node := range nodes {
 		path := node.Path
 		fmt.Fprintln(out, "\nHID source:", node.label())

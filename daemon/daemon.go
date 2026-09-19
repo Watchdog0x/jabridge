@@ -395,6 +395,17 @@ func (a *busylightAPI) ChangeSoundMode(target pipewire.SoundTarget, mode string)
 	return a.sound.ChangeMode(ctx, target, mode)
 }
 
+func (a *busylightAPI) RecoverSound(target pipewire.SoundTarget) (pipewire.RecoveryResult, error) {
+	if a.sound == nil {
+		return pipewire.RecoveryResult{}, errors.New("PipeWire is unavailable")
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return a.sound.RecoverPlayback(ctx, target)
+}
+
 func (a *busylightAPI) GetSound() pipewire.SoundState {
 	if a.sound != nil {
 		return a.sound.State()

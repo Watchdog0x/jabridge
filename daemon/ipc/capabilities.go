@@ -38,6 +38,9 @@ func serviceCapabilities(api API) ServiceCapabilities {
 		c.Changes = append(c.Changes, "sound.volume", "sound.mute", "sound.default")
 		c.Events = append(c.Events, "sound.changed")
 	}
+	if _, ok := api.(SoundRecoveryAPI); ok {
+		c.Changes = append(c.Changes, "sound.recover")
+	}
 	if _, ok := api.(SoundModeAPI); ok {
 		c.Changes = append(c.Changes, "sound.mode")
 	}

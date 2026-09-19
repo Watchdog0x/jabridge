@@ -312,7 +312,7 @@ func dispatch(req Request, api API) (response Response) {
 		return SuccessResponse(req.ID, serviceCapabilities(api))
 	case "buttons.status", "buttons.configure":
 		return dispatchButtons(req, api)
-	case "sound.list", "sound.default", "sound.volume", "sound.mute", "sound.mode":
+	case "sound.list", "sound.default", "sound.volume", "sound.mute", "sound.mode", "sound.recover":
 		return dispatchSound(req, api)
 	case "device.volume":
 		return dispatchHeadsetVolume(req, api)
