@@ -11,10 +11,21 @@ Testing a device does not mean every feature or firmware update has been tested.
 | Jabra Evolve2 85 |
 | Jabra Evolve3 85 |
 | Jabra Speak 510 |
+| [Jabra Speak2 75 (direct USB)](#speak2-75-usb-test) |
 | Jabra Engage 50 II and Link Call Control |
 
 Tested another device? [Open an issue](https://github.com/Watchdog0x/jabridge/issues/new)
 with its name, what worked and your debug report so we can add it to this list.
+
+## Speak2 75 USB test
+
+[@mj-crabtree reported no issues](https://github.com/Watchdog0x/jabridge/issues/46)
+using Speak2 75 over direct USB on Pop!_OS 22.04 LTS with Jabridge 1.1.0.
+The device reports USB ID `0b0e:24ef` and firmware `2.54.0`.
+
+The debug report confirms device detection, battery and settings reads, and
+volume-button and hook-switch events. It does not verify setting writes,
+firmware installation, or use through a dongle.
 
 ## Firmware simulator tests
 
