@@ -56,10 +56,11 @@ type SoundVolume struct {
 }
 
 type SoundBackend struct {
-	Snapshot    func(context.Context) (*Snapshot, error)
-	Command     func(context.Context, ...string) (string, error)
-	Capture     func(context.Context, string, string) (RecoveryCapture, error)
-	NodeCommand func(context.Context, int, string) error
+	Snapshot     func(context.Context) (*Snapshot, error)
+	Command      func(context.Context, ...string) (string, error)
+	Capture      func(context.Context, string, string) (RecoveryCapture, error)
+	NodeCommand  func(context.Context, int, string) error
+	RecoveryWait func(context.Context, time.Duration) error
 }
 
 // SoundController is owned by the service. It exposes no raw node names,
@@ -86,6 +87,9 @@ func NewSoundController(backend SoundBackend, changed func(SoundState), graph fu
 	}
 	if backend.NodeCommand == nil {
 		backend.NodeCommand = recoveryNodeCommand
+	}
+	if backend.RecoveryWait == nil {
+		backend.RecoveryWait = waitRecoveryStage
 	}
 	c := &SoundController{backend: backend, changed: changed, graph: graph, state: SoundState{Error: "Checking PipeWire", Nodes: []SoundNode{}}}
 	if _, err := rand.Read(c.salt[:]); err != nil {

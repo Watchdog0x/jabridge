@@ -1,6 +1,7 @@
 package pipewire
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,7 +50,7 @@ func startRecoveryCapture(parent context.Context, serial, name string) (Recovery
 	if _, err := exec.LookPath("pw-cli"); err != nil {
 		return nil, errors.New("audio recovery needs pw-cli from PipeWire")
 	}
-	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	props, _ := json.Marshal(map[string]any{"node.name": name, "application.name": "Jabridge audio recovery", "media.role": "Music", "node.dont-fallback": true, "node.dont-reconnect": true, "node.dont-move": true})
 	command := exec.CommandContext(ctx, "pw-cat", "--record", "--raw", "--target", serial, "--channels", "1", "--rate", "48000", "--format", "s16", "--properties", string(props), "-")
 	command.Stdout, command.Stderr = io.Discard, io.Discard
@@ -70,8 +71,11 @@ func recoveryNodeCommand(parent context.Context, id int, action string) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "pw-cli", "send-command", strconv.Itoa(id), action)
-	command.Stdout, command.Stderr = io.Discard, io.Discard
+	// pw-cli requires command-json even for commands without payload fields.
+	// Its parser can print an error and still exit 0, so check stderr as well.
+	command := exec.CommandContext(ctx, "pw-cli", "send-command", strconv.Itoa(id), action, "{}")
+	var stderr recoveryCommandStderr
+	command.Stdout, command.Stderr = io.Discard, &stderr
 	command.WaitDelay = time.Second
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -79,5 +83,20 @@ func recoveryNodeCommand(parent context.Context, id int, action string) error {
 		}
 		return errors.New("PipeWire playback restart command failed")
 	}
+	if stderr.Len() > 0 {
+		return errors.New("PipeWire reported an error while restarting playback")
+	}
 	return nil
+}
+
+type recoveryCommandStderr struct{ buffer bytes.Buffer }
+
+func (b *recoveryCommandStderr) Len() int { return b.buffer.Len() }
+
+func (b *recoveryCommandStderr) Write(p []byte) (int, error) {
+	const limit = 4096
+	if remain := limit - b.Len(); remain > 0 {
+		_, _ = b.buffer.Write(p[:min(len(p), remain)])
+	}
+	return len(p), nil
 }

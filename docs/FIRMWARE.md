@@ -269,6 +269,16 @@ reply leaving the headset in update mode; the new reconnect check handles that
 case. The report does not establish which error stopped the tester's first
 attempt, so confirmation on his headset is still needed.
 
+
+The September 20 report identifies the remaining rejection: the Evolve2 40
+bootloader has FF54 data fields inside an FF00 collection. The selector now
+recognizes that field layout while retaining the existing FF54/FF55 collection
+handling. Ordinary GNP, unrelated fields, constant fields and malformed sizes
+are still rejected. Tests reconstruct the reported layout and reproduce the
+old hid-layout error through Linux UHID before verifying the correction.
+This fixes the reported interface rejection; physical transfer completion
+still needs confirmation.
+
 ## Validation and adding a model
 
 `evolve2_sitel_test.go` covers the added runtime variants, interrupted recovery,

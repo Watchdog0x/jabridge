@@ -21,9 +21,12 @@ func TestSitelLinuxUHIDOpenPath(t *testing.T) {
 	if os.Getenv("JABRIDGE_TEST_UHID") != "1" {
 		t.Skip("set JABRIDGE_TEST_UHID=1 with access to /dev/uhid")
 	}
-	for _, failure := range []string{"none", "descriptor", "identity", "parent", "missing-node", "changed-attachment"} {
+	for _, failure := range []string{"none", "reported-collection", "descriptor", "identity", "parent", "missing-node", "changed-attachment"} {
 		t.Run(failure, func(t *testing.T) {
 			descriptor := []byte{0x06, 0x54, 0xff, 0x09, 1, 0xa1, 1, 0x15, 0x80, 0x25, 0x7f, 0x75, 8, 0x95, 64, 0x09, 1, 0x81, 2, 0x09, 1, 0x91, 2, 0xc0}
+			if failure == "reported-collection" {
+				descriptor = evolve2ReportedBootDescriptor()
+			}
 			if failure == "descriptor" {
 				descriptor[1] = 0
 			}
@@ -78,7 +81,7 @@ func TestSitelLinuxUHIDOpenPath(t *testing.T) {
 				}
 			}
 			raw, err := openSitelFirmwareHIDAt(device, paths)
-			if failure != "none" {
+			if failure != "none" && failure != "reported-collection" {
 				want := map[string]string{"descriptor": "hid-layout", "identity": "hid-info-mismatch", "parent": "hid-handle-parent", "missing-node": "hid-open-missing", "changed-attachment": "hid-usb-binding"}[failure]
 				if err == nil {
 					_ = raw.file.Close()

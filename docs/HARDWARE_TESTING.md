@@ -11,10 +11,21 @@ Testing a device does not mean every feature or firmware update has been tested.
 | Jabra Evolve2 85 |
 | Jabra Evolve3 85 |
 | Jabra Speak 510 |
+| [Jabra Speak2 75 (direct USB)](#speak2-75-usb-test) |
 | Jabra Engage 50 II and Link Call Control |
 
 Tested another device? [Open an issue](https://github.com/Watchdog0x/jabridge/issues/new)
 with its name, what worked and your debug report so we can add it to this list.
+
+## Speak2 75 USB test
+
+[@mj-crabtree reported no issues](https://github.com/Watchdog0x/jabridge/issues/46)
+using Speak2 75 over direct USB on Pop!_OS 22.04 LTS with Jabridge 1.1.0.
+The device reports USB ID `0b0e:24ef` and firmware `2.54.0`.
+
+The debug report confirms device detection, battery and settings reads, and
+volume-button and hook-switch events. It does not verify setting writes,
+firmware installation, or use through a dongle.
 
 ## Firmware simulator tests
 
@@ -60,8 +71,10 @@ on 0b0e:0e36 with firmware 1.11.0 and has tested saved-level reads, including
 readings that remain stale after a write. The additional 0e37/0e38/0e39 descriptor
 profiles have software evidence only.
 
-The same reporter reproduced silent audio after reconnecting with Jabridge
-fully disabled on kernel 7.2.6 and reports normal playback on 6.18 LTS. The
+The same reporter reproduced silent audio with Jabridge fully disabled.
+On his setup, 6.18 LTS avoids the kernel mixer problem, but a hub connected
+through the NVIDIA USB controller can still cause silent playback on LTS.
+Connecting that hub to a motherboard rear USB port works for him. The
 [upstream USB audio change](https://kernel.googlesource.com/pub/scm/linux/kernel/git/tiwai/sound/+/3c87a903a6820a0789bbab61681dd570d6030260)
 keeps a mixer available when its volume readback is unreliable. These results
 describe this tester's setup; they do not establish the cause of every audio

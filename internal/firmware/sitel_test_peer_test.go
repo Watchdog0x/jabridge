@@ -13,6 +13,7 @@ import (
 // Independent wire peer. No production encoder, CRC or reply parser creates
 // its answers. These fixtures model the documented update path, not the CPU.
 type sitelTestDevice struct {
+	bootDescriptor                                                 []byte
 	bootLayout                                                     *sitelHIDLayout
 	ota                                                            bool
 	applicationMode                                                bool
@@ -107,6 +108,20 @@ func (w *sitelTestDevice) wait(ctx context.Context, _ USBDevice, pid uint16) (US
 	return device, nil
 }
 func (w *sitelTestDevice) boot(ctx context.Context, _ USBDevice) (*sitelRequester, func() error, error) {
+	if len(w.bootDescriptor) > 0 {
+		reports, err := parseHIDReports(w.bootDescriptor)
+		if err != nil {
+			return nil, nil, err
+		}
+		in, out, err := selectSitelLayouts(reports)
+		if err != nil {
+			return nil, nil, err
+		}
+		if in != out {
+			return nil, nil, errors.New("this wire fixture needs symmetric reports")
+		}
+		w.bootLayout = &in
+	}
 	peer := &sitelBootPeer{world: w}
 	layout := peer.layout()
 	link := &sitelLink{io: peer, in: layout, out: layout, timeout: 10 * time.Millisecond}

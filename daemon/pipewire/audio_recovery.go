@@ -18,6 +18,17 @@ type RecoveryResult struct {
 	CaptureStopped    bool `json:"captureStopped"`
 }
 
+func waitRecoveryStage(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func recoveryModel(node Node) bool {
 	if SoundConnection(node) != "usb" || !soundVendorVerified(node) || node.Props.DeviceAPI != "alsa" || node.Props.MediaClass != "Audio/Sink" {
 		return false
@@ -75,7 +86,7 @@ func (c *SoundController) RecoverPlayback(parent context.Context, target SoundTa
 	}
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
-	ctx, cancel := context.WithTimeout(parent, 12*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 	snap, err := c.backend.Snapshot(ctx)
 	if err != nil || snap == nil {
@@ -147,8 +158,8 @@ func (c *SoundController) RecoverPlayback(parent context.Context, target SoundTa
 	}
 	suspended := false
 	defer func() {
-		// Resume the original playback node on failure while capture is still
-		// alive. Never target a replacement node or changed audio profile.
+		// Attempt to resume the original playback node before closing capture.
+		// Never target a replacement node or changed audio profile.
 		if suspended {
 			cleanup, stop := context.WithTimeout(context.Background(), 3*time.Second)
 			if _, _, e := check(cleanup); e == nil {
@@ -188,6 +199,28 @@ func (c *SoundController) RecoverPlayback(parent context.Context, target SoundTa
 	if !ready {
 		return result, errors.New("temporary capture did not become active; playback was not restarted")
 	}
+	// Preserve the minimum holds from the reporter's successful script.
+	// A running PipeWire graph alone does not mean the USB device has settled.
+	holdCapture := func(duration time.Duration) error {
+		if err := c.backend.RecoveryWait(ctx, duration); err != nil {
+			return err
+		}
+		next, m, err := check(ctx)
+		if err != nil {
+			return err
+		}
+		active, err := recoveryCaptureActive(next, m, name)
+		if err != nil {
+			return err
+		}
+		if !active || !capture.Alive() || DetectCall(next).InCall {
+			return errors.New("capture or call state changed while recovery was settling")
+		}
+		return nil
+	}
+	if err := holdCapture(2 * time.Second); err != nil {
+		return result, err
+	}
 	for _, action := range []string{"Suspend", "Start"} {
 		next, m, e := check(ctx)
 		if e != nil {
@@ -209,6 +242,13 @@ func (c *SoundController) RecoverPlayback(parent context.Context, target SoundTa
 		}
 		if action == "Start" {
 			suspended = false
+		}
+		pause := 500 * time.Millisecond
+		if action == "Start" {
+			pause = 2 * time.Second
+		}
+		if err := holdCapture(pause); err != nil {
+			return result, err
 		}
 	}
 	for attempt := 0; attempt < 20; attempt++ {

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type recoveryFixture struct {
@@ -16,11 +17,17 @@ type recoveryFixture struct {
 	started, closed, alive bool
 	fail                   string
 	beforeCommand          func(string)
+	timestamps             map[string]time.Time
+}
+
+func (f *recoveryFixture) event(name string) {
+	f.events = append(f.events, name)
+	f.timestamps[name] = time.Now()
 }
 
 func (f *recoveryFixture) Alive() bool { return f.alive }
 func (f *recoveryFixture) Close() error {
-	f.events = append(f.events, "capture-stop")
+	f.event("capture-stop")
 	f.closed, f.alive = true, false
 	if f.fail == "close" {
 		return errors.New("stop failed")
@@ -30,7 +37,7 @@ func (f *recoveryFixture) Close() error {
 
 func recoveryTestController(t *testing.T) (*SoundController, *recoveryFixture, SoundTarget) {
 	t.Helper()
-	f := &recoveryFixture{snap: Snapshot{Cookie: "123", Devices: map[int]AudioDevice{}}}
+	f := &recoveryFixture{timestamps: map[string]time.Time{}, snap: Snapshot{Cookie: "123", Devices: map[int]AudioDevice{}}}
 	base := NodeProps{DeviceID: 7, DeviceBus: "usb", DeviceAPI: "alsa", VendorID: "0x0b0e", ProductID: "0x0e36"}
 	output := Node{ID: 10, State: "running", Props: base}
 	output.Props.MediaClass, output.Props.ObjectSerial, output.Props.NodeName = "Audio/Sink", "100", "test-output"
@@ -40,6 +47,7 @@ func recoveryTestController(t *testing.T) (*SoundController, *recoveryFixture, S
 	base.ObjectSerial = "99"
 	f.snap.Devices[7] = AudioDevice{ID: 7, Props: base, Known: true, Profile: AudioProfile{Index: 1, Name: "output:analog-stereo+input:mono-fallback"}}
 	c := NewSoundController(SoundBackend{
+		RecoveryWait: func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
 		Snapshot: func(context.Context) (*Snapshot, error) {
 			data, _ := json.Marshal(f.snap)
 			var clone Snapshot
@@ -63,7 +71,7 @@ func recoveryTestController(t *testing.T) (*SoundController, *recoveryFixture, S
 				t.Fatal("wrong microphone", serial)
 			}
 			f.name = name
-			f.events = append(f.events, "capture-start")
+			f.event("capture-start")
 			if f.fail == "capture-start" {
 				return nil, errors.New("cannot capture")
 			}
@@ -83,7 +91,7 @@ func recoveryTestController(t *testing.T) (*SoundController, *recoveryFixture, S
 			if id != 10 || action == "Suspend" && !f.alive {
 				t.Fatal("wrong target or capture not active", id, action)
 			}
-			f.events = append(f.events, action)
+			f.event(action)
 			if f.beforeCommand != nil {
 				f.beforeCommand(action)
 			}
@@ -199,5 +207,26 @@ func TestAudioRecoveryCaptureLossAfterSuspendResumesOriginalPlayback(t *testing.
 	}
 	if !reflect.DeepEqual(f.events, []string{"capture-start", "Suspend", "Start", "capture-stop"}) {
 		t.Fatal(f.events)
+	}
+}
+
+func TestAudioRecoveryKeepsCaptureDuringReportedTiming(t *testing.T) {
+	c, f, target := recoveryTestController(t)
+	c.backend.RecoveryWait = waitRecoveryStage
+	result, err := c.RecoverPlayback(context.Background(), target)
+	if err != nil || !result.SequenceCompleted || !result.CaptureStopped {
+		t.Fatal(result, err)
+	}
+	for _, step := range []struct {
+		from, to string
+		minimum  time.Duration
+	}{
+		{"capture-start", "Suspend", 2 * time.Second},
+		{"Suspend", "Start", 500 * time.Millisecond},
+		{"Start", "capture-stop", 2 * time.Second},
+	} {
+		if elapsed := f.timestamps[step.to].Sub(f.timestamps[step.from]); elapsed < step.minimum {
+			t.Fatalf("%s to %s: %v, need at least %v", step.from, step.to, elapsed, step.minimum)
+		}
 	}
 }

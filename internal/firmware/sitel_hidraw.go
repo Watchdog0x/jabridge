@@ -153,7 +153,8 @@ func openSitelRuntime(device USBDevice) (*sitelRuntime, func() error, error) {
 	return &sitelRuntime{io: io}, transport.Close, nil
 }
 
-// The Sitel updater selects FF54/FF55, not the FF00 runtime GNP interface.
+// Firmware usages FF54/FF55 can label the collection or its byte-array fields.
+// Evolve2 40 puts FF54 fields inside a generic FF00 collection.
 // Report IDs and lengths are descriptor-derived, including unnumbered reports.
 func selectSitelLayouts(reports []HIDReport) (sitelHIDLayout, sitelHIDLayout, error) {
 	var in, out sitelHIDLayout
@@ -168,7 +169,12 @@ func selectSitelLayouts(reports []HIDReport) (sitelHIDLayout, sitelHIDLayout, er
 			if page == 0 {
 				page = field.UsagePage
 			}
-			if field.OffsetBits != bits || field.SizeBits != 8 || (page != 0xff54 && page != 0xff55) {
+			firmwareUsage := page == 0xff54 || page == 0xff55
+			if page == 0xff00 {
+				firmwareUsage = (field.UsagePage == 0xff54 || field.UsagePage == 0xff55) &&
+					field.Flags&1 == 0 && len(field.Usages) == 1 && field.Usages[0] == 1
+			}
+			if field.OffsetBits != bits || field.SizeBits != 8 || !firmwareUsage {
 				valid = false
 				break
 			}

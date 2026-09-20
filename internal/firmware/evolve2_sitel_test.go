@@ -27,7 +27,7 @@ var evolve2SitelCases = []struct {
 func makeEvolve2World(pid, bootPID uint16) *sitelTestDevice {
 	w := makeEngageWorld(false)
 	if bootPID == 0x0e44 {
-		w.bootLayout = &sitelHIDLayout{ReportID: 0, ReportBytes: 65, MaxMessage: 1024}
+		w.bootDescriptor = evolve2ReportedBootDescriptor()
 	}
 	w.pid, w.bootPID, w.version, w.wanted = pid, bootPID, "1.15.0", "2.11.1"
 	w.images = []sitelPlannedImage{w.images[0], w.images[2]}

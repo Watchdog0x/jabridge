@@ -163,12 +163,20 @@ Evolve2 30 SE audio card, waits for its temporary capture to be active, sends
 Suspend then Start to playback, and closes capture. Every stage checks the graph
 identity and profile again. Existing calls/capture and other models are refused.
 
+Recovery keeps capture active for at least two seconds before Suspend, waits
+half a second before Start, and keeps capture for two seconds afterward. These
+minimum delays come from the tester's successful script; graph state alone does
+not establish that the USB device has settled. They remain cancellable.
+
 `audio_recovery_process.go` runs `pw-cat` with a specific object serial and no
 fallback, movement or reconnect to another microphone. Captured data is discarded.
 The process has a time limit and a parent-death signal. Failure cleanup attempts
 to restart only the original playback node before closing capture. Like the
 existing `wpctl` controls, `pw-cli` resolves a numeric ID separately from the
 snapshot check; this is not an atomic native PipeWire transaction.
+The command includes the required empty command object (`{}`). `pw-cli` can
+return exit status zero while printing an error, so stderr is also checked and
+bounded. A successful return still does not prove audible recovery.
 
 `cmd/jabridge/debug_usb_audio.go` reports numeric hub/controller IDs and matches
 sticky-mixer warnings to the current USB port. These warnings may belong to an
