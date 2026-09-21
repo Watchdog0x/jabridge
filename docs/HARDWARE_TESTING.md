@@ -27,6 +27,13 @@ The debug report confirms device detection, battery and settings reads, and
 volume-button and hook-switch events. It does not verify setting writes,
 firmware installation, or use through a dongle.
 
+## Evolve2 40 firmware status
+
+The firmware test in [issue #43](https://github.com/Watchdog0x/jabridge/issues/43)
+remains unresolved. Jabridge `1.1.1-test.2` opens the update interface but times
+out before transferring firmware. This model must not be treated as having a
+verified complete firmware update based on the simulator or interface tests.
+
 ## Firmware simulator tests
 
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full

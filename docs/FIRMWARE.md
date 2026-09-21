@@ -3,6 +3,15 @@
 A firmware protocol tells us how to send data. It does not prove that an
 archive belongs to a device or contains the right images.
 
+## Known limitation: Evolve2 40 firmware
+
+A complete firmware update on Evolve2 40 has not been verified. The latest
+[hardware report in issue #43](https://github.com/Watchdog0x/jabridge/issues/43#issuecomment-5756066904)
+uses USB model `0b0e:0e41` and Jabridge `1.1.1-test.2`. The update interface now
+opens correctly, but preparation times out before firmware transfer starts.
+The remaining problem is unresolved; the interface fix is not proof of a
+successful firmware update on this model.
+
 ## Main files
 
 | File in `internal/firmware` | Responsibility |
