@@ -28,6 +28,8 @@ type HIDField struct {
 	LogicalMax     int64
 }
 
+func (f HIDField) CollectionUsagePage() uint32 { return f.collectionPage }
+
 func HIDDescriptorFingerprint(path string) (string, error) {
 	descriptor, err := readHidrawReportDescriptor(path)
 	if err != nil {

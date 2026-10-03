@@ -186,7 +186,7 @@ _jabridge_completion() {
             ;;
         sound|audio)
             if (( COMP_CWORD == 2 )); then
-                mapfile -t COMPREPLY < <(compgen -W 'status output input volume mute mic music calls --help' -- "$current")
+                mapfile -t COMPREPLY < <(compgen -W 'status output input volume mute mic music calls recover --help' -- "$current")
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "mute" && $COMP_CWORD -eq 3 ]]; then

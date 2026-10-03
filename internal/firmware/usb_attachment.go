@@ -133,31 +133,44 @@ func boundManagementPath(device USBDevice) (string, error) {
 
 // Validate the opened descriptor, not just its reusable /dev/hidrawN name.
 func validateOpenedHID(file *os.File, device USBDevice) error {
+	return validateOpenedHIDAt(file, device, linuxHidrawPaths().char)
+}
+
+func validateOpenedHIDAt(file *os.File, device USBDevice, charRoot string) error {
 	if err := validateUSBDevice(device); err != nil {
-		return err
+		return hidAccessFailure("hid-usb-binding", err)
 	}
 	info, err := file.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
-		return errors.New("opened management handle is not a character device")
+	if err != nil {
+		return hidAccessFailure("hid-handle-stat", err)
+	}
+	if info.Mode()&os.ModeCharDevice == 0 {
+		return hidAccessFailure("hid-handle-type", errors.New("opened management handle is not a character device"))
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return errors.New("cannot identify opened management handle")
+		return hidAccessFailure("hid-handle-stat", errors.New("cannot identify opened management handle"))
 	}
-	path := fmt.Sprintf("/sys/dev/char/%d:%d/device", unix.Major(uint64(stat.Rdev)), unix.Minor(uint64(stat.Rdev)))
+	path := filepath.Join(charRoot, fmt.Sprintf("%d:%d", unix.Major(uint64(stat.Rdev)), unix.Minor(uint64(stat.Rdev))), "device")
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil || !strings.HasPrefix(resolved, device.attachment.realPath+string(filepath.Separator)) {
-		return errors.New("opened HID handle does not belong to the selected USB attachment")
+		return hidAccessFailure("hid-handle-parent", errors.New("opened HID handle does not belong to the selected USB attachment"))
 	}
 	var raw struct {
 		Bus             uint32
 		Vendor, Product uint16
 	}
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), 0x80084803, uintptr(unsafe.Pointer(&raw))) // HIDIOCGRAWINFO
-	if errno != 0 || raw.Bus != 3 || raw.Vendor != device.VendorID || raw.Product != device.ProductID {
-		return errors.New("opened HID handle identity does not match the selected device")
+	if errno != 0 {
+		return hidAccessFailure("hid-info-ioctl", errno)
 	}
-	return validateUSBDevice(device)
+	if raw.Bus != 3 || raw.Vendor != device.VendorID || raw.Product != device.ProductID {
+		return hidAccessFailure("hid-info-mismatch", fmt.Errorf("opened HID identity bus=%d VID=%04x PID=%04x does not match selected USB device", raw.Bus, raw.Vendor, raw.Product))
+	}
+	if err := validateUSBDevice(device); err != nil {
+		return hidAccessFailure("hid-usb-binding", err)
+	}
+	return nil
 }
 
 func openBoundManagement(device USBDevice) (*ControlHidraw, error) {

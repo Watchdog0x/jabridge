@@ -33,7 +33,6 @@ func runDebug(args []string) error {
 		fmt.Println("Usage: jabridge debug [--buttons | --guided] [--output FILE]\nCollects device/report layouts, model settings/events/commands, native reads and service history.\nInteractive terminals include a 20-second passive observation; --buttons=false skips it.\n--guided lets you choose the physical controls to test, including no buttons/wheel.\nNormal device controls still act. Private identities, typed text and raw device payloads are omitted.")
 		return nil
 	}
-	var output io.Writer = os.Stdout
 	flags := flag.NewFlagSet("debug", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	path := flags.String("output", "", "save report")
@@ -56,37 +55,34 @@ func runDebug(args []string) error {
 			return err
 		}
 	}
-	if *path != "" {
-		file, err := os.OpenFile(*path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err != nil {
-			return fmt.Errorf("create debug report without overwrite: %w", err)
+	collect := func(output io.Writer) error {
+		fmt.Fprintln(os.Stderr, "Checking device access, native reads and firmware. This may take a few minutes...")
+		var report bytes.Buffer
+		if err := writeDebugReport(&report); err != nil {
+			return err
 		}
-		defer func() { _ = file.Close() }()
-		output = file
-	}
-	fmt.Fprintln(os.Stderr, "Checking device access, native reads and firmware. This may take a few minutes...")
-	var report bytes.Buffer
-	if err := writeDebugReport(&report); err != nil {
+		if *buttons || *guided {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			observationErr := writeButtonObservation(ctx, &report, os.Stderr, steps)
+			stop()
+			if observationErr != nil {
+				return observationErr
+			}
+		}
+		n, err := output.Write(report.Bytes())
+		if err == nil && n != report.Len() {
+			return io.ErrShortWrite
+		}
 		return err
 	}
-	if *buttons || *guided {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		observationErr := writeButtonObservation(ctx, &report, os.Stderr, steps)
-		stop()
-		if observationErr != nil {
-			return observationErr
-		}
+	if *path == "" {
+		return collect(os.Stdout)
 	}
-	n, err := output.Write(report.Bytes())
+	savedPath, err := saveDebugReport(*path, collect)
 	if err != nil {
 		return err
 	}
-	if n != report.Len() {
-		return io.ErrShortWrite
-	}
-	if *path != "" {
-		fmt.Fprintln(os.Stderr, "Debug report saved. Attach the report file to your issue.")
-	}
+	fmt.Fprintf(os.Stderr, "Debug report saved: %s\nAttach this file to your issue.\n", savedPath)
 	return nil
 }
 
@@ -113,7 +109,7 @@ func diagnosticError(err error) string {
 func writeDebugReport(destination io.Writer) error {
 	var report bytes.Buffer
 	out := &report
-	fmt.Fprintf(out, "Jabridge debug %s\nPlatform: %s/%s\n", buildinfo.Version, runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(out, "Jabridge debug %s\nGenerated at: %s\nPlatform: %s/%s\n", buildinfo.Version, time.Now().UTC().Format(time.RFC3339), runtime.GOOS, runtime.GOARCH)
 	writeSystemDiagnostic(out)
 	writeEnvironmentDiagnostic(out)
 	fmt.Fprintf(out, "Current device access rule installed: %t\n", deviceAccessRuleInstalled())
@@ -122,6 +118,7 @@ func writeDebugReport(destination io.Writer) error {
 	inventory := readDiagnosticInventory(os.DirFS("/"))
 	nodes := inventory.HID
 	writeConnectionDiagnostic(out, inventory)
+	writeUSBAudioDiagnostic(out)
 	for _, node := range nodes {
 		path := node.Path
 		fmt.Fprintln(out, "\nHID source:", node.label())
@@ -134,7 +131,7 @@ func writeDebugReport(destination io.Writer) error {
 			for _, report := range reports {
 				fmt.Fprintf(out, "    report %d %s: %d bytes\n", report.ID, report.Kind, report.Bytes)
 				for _, field := range report.Fields {
-					fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x usages=%x range=%x..%x logical=%d..%d flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.Usages, field.UsageMin, field.UsageMax, field.LogicalMin, field.LogicalMax, field.Flags)
+					fmt.Fprintf(out, "      field bit=%d size=%d count=%d page=%04x collection-page=%04x usages=%x range=%x..%x logical=%d..%d flags=%x\n", field.OffsetBits, field.SizeBits, field.Count, field.UsagePage, field.CollectionUsagePage(), field.Usages, field.UsageMin, field.UsageMax, field.LogicalMin, field.LogicalMax, field.Flags)
 				}
 			}
 			for _, candidate := range vendorControlCandidates(reports) {

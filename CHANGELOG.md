@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2.0 — 2026-10-03
+
+Add Off, ANC and HearThrough controls for Evolve2 85 using its `ancMode`
+catalog property and confirmed command values. The contributor tested all three
+modes through Link 380. Direct USB remains untested; the mixed HearThrough mode
+and HearThrough level are not offered.
+
+Debug saves a new numbered report when an older file exists and prints the
+exact filename. Reports now retain firmware interface failure reasons and
+include USB hub, controller and relevant kernel audio details.
+
+Improve Sitel firmware reboot handling, recovery metadata and update-interface
+selection. Evolve2 40 now opens the reported interface, but its latest hardware
+test still times out during preparation before firmware transfer. A complete
+firmware update remains unconfirmed.
+
+Add experimental `jabridge sound recover` for Evolve2 30 SE over direct USB.
+It briefly opens the headset microphone, discards capture and restarts playback.
+It refuses calls, other recordings and changed device targets. PipeWire commands
+include the required arguments, detect reported errors and wait between steps.
+Audible recovery has not been confirmed; the separate kernel mixer problem is
+not fixed by this command.
+
 ## 1.1.0 — 2026-09-17
 
 Fix missing controls and incomplete terminal screens caused by the keyboard

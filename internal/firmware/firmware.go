@@ -128,6 +128,16 @@ func addOfficialReleaseEvidenceContext(parent context.Context, pid uint16, relea
 	if release == nil {
 		return errors.New("missing firmware release")
 	}
+	state, recovery, err := sitelRecoveryForPID(pid)
+	if err != nil {
+		return err
+	}
+	if recovery {
+		if release.Version != state.FirmwareVersion {
+			return errors.New("firmware recovery requires the version from the unfinished update")
+		}
+		pid = state.RuntimePID
+	}
 	ctx, cancel := context.WithTimeout(parent, MetadataTimeout)
 	defer cancel()
 	evidence, err := firmwareModelCatalog.FirmwareRelease(ctx, pid, release.Version)
@@ -225,6 +235,13 @@ func fetchFirmwareInfo(pid uint16) (*Firmware, error) {
 }
 
 func fetchFirmwareInfoContext(ctx context.Context, pid uint16) (*Firmware, error) {
+	state, recovery, err := sitelRecoveryForPID(pid)
+	if err != nil {
+		return nil, err
+	}
+	if recovery {
+		pid = state.RuntimePID
+	}
 	url := fmt.Sprintf("%s/%x?VendorId=%04x&VariantType=", MetadataBaseURL, pid, JabraVendorID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -262,10 +279,20 @@ func fetchFirmwareInfoContext(ctx context.Context, pid uint16) (*Firmware, error
 	sort.SliceStable(fw.Releases, func(i, j int) bool {
 		return compareVersions(fw.Releases[i].Version, fw.Releases[j].Version) > 0
 	})
+	if recovery {
+		for _, release := range fw.Releases {
+			if release.Version == state.FirmwareVersion {
+				fw.Releases = []Release{release}
+				return &fw, nil
+			}
+		}
+		return nil, fmt.Errorf("unfinished firmware version %s is no longer published; keep the original archive for recovery", state.FirmwareVersion)
+	}
 	return &fw, nil
 }
 
-// LatestForPID returns the latest published firmware for a product.
+// LatestForPID returns the latest published firmware, or the exact unfinished
+// release when the device is in bootloader recovery mode.
 func LatestForPID(pid uint16) (LatestInfo, error) {
 	info, err := fetchFirmwareInfo(pid)
 	if err != nil {
@@ -421,6 +448,9 @@ func downloadLatest(pid uint16, outDir string, output io.Writer) (DownloadResult
 	}
 	filePath, err := downloadFirmwareWithOutput(latest, outDir, output)
 	if err != nil {
+		return DownloadResult{}, err
+	}
+	if err := verifyRecoveryDownload(pid, filePath); err != nil {
 		return DownloadResult{}, err
 	}
 	format, err := detectFormat(filePath)
@@ -1618,6 +1648,9 @@ func cmdDownload(args []string) {
 		fw.DeviceName, rel.Version, rel.FileSize, DownloadBaseURL+rel.DownloadURL)
 	path, err := downloadFirmware(rel, outDir)
 	if err != nil {
+		die("download: %v", err)
+	}
+	if err := verifyRecoveryDownload(pid, path); err != nil {
 		die("download: %v", err)
 	}
 

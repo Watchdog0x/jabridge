@@ -35,6 +35,12 @@ func parseSoundCommand(args []string) (soundCommand, error) {
 		}
 	}
 	switch args[0] {
+	case "recover":
+		if command.kind == "microphone" || len(args) > 2 {
+			return command, errors.New("use sound recover [ID]")
+		}
+		command.action = "recover"
+		args = args[1:]
 	case "music", "calls":
 		if command.kind == "microphone" || len(args) > 2 {
 			return command, errors.New("use sound music [ID] or sound calls [ID]")
@@ -143,6 +149,20 @@ func runSoundClient(client *ipc.Client, command soundCommand, out io.Writer) err
 	}
 	if command.action == "mute" {
 		params["mode"] = command.mode
+	}
+	if command.action == "recover" {
+		if _, err := fmt.Fprintln(out, "Recovery briefly opens the headset microphone and restarts playback. Captured audio is discarded."); err != nil {
+			return err
+		}
+		var result pipewire.RecoveryResult
+		if err := client.Call(ctx, "sound.recover", params, &result); err != nil {
+			return err
+		}
+		if !result.SequenceCompleted || !result.CaptureStopped {
+			return errors.New("audio recovery did not finish")
+		}
+		_, err := fmt.Fprintln(out, "Recovery sequence finished. Temporary capture stopped. Check whether you can hear playback now.")
+		return err
 	}
 	if command.action == "mode" {
 		params["mode"] = command.mode

@@ -8,7 +8,7 @@ Testing a device does not mean every feature or firmware update has been tested.
 | --- |
 | Jabra Link 380 |
 | Jabra Evolve2 65 |
-| Jabra Evolve2 85 |
+| [Jabra Evolve2 85](#evolve2-85-noise-control-test) |
 | Jabra Evolve3 85 |
 | Jabra Speak 510 |
 | [Jabra Speak2 75 (direct USB)](#speak2-75-usb-test) |
@@ -26,6 +26,14 @@ The device reports USB ID `0b0e:24ef` and firmware `2.54.0`.
 The debug report confirms device detection, battery and settings reads, and
 volume-button and hook-switch events. It does not verify setting writes,
 firmware installation, or use through a dongle.
+
+## Evolve2 85 noise control test
+
+[@vstoms tested Off, ANC and HearThrough](https://github.com/Watchdog0x/jabridge/pull/48)
+on Evolve2 85 (`0b0e:24bb`, variant `01-67`, firmware `1.5.7`) through Link 380
+(`0b0e:24c8`, firmware `1.16.0`). The contributor reports checking the returned
+value and hearing each mode change. Direct USB, the mixed HearThrough mode and
+HearThrough level were not tested by this contribution.
 
 ## Evolve2 40 firmware status
 
@@ -78,8 +86,10 @@ on 0b0e:0e36 with firmware 1.11.0 and has tested saved-level reads, including
 readings that remain stale after a write. The additional 0e37/0e38/0e39 descriptor
 profiles have software evidence only.
 
-The same reporter reproduced silent audio after reconnecting with Jabridge
-fully disabled on kernel 7.2.6 and reports normal playback on 6.18 LTS. The
+The same reporter reproduced silent audio with Jabridge fully disabled.
+On his setup, 6.18 LTS avoids the kernel mixer problem, but a hub connected
+through the NVIDIA USB controller can still cause silent playback on LTS.
+Connecting that hub to a motherboard rear USB port works for him. The
 [upstream USB audio change](https://kernel.googlesource.com/pub/scm/linux/kernel/git/tiwai/sound/+/3c87a903a6820a0789bbab61681dd570d6030260)
 keeps a mixer available when its volume readback is unreliable. These results
 describe this tester's setup; they do not establish the cause of every audio

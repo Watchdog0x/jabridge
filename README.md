@@ -81,6 +81,20 @@ You can also update directly:
 
 This updates the app, not your device firmware.
 
+## Noise control on Evolve2 85
+
+Switch between ANC, HearThrough and Off:
+
+```bash
+jabridge settings set headset.noise-control anc
+jabridge settings set headset.noise-control hearthrough
+jabridge settings set headset.noise-control off
+```
+
+These modes were tested on Evolve2 85 through Link 380 in
+[PR #48](https://github.com/Watchdog0x/jabridge/pull/48). Direct USB is untested.
+The mixed HearThrough mode and HearThrough level are not offered.
+
 ## Headset volume (experimental)
 
 For supported Evolve2 30 SE models with firmware 1.11.0, connected directly by USB:
@@ -125,6 +139,9 @@ To check for firmware updates from the command line, run `./jabridge firmware`.
 
 Support depends on your device. See [tested devices](docs/HARDWARE_TESTING.md#tested-devices) and [firmware recovery](docs/HARDWARE_TESTING.md#firmware-recovery).
 
+Evolve2 40 firmware preparation still times out in the latest hardware report.
+A complete update is not confirmed. See the [known firmware limitation](docs/FIRMWARE.md#known-limitation-evolve2-40-firmware).
+
 ## Help
 
 See all commands:
@@ -145,13 +162,34 @@ See all commands:
 
 ## Problems
 
+### Silent playback on Evolve2 30 SE
+
+If audio is playing but you hear nothing, this experimental command tries the
+recovery sequence reported in [issue #44](https://github.com/Watchdog0x/jabridge/issues/44).
+It currently supports Evolve2 30 SE connected directly by USB.
+
+Stop calls and recordings first, keep audio playback running, then run:
+
+```sh
+jabridge sound recover
+```
+
+This briefly opens the headset microphone and discards the captured audio while
+restarting playback. It leaves volume, mute and the selected audio profile alone.
+Check whether you can hear sound afterward. Audible recovery has not been
+confirmed. This command does not fix the separate Linux kernel mixer problem.
+
+### Debug report
+
 Before opening an issue, save a debug report:
 
 ```bash
 ./jabridge debug --output jabridge-debug.txt
 ```
 
-Check `jabridge-debug.txt` before sharing it. Then [open an issue](https://github.com/Watchdog0x/jabridge/issues/new), attach the file and tell us your device model and what went wrong. Debug does not change settings or firmware.
+If that file already exists, Jabridge saves a new report as `jabridge-debug-1.txt`, then `jabridge-debug-2.txt`, and so on. The command shows the exact file to attach.
+
+Check that file before sharing it. Then [open an issue](https://github.com/Watchdog0x/jabridge/issues/new), attach the file and tell us your device model and what went wrong. Debug does not change settings or firmware.
 
 ## Build your own app
 

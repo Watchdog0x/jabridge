@@ -62,7 +62,7 @@ func TestSoundCLIUsesIPCWithoutPipeWireExecutables(t *testing.T) {
 	}
 }
 func TestSoundCLIValidationAndMultiDeviceSelection(t *testing.T) {
-	for _, args := range [][]string{{"volume", "101"}, {"volume", "NaN"}, {"mute", "maybe"}, {"input", "-1"}, {"mic", "volume", "-1"}, {"output", "1", "2"}} {
+	for _, args := range [][]string{{"volume", "101"}, {"volume", "NaN"}, {"mute", "maybe"}, {"input", "-1"}, {"mic", "volume", "-1"}, {"output", "1", "2"}, {"mic", "recover"}, {"recover", "1", "2"}, {"recover", "-1"}} {
 		if _, err := parseSoundCommand(args); err == nil {
 			t.Fatal(args)
 		}
@@ -76,6 +76,51 @@ func TestSoundCLIValidationAndMultiDeviceSelection(t *testing.T) {
 	}
 	if _, err := selectSoundNode(nodes, "microphone", 1); err == nil {
 		t.Fatal("sink accepted as microphone")
+	}
+}
+
+type recoveryClientAPI struct{ soundClientAPI }
+
+func (a *recoveryClientAPI) GetSound() pipewire.SoundState {
+	return pipewire.SoundState{Available: true, Nodes: []pipewire.SoundNode{{Target: pipewire.SoundTarget{ID: 10, Token: strings.Repeat("a", 64)}, Kind: "output", Connection: "usb", Editable: true}}}
+}
+func (a *recoveryClientAPI) RecoverSound(pipewire.SoundTarget) (pipewire.RecoveryResult, error) {
+	a.calls <- "recover"
+	return pipewire.RecoveryResult{SequenceCompleted: true, CaptureStopped: true}, nil
+}
+func TestRecoveryCLIExplainsCaptureAndDoesNotClaimAudibleSuccess(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "recovery.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = listener.Close() }()
+	api := &recoveryClientAPI{soundClientAPI{calls: make(chan string, 1)}}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, e := listener.Accept()
+		if e == nil {
+			ipc.HandleConnection(conn, api)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	client, err := ipc.Dial(ctx, listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close(); <-done }()
+	command, err := parseSoundCommand([]string{"recover", "10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runSoundClient(client, command, &out); err != nil {
+		t.Fatal(err)
+	}
+	if <-api.calls != "recover" || !strings.Contains(out.String(), "Captured audio is discarded") || !strings.Contains(out.String(), "Check whether you can hear") {
+		t.Fatal(out.String())
 	}
 }
 func TestSoundTUIVolumeEditsAreBoundAndCancelable(t *testing.T) {

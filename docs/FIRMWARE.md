@@ -12,6 +12,9 @@ opens correctly, but preparation times out before firmware transfer starts.
 The remaining problem is unresolved; the interface fix is not proof of a
 successful firmware update on this model.
 
+Jabridge 1.2.0 includes the interface fix and better failure reports. The
+remaining preparation timeout is still unresolved.
+
 ## Main files
 
 | File in `internal/firmware` | Responsibility |
@@ -21,12 +24,14 @@ successful firmware update on this model.
 | `interactive_install.go` | Bind the menu's selected file and USB device |
 | `firmware_snapshot.go` | Freeze the selected archive for installation |
 | `usb_attachment.go` | Keep device handles tied to the selected attachment |
+| `hid_access.go` | Read-only updater interface checks and retained failure reasons |
 | `recovery.go` | Save and load an interrupted transfer |
 | `usb_dfu_profiles.go`, `jabra_usb_dfu_install.go` | Protocol 1 USB DFU models |
 | `csr_release.go`, `csr_ota_updater.go` | Protocol 7 release matching and transfer |
 | `csr_extended_install.go`, `csr_extended_update.go` | Protocols 16 and 17 |
 | `sitel_profiles.go` | Protocol 4 model IDs and required images |
 | `sitel_install.go` | Sitel update sequence and recovery |
+| `sitel_recovery_metadata.go` | Match update-mode devices to their saved runtime model and firmware |
 | `sitel_runtime.go`, `sitel_hidraw.go` | Runtime identity and HID connections |
 | `sitel_link.go`, `sitel_hid_frames.go` | Sitel messages and fragments |
 | `sitel_images.go`, `sitel_flash.go` | Image bounds, transfer and CRC verification |
@@ -46,7 +51,7 @@ successful firmware update on this model.
 | `conexant_transfer.go` | UC Voice calibration protection and verified writes |
 | `conexant_install.go` | Official release checks, confirmation and recovery |
 
-## Coverage in 1.1.0
+## Coverage in 1.2.0
 
 The table lists implemented routes and how they were checked. It is not a
 claim that every Jabra model has been physically tested.
@@ -251,6 +256,14 @@ Link Call Control only for Engage variants with that controller.
 Recovery retains the archive digest, model, original USB port and device
 identity. A different archive, device or model cannot inherit the record.
 
+The headset temporarily disappears from the audio panel while in update mode.
+Keep it connected until the installer finishes. If the reboot reply is lost,
+the updater checks for the expected new USB attachment before continuing. It
+does not resend the reboot command. A retry uses the saved runtime model and
+original firmware version, with both the published checksum and saved archive
+hash checked. The debug report includes the saved recovery stage and firmware
+stage history.
+
 ## Why issue 43 happened
 
 The Evolve2 40 and Engage 50 II both use protocol 4. Version 1.0.0 treated every
@@ -261,12 +274,43 @@ The shared updater now reads one model profile across preflight, menu binding,
 diagnostics, installation and recovery. Engage controller behavior remains
 separate. Unimplemented Sitel layouts receive an explicit error.
 
+The 1.1.0 follow-up exposed a retry failure: the download check used update-mode
+PID `0e44`, which is absent from the model catalog. Recovery now looks up the
+recorded runtime PID and original release. Tests also reproduce a lost reboot
+reply leaving the headset in update mode; the new reconnect check handles that
+case. The report does not establish which error stopped the tester's first
+attempt, so confirmation on his headset is still needed.
+
+
+The September 20 report identifies the remaining rejection: the Evolve2 40
+bootloader has FF54 data fields inside an FF00 collection. The selector now
+recognizes that field layout while retaining the existing FF54/FF55 collection
+handling. Ordinary GNP, unrelated fields, constant fields and malformed sizes
+are still rejected. Tests reconstruct the reported layout and reproduce the
+old hid-layout error through Linux UHID before verifying the correction.
+This fixes the reported interface rejection; physical transfer completion
+still needs confirmation.
+
 ## Validation and adding a model
 
 `evolve2_sitel_test.go` covers the added runtime variants, interrupted recovery,
 wrong identities, incomplete images and original-archive transfers through
 an independent wire peer. `engage_install_test.go` and
 `engage_evidence_test.go` retain Engage and controller checks.
+
+`hid_access_kernel_test.go` adds opt-in Linux UHID tests for the real hidraw
+open, handle-identity, descriptor and unnumbered-handshake paths. It requires
+`JABRIDGE_TEST_UHID=1` and access to a loaded UHID driver. USB ancestry is supplied
+by a synthetic test tree; this is not a physical USB reconnect or headset flash.
+Normal tests also check that a timeout preserves the underlying access failure
+without copying private paths or device identifiers into history.
+
+When a supported device is already in firmware update mode, `jabridge debug`
+uses the same interface-opening checks as the installer without starting its
+protocol or sending a device command. The report includes the enclosing HID
+collection page and a specific check result, such as `hid-identity`, `hid-layout`
+or `hid-open-permission`. This is intended to diagnose the remaining #43 failure,
+not to claim that the headset update has been fixed.
 
 For original files kept outside the repository:
 
