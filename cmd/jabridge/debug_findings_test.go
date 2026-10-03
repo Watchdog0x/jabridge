@@ -163,3 +163,29 @@ func TestANCChoicesExcludeCalibrationAndUseDocumentedWireValues(t *testing.T) {
 	}
 	t.Fatal("missing noise-control setting")
 }
+
+func TestEvolve2ANCModeUsesConfirmedWireValues(t *testing.T) {
+	for _, definition := range headsetChoiceSettingDefinitions {
+		if definition.Key != "noise-control" || len(definition.CatalogProperties) != 1 || definition.CatalogProperties[0] != "ancMode" {
+			continue
+		}
+		if definition.Class != gnpClassConfig || definition.Op != 0x87 || len(definition.Request) != 0 || len(definition.WritePrefix) != 0 {
+			t.Fatal(definition)
+		}
+		want := map[string]byte{"off": 0, "anc": 1, "hearThrough": 3}
+		if len(definition.Choices) != len(want) {
+			t.Fatal(definition.Choices)
+		}
+		for _, choice := range definition.Choices {
+			if raw, ok := want[choice.CatalogValue]; !ok || raw != choice.Raw {
+				t.Fatal(definition.Choices)
+			}
+		}
+		allowed := choicesAllowedByCatalog(definition.Choices, []string{"off", "anc", "hearThroughMix", "hearThrough"})
+		if len(allowed) != 3 {
+			t.Fatal(allowed)
+		}
+		return
+	}
+	t.Fatal("missing Evolve2 ancMode noise-control setting")
+}

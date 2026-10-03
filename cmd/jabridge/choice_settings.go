@@ -72,6 +72,16 @@ var headsetChoiceSettingDefinitions = []choiceSettingDefinition{
 		},
 	},
 	{
+		// Evolve2 85 (catalog ancMode): the ANC button cycles 13/87 through
+		// 03 (HearThrough), 01 (ANC) and 00 (off). hearThroughMix is listed by
+		// the catalog but its raw value is not confirmed, so it is not offered.
+		Key: "noise-control", Label: "Noise control", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x87, Writable: true,
+		CatalogProperties: []string{"ancMode"}, Choices: []settingChoice{
+			{Name: "Off", Raw: 0, CatalogValue: "off"}, {Name: "HearThrough", Raw: 3, CatalogValue: "hearThrough"}, {Name: "ANC", Raw: 1, CatalogValue: "anc"},
+		},
+	},
+	{
 		Key: "hearthrough-level", Label: "HearThrough level", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0xbe, Request: []byte{2}, WritePrefix: []byte{2}, Writable: true,
 		CatalogProperties: []string{"ancHearThroughLevel"}, Choices: []settingChoice{
