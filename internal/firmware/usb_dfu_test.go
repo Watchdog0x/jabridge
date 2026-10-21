@@ -205,9 +205,9 @@ func TestDFURejectsOverflowAndCancelledTransferBeforeWrite(t *testing.T) {
 func TestDFURecoveryClearsErrorAndAbortsInterruptedTransfer(t *testing.T) {
 	for _, state := range []byte{2, 5, 9, 10} {
 		f := &dfuTestTransport{state: state}
-		detached, err := prepareDFUDownload(context.Background(), f, testDFUInterface())
-		if err != nil || detached || f.state != 2 {
-			t.Fatalf("state %d: detached=%t err=%v state=%d", state, detached, err, f.state)
+		preparation, err := prepareDFUDownload(context.Background(), f, testDFUInterface())
+		if err != nil || preparation != dfuPreparationReady || f.state != 2 {
+			t.Fatalf("state %d: preparation=%d err=%v state=%d", state, preparation, err, f.state)
 		}
 		if state == 10 && !bytes.Contains(f.requests, []byte{4}) {
 			t.Fatal("DFU error not cleared")
@@ -224,9 +224,9 @@ func TestDFURecoveryClearsErrorAndAbortsInterruptedTransfer(t *testing.T) {
 
 func TestDFURuntimeDetachRequiresReopenBeforeDownload(t *testing.T) {
 	f := &dfuTestTransport{state: 0}
-	detached, err := prepareDFUDownload(context.Background(), f, testDFUInterface())
-	if err != nil || !detached || len(f.writes) != 0 || f.state != 2 {
-		t.Fatalf("detach=%t err=%v state=%d", detached, err, f.state)
+	preparation, err := prepareDFUDownload(context.Background(), f, testDFUInterface())
+	if err != nil || preparation != dfuPreparationReopen || len(f.writes) != 0 || f.state != 2 {
+		t.Fatalf("preparation=%d err=%v state=%d", preparation, err, f.state)
 	}
 }
 

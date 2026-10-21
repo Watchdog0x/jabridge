@@ -103,6 +103,24 @@ tests, not an observed Evolve 75 hardware failure or proof of a complete update.
 The headset's bootloader descriptors, physical flash timing and power-loss
 recovery remain unqualified.
 
+Further review found that recovery rejected devices still completing a data
+block (`dfuDNLOAD-SYNC` / `dfuDNBUSY`) or finalizing an image
+(`dfuMANIFEST-SYNC` / `dfuMANIFEST` / `dfuMANIFEST-WAIT-RESET`). Recovery now
+honors the pending poll interval before aborting an incomplete download. For
+pending manifestation it finishes waiting, resets and verifies the installed
+version without sending firmware again. Errors or cancellation stop recovery;
+an old runtime version still fails verification. This uses the device's current
+DFU state; it does not identify a previously completed update once the device
+has already returned to idle or normal mode.
+
+A timeout on the update-mode command also previously stopped the installer
+without checking whether the command took effect. It now waits within the
+existing discovery deadline for the expected bootloader on the original USB
+port, without resending the command. Tests cover both outcomes, an unrelated
+bootloader on another port, cancellation, and immediate failure for other
+errors. These recovery and mode-switch findings were reproduced in simulators;
+they have not been exercised by interrupting a physical Evolve 75 update.
+
 ### Engage 75
 
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full
