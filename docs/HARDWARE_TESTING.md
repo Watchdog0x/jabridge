@@ -72,6 +72,33 @@ these changes and recovery after power loss have not been qualified.
 
 ## Firmware simulator tests
 
+### Evolve 75 USB DFU review
+
+The official Evolve 75 `2.38.0` archive was checked on 2026-10-21 against
+Jabra's protocol-1 release metadata for runtime IDs `2465`, `2466` and `2467`.
+Its bootloader target is `097a`; this is a direct USB update, not a wireless
+update through Link 370. The complete 1,901,624-byte payload passed archive,
+header, suffix and CRC validation, menu/CLI preflight, and a simulated transfer
+with 1,858 data blocks of at most 1,024 bytes followed by the zero-length block.
+
+Review of the shared USB DFU finalization path found that it kept polling after
+a non-tolerant device reported `dfuMANIFEST`. Under
+[USB DFU 1.1 sections A.2.8 and A.2.9](https://www.usb.org/sites/default/files/DFU_1.1.pdf),
+that device can stop answering class requests after its advertised poll interval
+and require a reset. The updater now waits that interval before returning to the
+existing reset and version-verification path. A timeout or stall alone does not
+establish success; this path requires a successful `dfuMANIFEST` status and the
+descriptor's `bitManifestationTolerant` flag to be clear. Tolerant devices continue
+to be polled.
+
+Regression tests reproduce the previous stall, check the poll interval and
+cancellation, and reject the old runtime version after reset. These are software
+tests, not an observed Evolve 75 hardware failure or proof of a complete update.
+The headset's bootloader descriptors, physical flash timing and power-loss
+recovery remain unqualified.
+
+### Engage 75
+
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full
 firmware package for both Bluetooth chip variants. Tests cover all nine
 components, interrupted updates, recovery and final version checks.

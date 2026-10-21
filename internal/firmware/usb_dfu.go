@@ -232,5 +232,12 @@ func waitDFUBlock(parent context.Context, t dfuControl, intf dfuInterface, final
 		if err := waitDFU(ctx, status.Poll); err != nil {
 			return err
 		}
+		if final && status.State == 7 && intf.Attributes&4 == 0 {
+			// USB DFU 1.1 A.2.8: without bitManifestationTolerant, the
+			// device enters MANIFEST-WAIT-RESET after this poll interval
+			// and cannot answer another class request. Let the caller
+			// reset it, then require the normal-mode version readback.
+			return nil
+		}
 	}
 }
