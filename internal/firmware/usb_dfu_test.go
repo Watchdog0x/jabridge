@@ -94,7 +94,7 @@ func (f *dfuTestTransport) Claim(byte, bool) error { return nil }
 func (f *dfuTestTransport) Close() error           { return nil }
 
 func testDFUInterface() dfuInterface {
-	return dfuInterface{Number: 3, Attributes: 1, Protocol: 2, TransferSize: 64, Version: 0x0100}
+	return dfuInterface{Number: 3, Attributes: 1, Protocol: 2, DetachMS: 1000, TransferSize: 64, Version: 0x0100}
 }
 
 func TestDFUTransfersBoundedBlocksAndZeroLengthEOF(t *testing.T) {

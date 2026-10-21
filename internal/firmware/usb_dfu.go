@@ -145,7 +145,10 @@ func prepareDFUDownload(ctx context.Context, t dfuControl, intf dfuInterface) (d
 	}
 	switch status.State {
 	case 0: // appIDLE: the HID mode switch exposes the DFU runtime first.
-		if err := dfuRequest(ctx, t, intf, 0, 1000, nil); err != nil && !dfuDisconnectError(err) {
+		// Use the descriptor's full reset window. Runtime drivers can delay
+		// USB reset beyond one second (observed on Evolve 75 with btusb),
+		// causing a shorter DETACH timeout to expire back into normal mode.
+		if err := dfuRequest(ctx, t, intf, 0, intf.DetachMS, nil); err != nil && !dfuDisconnectError(err) {
 			return dfuPreparationReady, fmt.Errorf("detach DFU runtime: %w", err)
 		}
 		if intf.Attributes&8 == 0 {

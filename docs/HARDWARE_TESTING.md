@@ -70,7 +70,7 @@ return to normal mode. The patched access path also passed a physical
 mode-switch test without firmware transfer. A complete unattended update with
 these changes and recovery after power loss have not been qualified.
 
-## Firmware simulator tests
+## Firmware update tests
 
 ### Evolve 75 USB DFU review
 
@@ -100,8 +100,8 @@ to be polled.
 Regression tests reproduce the previous stall, check the poll interval and
 cancellation, and reject the old runtime version after reset. These are software
 tests, not an observed Evolve 75 hardware failure or proof of a complete update.
-The headset's bootloader descriptors, physical flash timing and power-loss
-recovery remain unqualified.
+The headset's complete installation, physical flash timing and power-loss
+recovery remain unqualified. Mode-transition testing is described below.
 
 Further review found that recovery rejected devices still completing a data
 block (`dfuDNLOAD-SYNC` / `dfuDNBUSY`) or finalizing an image
@@ -120,6 +120,32 @@ port, without resending the command. Tests cover both outcomes, an unrelated
 bootloader on another port, cancellation, and immediate failure for other
 errors. These recovery and mode-switch findings were reproduced in simulators;
 they have not been exercised by interrupting a physical Evolve 75 update.
+
+#### Evolve 75 detach timeout: physical reproduction
+
+A subsequent update attempt on firmware `2.32.0` entered `0b0e:097a`, then
+returned to normal mode before sending firmware. The updater consequently
+timed out waiting for the same-port bootloader. A mode-only diagnostic reproduced
+the failure and restored the original firmware without sending any DNLOAD.
+
+The first `097a` interface set is a composite Bluetooth/DFU runtime: `btusb`
+binds interfaces 0 and 1, while DFU uses interface 2 with protocol 1, attributes
+`0x07`, a 5,000 ms detach maximum, a 1,023-byte transfer size and DFU version
+`0x0101`. Jabridge ignored that detach maximum and requested only 1,000 ms.
+Resetting the USB device took 2.619 seconds; the detach window expired and the
+headset returned to normal `2465` on firmware `2.32.0`.
+
+Requesting the advertised 5,000 ms window instead reached `097a` with protocol
+2 on interface 0 and successful `dfuIDLE` status. The reset took 2.483 seconds.
+No kernel drivers were manually unbound and no firmware blocks were sent.
+Cleanup resets restored normal mode and firmware `2.32.0` was read back.
+
+The updater now requests `wDetachTimeOut` from the descriptor, as specified by
+[USB DFU 1.1 sections 4.1.3 and 5.1](https://www.usb.org/sites/default/files/DFU_1.1.pdf).
+Regression tests reproduce a delayed reset, enforce smaller advertised maxima,
+preserve self-detaching behavior, and parse the captured runtime descriptors.
+This qualifies the mode transition on this headset, not a complete firmware
+installation or interrupted-flash recovery.
 
 ### Engage 75
 
