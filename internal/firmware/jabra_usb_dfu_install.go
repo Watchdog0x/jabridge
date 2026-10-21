@@ -105,6 +105,37 @@ func waitUSBDFUDevice(ctx context.Context, port string, ready func(USBDevice) bo
 	}
 }
 
+// sysfs discovery precedes udev's uaccess ACL on a newly enumerated USB node.
+// Wait for the same port and DFU PID to become accessible before claiming it.
+// Only retry node-open failures: descriptor validation and USB requests must
+// retain their errors, and no detach or firmware write is replayed here.
+func waitUSBDFUSession(ctx context.Context, port string, pid uint16, backend usbDFUBackend) (usbDFUSession, dfuInterface, error) {
+	var lastErr error
+	for {
+		device, err := waitUSBDFUDevice(ctx, port, func(d USBDevice) bool { return d.ProductID == pid }, backend)
+		if err != nil {
+			return nil, dfuInterface{}, fmt.Errorf("waiting for USB DFU access: %w", errors.Join(err, lastErr))
+		}
+		intf, err := backend.inspect(device)
+		if err != nil {
+			return nil, dfuInterface{}, err
+		}
+		usb, err := backend.open(device)
+		if err == nil {
+			return usb, intf, nil
+		}
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) || pathErr.Op != "open" ||
+			(!errors.Is(err, fs.ErrPermission) && !errors.Is(err, fs.ErrNotExist)) {
+			return nil, dfuInterface{}, err
+		}
+		lastErr = err
+		if err := backend.wait(ctx, 100*time.Millisecond); err != nil {
+			return nil, dfuInterface{}, fmt.Errorf("waiting for USB DFU access: %w", errors.Join(err, lastErr))
+		}
+	}
+}
+
 func enterUSBDFU(ctx context.Context, device USBDevice, address byte) error {
 	path, intf, err := dfuControlPath(device)
 	if err != nil {
@@ -268,17 +299,8 @@ func runUSBDFU(ctx context.Context, original USBDevice, address byte, image *jab
 	for attempts := 0; attempts < 3; attempts++ {
 		record("dfu-runtime")
 		wait, cancel := context.WithTimeout(ctx, 30*time.Second)
-		found, err := waitUSBDFUDevice(wait, original.SysPath, func(d USBDevice) bool { return d.ProductID == image.Profile.DFUPID }, backend)
+		usb, intf, err := waitUSBDFUSession(wait, original.SysPath, image.Profile.DFUPID, backend)
 		cancel()
-		if err != nil {
-			return err
-		}
-		device = found
-		intf, err := backend.inspect(device)
-		if err != nil {
-			return err
-		}
-		usb, err := backend.open(device)
 		if err != nil {
 			return err
 		}

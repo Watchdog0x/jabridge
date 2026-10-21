@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // USB DFU 1.1, sections 6 and 7. This is not the CSR OTA partition protocol.
@@ -197,6 +199,16 @@ func waitDFUBlock(parent context.Context, t dfuControl, intf dfuInterface, final
 	for {
 		status, err := getDFUStatus(ctx, t, intf)
 		if err != nil {
+			// Link 370 can stop answering GETSTATUS for longer than the USB
+			// request timeout while committing the complete image. Retry only
+			// the final status read, within the existing deadline. A timeout
+			// alone is never success and must never replay DNLOAD or reset.
+			if final && errors.Is(err, unix.ETIMEDOUT) {
+				if waitErr := waitDFU(ctx, 100*time.Millisecond); waitErr != nil {
+					return errors.Join(err, waitErr)
+				}
+				continue
+			}
 			// Some non-tolerant devices detach during manifestation. Re-enumeration
 			// and installed-version verification are still mandatory for success.
 			if final && dfuDisconnectError(err) {

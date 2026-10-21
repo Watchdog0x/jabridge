@@ -93,7 +93,7 @@ func openDFUUSB(device USBDevice) (*dfuUSB, error) {
 	}
 	fd, err := unix.Open(path, unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		return nil, fmt.Errorf("USB update access: %w; run jabridge setup and reconnect the device", err)
+		return nil, fmt.Errorf("USB update access: %w; run jabridge setup and reconnect the device", &os.PathError{Op: "open", Path: path, Err: err})
 	}
 	t := &dfuUSB{file: os.NewFile(uintptr(fd), path)}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

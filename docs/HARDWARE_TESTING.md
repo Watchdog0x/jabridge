@@ -42,6 +42,34 @@ remains unresolved. Jabridge `1.1.1-test.2` opens the update interface but times
 out before transferring firmware. This model must not be treated as having a
 verified complete firmware update based on the simulator or interface tests.
 
+## Link 370 USB DFU recovery
+
+A Link 370 with runtime ID `0b0e:245e` and DFU ID `0b0e:0976` was
+updated from `1.82.0` to `1.87.0` during local testing on 2026-10-21.
+Jabridge 1.2.0 stopped twice and required manual completion:
+
+- After the mode switch, the new USB node appeared in sysfs before the active
+  user's uaccess ACL was applied. A separate mode-switch diagnostic reproduced
+  about 425 ms of `EACCES` before the same node became accessible.
+- All 1,056 data blocks and the zero-length final block were accepted, but the
+  following GETSTATUS exceeded the USB request's two-second timeout. A later
+  status read reported success in `dfuIDLE`. Resetting returned the device to
+  DFU `appIDLE`; a second reset restored its normal USB identity. The device
+  then reported firmware `1.87.0` and the paired headset was detected again.
+
+The access wait now retries only transient node-open failures, while checking
+the same port and DFU product ID. Finalization retries only GETSTATUS timeouts
+within the existing 60-second deadline; it does not resend firmware blocks or
+treat a timeout as success. Normal-mode firmware version verification remains
+mandatory. Menu-launched installer failures now remain visible in the terminal
+with the complete recovery instructions.
+
+Regression tests cover delayed permissions, cancellation, permanent access
+errors, final-status timeouts, device errors after a timeout, and the two-reset
+return to normal mode. The patched access path also passed a physical
+mode-switch test without firmware transfer. A complete unattended update with
+these changes and recovery after power loss have not been qualified.
+
 ## Firmware simulator tests
 
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full

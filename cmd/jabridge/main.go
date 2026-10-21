@@ -232,10 +232,12 @@ func runTUI() error {
 			return fmt.Errorf("firmware result: %v; restart service: %w", installErr, resumeErr)
 		}
 		if installErr != nil {
-			setResultStatus(installErr.Error(), true, "Could not finish")
-		} else {
-			setResultStatus("Firmware transfer finished. Checking the device again.", false, "Done")
+			// Keep the full failure and recovery instructions in the terminal.
+			// Reopening the menu truncates this to one status line, which a
+			// refresh of the update-mode device can immediately overwrite.
+			return installErr
 		}
+		setResultStatus("Firmware transfer finished. Checking the device again.", false, "Done")
 		menuState = screenFirmware
 	}
 }

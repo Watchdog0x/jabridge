@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,14 +14,16 @@ import (
 )
 
 type dfuTestTransport struct {
-	statuses []dfuStatus
-	writes   [][]byte
-	blocks   []uint16
-	requests []byte
-	short    bool
-	err      error
-	state    byte
-	reset    func() error
+	statuses          []dfuStatus
+	writes            [][]byte
+	blocks            []uint16
+	requests          []byte
+	short             bool
+	err               error
+	state             byte
+	reset             func() error
+	finalStatusErrors []error
+	finalState        byte
 }
 
 func (f *dfuTestTransport) Control(_ context.Context, kind, request byte, value, index uint16, data []byte) (int, error) {
@@ -31,6 +35,13 @@ func (f *dfuTestTransport) Control(_ context.Context, kind, request byte, value,
 		return 0, f.err
 	}
 	if kind == 0xa1 && request == 3 {
+		if len(f.writes) > 0 && len(f.writes[len(f.writes)-1]) == 0 && len(f.finalStatusErrors) > 0 {
+			err := f.finalStatusErrors[0]
+			f.finalStatusErrors = f.finalStatusErrors[1:]
+			if err != nil {
+				return 0, err
+			}
+		}
 		status := dfuStatus{State: f.state}
 		if len(f.statuses) > 0 {
 			status, f.statuses = f.statuses[0], f.statuses[1:]
@@ -57,6 +68,9 @@ func (f *dfuTestTransport) Control(_ context.Context, kind, request byte, value,
 		f.state = 5
 		if len(data) == 0 {
 			f.state = 8
+			if f.finalState != 0 {
+				f.state = f.finalState
+			}
 		}
 		if f.short && len(data) > 0 {
 			return len(data) - 1, nil
@@ -126,6 +140,43 @@ func TestDFUFailureStopsBeforeFollowingBlock(t *testing.T) {
 	}
 }
 
+func TestDFUFinalStatusTimeoutDoesNotReplayFirmware(t *testing.T) {
+	f := &dfuTestTransport{finalStatusErrors: []error{unix.ETIMEDOUT, unix.ETIMEDOUT}}
+	err := transferDFU(context.Background(), f, testDFUInterface(), []byte{1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.writes) != 2 || len(f.writes[1]) != 0 || len(f.finalStatusErrors) != 0 {
+		t.Fatalf("expected one data block, one EOF, and retried status reads: %+v", f)
+	}
+}
+
+func TestDFUFinalStatusFailureRemainsBounded(t *testing.T) {
+	for _, failure := range []error{unix.ETIMEDOUT, unix.EIO} {
+		f := &dfuTestTransport{finalStatusErrors: []error{failure, failure, failure}}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		err := transferDFU(ctx, f, testDFUInterface(), []byte{1}, nil)
+		cancel()
+		if !errors.Is(err, failure) || len(f.writes) != 2 {
+			t.Fatalf("failure=%v, result=%v, writes=%d", failure, err, len(f.writes))
+		}
+		if errors.Is(failure, unix.ETIMEDOUT) && !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("final polling did not wait within its deadline: %v", err)
+		}
+	}
+}
+
+func TestDFUFinalStatusRetryStillRejectsDeviceError(t *testing.T) {
+	f := &dfuTestTransport{
+		finalStatusErrors: []error{unix.ETIMEDOUT},
+		statuses:          []dfuStatus{{State: 5}, {Code: 3, State: 10}},
+	}
+	err := transferDFU(context.Background(), f, testDFUInterface(), []byte{1}, nil)
+	if err == nil || !strings.Contains(err.Error(), "DFU status 0x03") || len(f.writes) != 2 {
+		t.Fatalf("device failure lost after status retry: %v, writes=%d", err, len(f.writes))
+	}
+}
+
 func TestDFUPollTimeoutIsRespectedAndCancellable(t *testing.T) {
 	f := &dfuTestTransport{statuses: []dfuStatus{{State: 4, Poll: 60 * time.Second}}}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
@@ -189,16 +240,20 @@ func TestDFUSamePortCoordinatorAndVersionVerification(t *testing.T) {
 						original.ProductID = profile.DFUPID
 					}
 					current := original
-					f := &dfuTestTransport{state: 0}
+					f := &dfuTestTransport{state: 0, finalState: 2}
 					if recover {
 						f.state = 10
 					}
 					enters, opens := 0, 0
+					accessPending := true
 					f.reset = func() error {
 						switch f.state {
 						case 1:
 							f.state = 2
-						case 8:
+						case 2:
+							// Link 370 first reappears at its DFU PID in appIDLE.
+							f.state = 0
+						case 0:
 							current.ProductID, f.state = profile.RuntimePIDs[0], 0
 						default:
 							t.Fatal("unexpected reset")
@@ -216,6 +271,10 @@ func TestDFUSamePortCoordinatorAndVersionVerification(t *testing.T) {
 								t.Fatal("opened the wrong device")
 							}
 							opens++
+							if accessPending {
+								accessPending = false
+								return nil, fmt.Errorf("USB update access: %w", &os.PathError{Op: "open", Path: "/dev/bus/usb/001/002", Err: unix.EACCES})
+							}
 							return f, nil
 						},
 						inspect: func(USBDevice) (dfuInterface, error) { return testDFUInterface(), nil },
@@ -257,6 +316,57 @@ func TestDFUWaitNeverUsesAnotherPortOrModel(t *testing.T) {
 	_, err := waitUSBDFUDevice(ctx, "/wanted", func(d USBDevice) bool { return d.ProductID == 0x0421 }, backend)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatal("accepted another port/model", err)
+	}
+}
+
+func TestDFUAccessWaitPreservesFailureAndCancellation(t *testing.T) {
+	for _, failure := range []error{unix.EACCES, unix.EPERM, unix.ENOENT} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			attempts := 0
+			backend := usbDFUBackend{
+				enumerate: func() ([]USBDevice, error) {
+					return []USBDevice{{SysPath: "/wanted", VendorID: JabraVendorID, ProductID: 0x0976}}, nil
+				},
+				inspect: func(USBDevice) (dfuInterface, error) { return testDFUInterface(), nil },
+				open: func(USBDevice) (usbDFUSession, error) {
+					attempts++
+					return nil, &os.PathError{Op: "open", Path: "/dev/bus/usb/001/002", Err: failure}
+				},
+				wait: func(ctx context.Context, _ time.Duration) error {
+					if attempts == 2 {
+						cancel()
+					}
+					return ctx.Err()
+				},
+			}
+			usb, _, err := waitUSBDFUSession(ctx, "/wanted", 0x0976, backend)
+			if usb != nil || attempts != 2 || !errors.Is(err, failure) || !errors.Is(err, context.Canceled) {
+				t.Fatalf("attempts=%d, error=%v", attempts, err)
+			}
+		})
+	}
+}
+
+func TestDFUAccessWaitDoesNotRetryUSBOrValidationFailures(t *testing.T) {
+	for _, failure := range []error{
+		unix.EACCES,
+		&os.PathError{Op: "open", Path: "/dev/bus/usb/001/002", Err: unix.EIO},
+		errors.New("opened USB device identity could not be confirmed"),
+	} {
+		backend := usbDFUBackend{
+			enumerate: func() ([]USBDevice, error) {
+				return []USBDevice{{SysPath: "/wanted", VendorID: JabraVendorID, ProductID: 0x0976}}, nil
+			},
+			inspect: func(USBDevice) (dfuInterface, error) { return testDFUInterface(), nil },
+			open:    func(USBDevice) (usbDFUSession, error) { return nil, failure },
+			wait:    func(context.Context, time.Duration) error { t.Fatal("retried a permanent failure"); return nil },
+		}
+		usb, _, err := waitUSBDFUSession(context.Background(), "/wanted", 0x0976, backend)
+		if usb != nil || !errors.Is(err, failure) {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	}
 }
 
