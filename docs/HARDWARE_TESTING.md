@@ -81,6 +81,12 @@ update through Link 370. The complete 1,901,624-byte payload passed archive,
 header, suffix and CRC validation, menu/CLI preflight, and a simulated transfer
 with 1,858 data blocks of at most 1,024 bytes followed by the zero-length block.
 
+A physical Evolve 75 connected by USB as `0b0e:2465` passed a read-only runtime
+preflight: firmware `2.32.0`, management interface 3 with report 5 and 64-byte
+input/output reports, USB-node access, opened-device descriptor validation, and
+menu binding to the verified archive. No interface was claimed or detached,
+and no reset, update-mode command or firmware block was sent.
+
 Review of the shared USB DFU finalization path found that it kept polling after
 a non-tolerant device reported `dfuMANIFEST`. Under
 [USB DFU 1.1 sections A.2.8 and A.2.9](https://www.usb.org/sites/default/files/DFU_1.1.pdf),
