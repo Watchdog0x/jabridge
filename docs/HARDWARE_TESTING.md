@@ -100,8 +100,8 @@ to be polled.
 Regression tests reproduce the previous stall, check the poll interval and
 cancellation, and reject the old runtime version after reset. These are software
 tests, not an observed Evolve 75 hardware failure or proof of a complete update.
-The headset's complete installation, physical flash timing and power-loss
-recovery remain unqualified. Mode-transition testing is described below.
+The later physical mode-transition and complete-installation results are
+described below. Power-loss recovery remains unqualified.
 
 Further review found that recovery rejected devices still completing a data
 block (`dfuDNLOAD-SYNC` / `dfuDNBUSY`) or finalizing an image
@@ -144,8 +144,23 @@ The updater now requests `wDetachTimeOut` from the descriptor, as specified by
 [USB DFU 1.1 sections 4.1.3 and 5.1](https://www.usb.org/sites/default/files/DFU_1.1.pdf).
 Regression tests reproduce a delayed reset, enforce smaller advertised maxima,
 preserve self-detaching behavior, and parse the captured runtime descriptors.
-This qualifies the mode transition on this headset, not a complete firmware
-installation or interrupted-flash recovery.
+These mode-only tests qualify the transition on this headset; the subsequent
+complete installation is recorded separately below.
+
+#### Evolve 75 successful installation
+
+On 2026-10-21 the owner ran `1.2.0+evolve75-detach-fix` and completed the
+direct-USB update from `2.32.0` to `2.38.0`. The installer sent the firmware,
+returned to normal mode, and reported that `2.38.0` was read back from the
+device. Local history records successful transfer and verification, with
+88.087 seconds from mode entry to completion. No manual resets or other
+intervention were needed during that run.
+
+The prompt said `RECOVER` because the failed mode-switch attempt had saved a
+recovery record. That earlier attempt had sent no firmware blocks, so this
+successful retry does not qualify recovery from an interrupted flash or power
+loss. This is one complete successful installation on runtime ID `2465`; it
+does not establish physical coverage for every Evolve 75 variant.
 
 ### Engage 75
 
