@@ -42,7 +42,127 @@ remains unresolved. Jabridge `1.1.1-test.2` opens the update interface but times
 out before transferring firmware. This model must not be treated as having a
 verified complete firmware update based on the simulator or interface tests.
 
-## Firmware simulator tests
+## Link 370 USB DFU recovery
+
+A Link 370 with runtime ID `0b0e:245e` and DFU ID `0b0e:0976` was
+updated from `1.82.0` to `1.87.0` during local testing on 2026-10-21.
+Jabridge 1.2.0 stopped twice and required manual completion:
+
+- After the mode switch, the new USB node appeared in sysfs before the active
+  user's uaccess ACL was applied. A separate mode-switch diagnostic reproduced
+  about 425 ms of `EACCES` before the same node became accessible.
+- All 1,056 data blocks and the zero-length final block were accepted, but the
+  following GETSTATUS exceeded the USB request's two-second timeout. A later
+  status read reported success in `dfuIDLE`. Resetting returned the device to
+  DFU `appIDLE`; a second reset restored its normal USB identity. The device
+  then reported firmware `1.87.0` and the paired headset was detected again.
+
+The access wait now retries only transient node-open failures, while checking
+the same port and DFU product ID. Finalization retries only GETSTATUS timeouts
+within the existing 60-second deadline; it does not resend firmware blocks or
+treat a timeout as success. Normal-mode firmware version verification remains
+mandatory. Menu-launched installer failures now remain visible in the terminal
+with the complete recovery instructions.
+
+Regression tests cover delayed permissions, cancellation, permanent access
+errors, final-status timeouts, device errors after a timeout, and the two-reset
+return to normal mode. The patched access path also passed a physical
+mode-switch test without firmware transfer. A complete unattended update with
+these changes and recovery after power loss have not been qualified.
+
+## Firmware update tests
+
+### Evolve 75 USB DFU review
+
+The official Evolve 75 `2.38.0` archive was checked on 2026-10-21 against
+Jabra's protocol-1 release metadata for runtime IDs `2465`, `2466` and `2467`.
+Its bootloader target is `097a`; this is a direct USB update, not a wireless
+update through Link 370. The complete 1,901,624-byte payload passed archive,
+header, suffix and CRC validation, menu/CLI preflight, and a simulated transfer
+with 1,858 data blocks of at most 1,024 bytes followed by the zero-length block.
+
+A physical Evolve 75 connected by USB as `0b0e:2465` passed a read-only runtime
+preflight: firmware `2.32.0`, management interface 3 with report 5 and 64-byte
+input/output reports, USB-node access, opened-device descriptor validation, and
+menu binding to the verified archive. No interface was claimed or detached,
+and no reset, update-mode command or firmware block was sent.
+
+Review of the shared USB DFU finalization path found that it kept polling after
+a non-tolerant device reported `dfuMANIFEST`. Under
+[USB DFU 1.1 sections A.2.8 and A.2.9](https://www.usb.org/sites/default/files/DFU_1.1.pdf),
+that device can stop answering class requests after its advertised poll interval
+and require a reset. The updater now waits that interval before returning to the
+existing reset and version-verification path. A timeout or stall alone does not
+establish success; this path requires a successful `dfuMANIFEST` status and the
+descriptor's `bitManifestationTolerant` flag to be clear. Tolerant devices continue
+to be polled.
+
+Regression tests reproduce the previous stall, check the poll interval and
+cancellation, and reject the old runtime version after reset. These are software
+tests, not an observed Evolve 75 hardware failure or proof of a complete update.
+The later physical mode-transition and complete-installation results are
+described below. Power-loss recovery remains unqualified.
+
+Further review found that recovery rejected devices still completing a data
+block (`dfuDNLOAD-SYNC` / `dfuDNBUSY`) or finalizing an image
+(`dfuMANIFEST-SYNC` / `dfuMANIFEST` / `dfuMANIFEST-WAIT-RESET`). Recovery now
+honors the pending poll interval before aborting an incomplete download. For
+pending manifestation it finishes waiting, resets and verifies the installed
+version without sending firmware again. Errors or cancellation stop recovery;
+an old runtime version still fails verification. This uses the device's current
+DFU state; it does not identify a previously completed update once the device
+has already returned to idle or normal mode.
+
+A timeout on the update-mode command also previously stopped the installer
+without checking whether the command took effect. It now waits within the
+existing discovery deadline for the expected bootloader on the original USB
+port, without resending the command. Tests cover both outcomes, an unrelated
+bootloader on another port, cancellation, and immediate failure for other
+errors. These recovery and mode-switch findings were reproduced in simulators;
+they have not been exercised by interrupting a physical Evolve 75 update.
+
+#### Evolve 75 detach timeout: physical reproduction
+
+A subsequent update attempt on firmware `2.32.0` entered `0b0e:097a`, then
+returned to normal mode before sending firmware. The updater consequently
+timed out waiting for the same-port bootloader. A mode-only diagnostic reproduced
+the failure and restored the original firmware without sending any DNLOAD.
+
+The first `097a` interface set is a composite Bluetooth/DFU runtime: `btusb`
+binds interfaces 0 and 1, while DFU uses interface 2 with protocol 1, attributes
+`0x07`, a 5,000 ms detach maximum, a 1,023-byte transfer size and DFU version
+`0x0101`. Jabridge ignored that detach maximum and requested only 1,000 ms.
+Resetting the USB device took 2.619 seconds; the detach window expired and the
+headset returned to normal `2465` on firmware `2.32.0`.
+
+Requesting the advertised 5,000 ms window instead reached `097a` with protocol
+2 on interface 0 and successful `dfuIDLE` status. The reset took 2.483 seconds.
+No kernel drivers were manually unbound and no firmware blocks were sent.
+Cleanup resets restored normal mode and firmware `2.32.0` was read back.
+
+The updater now requests `wDetachTimeOut` from the descriptor, as specified by
+[USB DFU 1.1 sections 4.1.3 and 5.1](https://www.usb.org/sites/default/files/DFU_1.1.pdf).
+Regression tests reproduce a delayed reset, enforce smaller advertised maxima,
+preserve self-detaching behavior, and parse the captured runtime descriptors.
+These mode-only tests qualify the transition on this headset; the subsequent
+complete installation is recorded separately below.
+
+#### Evolve 75 successful installation
+
+On 2026-10-21 the owner ran `1.2.0+evolve75-detach-fix` and completed the
+direct-USB update from `2.32.0` to `2.38.0`. The installer sent the firmware,
+returned to normal mode, and reported that `2.38.0` was read back from the
+device. Local history records successful transfer and verification, with
+88.087 seconds from mode entry to completion. No manual resets or other
+intervention were needed during that run.
+
+The prompt said `RECOVER` because the failed mode-switch attempt had saved a
+recovery record. That earlier attempt had sent no firmware blocks, so this
+successful retry does not qualify recovery from an interrupted flash or power
+loss. This is one complete successful installation on runtime ID `2465`; it
+does not establish physical coverage for every Evolve 75 variant.
+
+### Engage 75
 
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full
 firmware package for both Bluetooth chip variants. Tests cover all nine

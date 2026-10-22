@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // USB DFU 1.1, sections 6 and 7. This is not the CSR OTA partition protocol.
@@ -113,51 +115,76 @@ func waitDFU(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// A failed transfer is not retried in-place. Recovery starts again at block 0
-// with the exact same checked image after an explicit user confirmation.
-func prepareDFUDownload(ctx context.Context, t dfuControl, intf dfuInterface) (bool, error) {
+type dfuPreparation byte
+
+const (
+	dfuPreparationReady dfuPreparation = iota
+	dfuPreparationReopen
+	dfuPreparationVerify
+)
+
+// Incomplete downloads restart at block 0 after explicit confirmation. A
+// device already manifesting a complete image must finish and be verified
+// instead; never abort manifestation or rewrite an image awaiting reset.
+func prepareDFUDownload(ctx context.Context, t dfuControl, intf dfuInterface) (dfuPreparation, error) {
 	status, err := getDFUStatus(ctx, t, intf)
 	if err != nil {
-		return false, err
+		return dfuPreparationReady, err
 	}
 	if status.State == 10 {
 		if err := dfuRequest(ctx, t, intf, 4, 0, nil); err != nil {
-			return false, fmt.Errorf("clear DFU error: %w", err)
+			return dfuPreparationReady, fmt.Errorf("clear DFU error: %w", err)
 		}
 		status, err = getDFUStatus(ctx, t, intf)
 		if err != nil {
-			return false, err
+			return dfuPreparationReady, err
 		}
 	}
 	if status.Code != 0 {
-		return false, fmt.Errorf("device reports DFU error 0x%02x", status.Code)
+		return dfuPreparationReady, fmt.Errorf("device reports DFU error 0x%02x", status.Code)
 	}
 	switch status.State {
 	case 0: // appIDLE: the HID mode switch exposes the DFU runtime first.
-		if err := dfuRequest(ctx, t, intf, 0, 1000, nil); err != nil && !dfuDisconnectError(err) {
-			return false, fmt.Errorf("detach DFU runtime: %w", err)
+		// Use the descriptor's full reset window. Runtime drivers can delay
+		// USB reset beyond one second (observed on Evolve 75 with btusb),
+		// causing a shorter DETACH timeout to expire back into normal mode.
+		if err := dfuRequest(ctx, t, intf, 0, intf.DetachMS, nil); err != nil && !dfuDisconnectError(err) {
+			return dfuPreparationReady, fmt.Errorf("detach DFU runtime: %w", err)
 		}
 		if intf.Attributes&8 == 0 {
 			if err := t.Reset(); err != nil && !dfuDisconnectError(err) {
-				return false, err
+				return dfuPreparationReady, err
 			}
 		}
-		return true, nil // caller must close/reopen the same physical USB port.
+		return dfuPreparationReopen, nil // caller must close/reopen the same physical USB port.
 	case 2:
-		return false, nil
+		return dfuPreparationReady, nil
+	case 3, 4:
+		// Do not abort/reset while the device is programming a data block.
+		if err := waitDFUBlockFromStatus(ctx, t, intf, false, &status); err != nil {
+			return dfuPreparationReady, err
+		}
+		fallthrough
 	case 5, 9: // interrupted download/upload, return to dfuIDLE before replay.
 		if err := dfuRequest(ctx, t, intf, 6, 0, nil); err != nil {
-			return false, err
+			return dfuPreparationReady, err
 		}
 		status, err = getDFUStatus(ctx, t, intf)
 		if err != nil {
-			return false, err
+			return dfuPreparationReady, err
 		}
 		if status.Code == 0 && status.State == 2 {
-			return false, nil
+			return dfuPreparationReady, nil
 		}
+	case 6, 7:
+		if err := waitDFUBlockFromStatus(ctx, t, intf, true, &status); err != nil {
+			return dfuPreparationReady, err
+		}
+		return dfuPreparationVerify, nil
+	case 8:
+		return dfuPreparationVerify, nil
 	}
-	return false, fmt.Errorf("DFU is not ready for a new transfer (state %d)", status.State)
+	return dfuPreparationReady, fmt.Errorf("DFU is not ready for a new transfer (state %d)", status.State)
 }
 
 func transferDFU(ctx context.Context, t dfuControl, intf dfuInterface, payload []byte, progress func(int)) error {
@@ -192,11 +219,33 @@ func transferDFU(ctx context.Context, t dfuControl, intf dfuInterface, payload [
 }
 
 func waitDFUBlock(parent context.Context, t dfuControl, intf dfuInterface, final bool) error {
+	return waitDFUBlockFromStatus(parent, t, intf, final, nil)
+}
+
+// When recovery has already read a busy status, consume its poll interval
+// before issuing another GETSTATUS, just as during an uninterrupted transfer.
+func waitDFUBlockFromStatus(parent context.Context, t dfuControl, intf dfuInterface, final bool, initial *dfuStatus) error {
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 	for {
-		status, err := getDFUStatus(ctx, t, intf)
+		var status dfuStatus
+		var err error
+		if initial != nil {
+			status, initial = *initial, nil
+		} else {
+			status, err = getDFUStatus(ctx, t, intf)
+		}
 		if err != nil {
+			// Link 370 can stop answering GETSTATUS for longer than the USB
+			// request timeout while committing the complete image. Retry only
+			// the final status read, within the existing deadline. A timeout
+			// alone is never success and must never replay DNLOAD or reset.
+			if final && errors.Is(err, unix.ETIMEDOUT) {
+				if waitErr := waitDFU(ctx, 100*time.Millisecond); waitErr != nil {
+					return errors.Join(err, waitErr)
+				}
+				continue
+			}
 			// Some non-tolerant devices detach during manifestation. Re-enumeration
 			// and installed-version verification are still mandatory for success.
 			if final && dfuDisconnectError(err) {
@@ -219,6 +268,13 @@ func waitDFUBlock(parent context.Context, t dfuControl, intf dfuInterface, final
 		}
 		if err := waitDFU(ctx, status.Poll); err != nil {
 			return err
+		}
+		if final && status.State == 7 && intf.Attributes&4 == 0 {
+			// USB DFU 1.1 A.2.8: without bitManifestationTolerant, the
+			// device enters MANIFEST-WAIT-RESET after this poll interval
+			// and cannot answer another class request. Let the caller
+			// reset it, then require the normal-mode version readback.
+			return nil
 		}
 	}
 }

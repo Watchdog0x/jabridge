@@ -105,6 +105,37 @@ func waitUSBDFUDevice(ctx context.Context, port string, ready func(USBDevice) bo
 	}
 }
 
+// sysfs discovery precedes udev's uaccess ACL on a newly enumerated USB node.
+// Wait for the same port and DFU PID to become accessible before claiming it.
+// Only retry node-open failures: descriptor validation and USB requests must
+// retain their errors, and no detach or firmware write is replayed here.
+func waitUSBDFUSession(ctx context.Context, port string, pid uint16, backend usbDFUBackend) (usbDFUSession, dfuInterface, error) {
+	var lastErr error
+	for {
+		device, err := waitUSBDFUDevice(ctx, port, func(d USBDevice) bool { return d.ProductID == pid }, backend)
+		if err != nil {
+			return nil, dfuInterface{}, fmt.Errorf("waiting for USB DFU access: %w", errors.Join(err, lastErr))
+		}
+		intf, err := backend.inspect(device)
+		if err != nil {
+			return nil, dfuInterface{}, err
+		}
+		usb, err := backend.open(device)
+		if err == nil {
+			return usb, intf, nil
+		}
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) || pathErr.Op != "open" ||
+			(!errors.Is(err, fs.ErrPermission) && !errors.Is(err, fs.ErrNotExist)) {
+			return nil, dfuInterface{}, err
+		}
+		lastErr = err
+		if err := backend.wait(ctx, 100*time.Millisecond); err != nil {
+			return nil, dfuInterface{}, fmt.Errorf("waiting for USB DFU access: %w", errors.Join(err, lastErr))
+		}
+	}
+}
+
 func enterUSBDFU(ctx context.Context, device USBDevice, address byte) error {
 	path, intf, err := dfuControlPath(device)
 	if err != nil {
@@ -258,54 +289,57 @@ func runUSBDFU(ctx context.Context, original USBDevice, address byte, image *jab
 		history.Record(history.Event{Component: "firmware", Action: action, Phase: "observed", USBProduct: original.ProductID, Connection: "usb"})
 	}
 	device := original
+	var entryErr error
 	if image.Profile.runtime(device.ProductID) {
 		record("dfu-enter")
 		fmt.Fprintln(os.Stderr, "Switching Jabra USB DFU to update mode...")
 		if err := backend.enter(ctx, device, address); err != nil {
-			return err
+			if !errors.Is(err, unix.ETIMEDOUT) {
+				return err
+			}
+			// The command may have taken effect before its reply timed out.
+			// Do not resend it: require the expected bootloader on this port.
+			entryErr = err
+			fmt.Fprintln(os.Stderr, "Update-mode reply timed out; waiting for the device on the same USB port...")
 		}
 	}
 	for attempts := 0; attempts < 3; attempts++ {
 		record("dfu-runtime")
 		wait, cancel := context.WithTimeout(ctx, 30*time.Second)
-		found, err := waitUSBDFUDevice(wait, original.SysPath, func(d USBDevice) bool { return d.ProductID == image.Profile.DFUPID }, backend)
+		usb, intf, err := waitUSBDFUSession(wait, original.SysPath, image.Profile.DFUPID, backend)
 		cancel()
 		if err != nil {
-			return err
+			return errors.Join(err, entryErr)
 		}
-		device = found
-		intf, err := backend.inspect(device)
-		if err != nil {
-			return err
-		}
-		usb, err := backend.open(device)
-		if err != nil {
-			return err
-		}
+		entryErr = nil
 		if err := usb.Claim(intf.Number, false); err != nil {
 			_ = usb.Close()
 			return err
 		}
-		detached, err := prepareDFUDownload(ctx, usb, intf)
+		preparation, err := prepareDFUDownload(ctx, usb, intf)
 		if err != nil {
 			_ = usb.Close()
 			return err
 		}
-		if detached {
+		if preparation == dfuPreparationReopen {
 			_ = usb.Close()
 			if err := backend.wait(ctx, 2*time.Second); err != nil {
 				return err
 			}
 			continue
 		}
-		last := -1
-		record("dfu-transfer")
-		err = transferDFU(ctx, usb, intf, image.Payload, func(percent int) {
-			if percent/5 != last {
-				last = percent / 5
-				fmt.Fprintf(os.Stderr, "Sending firmware: %d%%\n", percent)
-			}
-		})
+		if preparation == dfuPreparationReady {
+			last := -1
+			record("dfu-transfer")
+			err = transferDFU(ctx, usb, intf, image.Payload, func(percent int) {
+				if percent/5 != last {
+					last = percent / 5
+					fmt.Fprintf(os.Stderr, "Sending firmware: %d%%\n", percent)
+				}
+			})
+		} else {
+			fmt.Fprintln(os.Stderr, "Completing the pending USB DFU update; checking the installed version after reset...")
+		}
 		if err == nil {
 			resetErr := usb.Reset()
 			if resetErr != nil && !dfuDisconnectError(resetErr) {
