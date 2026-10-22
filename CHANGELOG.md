@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.1 — 2026-10-22
+
+Fix USB DFU updates stopping while Linux is still granting access to the
+restarted device. Retry only temporary node-open failures on the original USB
+port, and use the device's advertised detach timeout.
+
+Wait for pending download or finalization work before recovery. Retry final
+status timeouts within the existing deadline without sending firmware blocks
+again. A matching installed version is still required after restart.
+
+Keep the full firmware error and recovery instructions visible in the terminal
+after a menu-launched installation fails and the service has resumed.
+
+The contributor in PR #50 reports a complete Evolve 75 direct-USB update from
+2.32.0 to 2.38.0 on runtime ID 2465. The earlier Link 370 update on 1.2.0 needed
+manual completion. Unattended patched Link 370 updates, other Evolve 75 variants and
+recovery after power loss remain unqualified. The separate Evolve2 40 Sitel
+preparation timeout remains unresolved.
+
 ## 1.2.0 — 2026-10-03
 
 Add Off, ANC and HearThrough controls for Evolve2 85 using its `ancMode`

@@ -51,14 +51,14 @@ remaining preparation timeout is still unresolved.
 | `conexant_transfer.go` | UC Voice calibration protection and verified writes |
 | `conexant_install.go` | Official release checks, confirmation and recovery |
 
-## Coverage in 1.2.0
+## Coverage in 1.2.1
 
 The table lists implemented routes and how they were checked. It is not a
 claim that every Jabra model has been physically tested.
 
 | Protocol | Implemented in this tree | Evidence and remaining work |
 | --- | --- | --- |
-| 1, USB DFU | 20 bootloader profiles, 41 runtime IDs | Original archives and simulated transfers; physical qualification remains |
+| 1, USB DFU | 20 bootloader profiles, 41 runtime IDs | Original archives and simulated transfers; contributor reports one [complete Evolve 75 update on runtime ID 2465](HARDWARE_TESTING.md#evolve-75-successful-installation). Other Evolve 75 runtime IDs, the other USB DFU models and power-loss recovery remain unqualified |
 | 4, Sitel | 27 profiles, 111 runtime IDs, including Engage 45/65/75 and SE variants, Pro 9450 and Pro 920/930 bundles | Original image metadata and simulator coverage; Engage 75/75 SE use the standalone radio updater. Pro 9460/9465/9470 and Pro 925/935 are outside this release |
 | 5, Conexant | UC Voice 150/250/550/750, IDs 0342 through 034F | Both packet formats checked against the original updater; simulated transfers; physical qualification remains |
 | 7, 16, 17 | Existing CSR and extended transfer paths | Existing model support, with regression tests; this release does not add the excluded Pro models |
