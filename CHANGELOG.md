@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 — 2026-10-23
 
 Add a build-time option for distribution packagers to disable application
 self-updates. Disabled builds skip startup checks and prompts, and the update
