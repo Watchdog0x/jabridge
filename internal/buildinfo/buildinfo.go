@@ -16,3 +16,13 @@ var SelfUpdate = "enabled"
 func SelfUpdateEnabled() bool {
 	return SelfUpdate == "enabled"
 }
+
+// Setup can be overridden with -ldflags -X by distribution packagers. Only
+// "enabled" permits Jabridge to install its own device access rules, user
+// service, binary copy and completion; other values disable that.
+var Setup = "enabled"
+
+// SetupEnabled reports whether this build may install its own setup files.
+func SetupEnabled() bool {
+	return Setup == "enabled"
+}

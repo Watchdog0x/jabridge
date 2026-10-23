@@ -7,6 +7,13 @@ self-updates. Disabled builds skip startup checks and prompts, and the update
 command directs users to their package manager. Official builds keep app
 updates enabled by default. Device firmware updates are separate.
 
+Add a build-time option for distribution packagers to disable setup. Disabled
+builds refuse the setup command, stop offering it when device access is missing,
+and no longer copy the executable, Bash completion or a user service into the
+home folder from setup, the terminal menu or the service commands. They run the
+packaged executable and leave device access rules and the service to the
+package. Official builds keep setup enabled by default.
+
 ## 1.2.1 — 2026-10-22
 
 Fix USB DFU updates stopping while Linux is still granting access to the

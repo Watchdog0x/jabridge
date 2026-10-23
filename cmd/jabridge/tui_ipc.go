@@ -18,6 +18,8 @@ import (
 	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
+var errPackagedServiceNotRunning = errors.New("the Jabridge service is not running or does not match this app; restart it with your package manager's service, for example: systemctl --user restart jabridge.service")
+
 type tuiIPCBackend struct {
 	mu     sync.RWMutex
 	client *ipc.Client
@@ -83,6 +85,11 @@ func connectTUIServiceWithOutput(output io.Writer) (*tuiIPCBackend, error) {
 		_ = client.Close()
 	}
 
+	// Starting the service from here installs a user unit and enables it. A
+	// package-managed build leaves both to the package.
+	if !buildinfo.SetupEnabled() {
+		return nil, errPackagedServiceNotRunning
+	}
 	if _, err := fmt.Fprintln(output, "Starting Jabridge service..."); err != nil {
 		return nil, err
 	}

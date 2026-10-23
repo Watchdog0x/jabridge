@@ -93,6 +93,20 @@ after help and argument parsing. `installAppUpdate` repeats the check before
 output, service inspection, downloads or executable replacement. There is no
 runtime override. This policy does not control device firmware or setup.
 
+`internal/buildinfo.Setup` is a build-time policy for package maintainers. It
+defaults to `enabled` and can be set with Go's linker `-X` option. Only that
+exact value permits setup. `runSetup` returns a package-manager error after
+help, before any helper or privileged step. `offerDeviceAccessSetupFor` reports
+missing device access instead of offering setup. `installUserFiles` repeats the
+check before it copies the executable, installs Bash completion or writes the
+user service, so its other callers cannot bypass it. `prepareUserService` and
+`installedUserExecutable` return the running executable for `service start` and
+`restart` and for the no-systemd fallback. The terminal menu returns
+`errPackagedServiceNotRunning` instead of installing and enabling a unit, and
+`completeAppUpdate` has no copy to refresh. Starting the service is left to the
+package's own unit. There is no runtime override, and device firmware is not
+affected.
+
 `tui_app_update.go` owns the update decision screen and its single-key input.
 It stops its input reader and restores the terminal before handing control to
 the installer or main menu. `tui_theme.go` holds the shared home/update palette.

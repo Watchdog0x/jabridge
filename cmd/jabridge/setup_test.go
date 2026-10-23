@@ -150,6 +150,7 @@ func TestInstallUserFileRejectsSymlink(t *testing.T) {
 }
 
 func TestInstallUserFilesCreatesBinaryCompletionAndService(t *testing.T) {
+	useSetupEnabled(t)
 	homeDirectory := t.TempDir()
 	t.Setenv("HOME", homeDirectory)
 	executable, err := installUserFiles()
