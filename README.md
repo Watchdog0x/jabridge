@@ -81,6 +81,20 @@ You can also update directly:
 
 This updates the app, not your device firmware.
 
+### Package-managed builds
+
+Packagers can disable app self-updates when building Jabridge:
+
+```sh
+go build -ldflags "-X github.com/Watchdog0x/jabridge/internal/buildinfo.SelfUpdate=disabled" ./cmd/jabridge
+```
+
+This skips the startup update check and prompt. The `update` command tells users
+to use their package manager. Only the exact value `enabled` allows app updates;
+other values disable them. Official downloads enable app updates by default.
+This option does not disable device firmware updates. Setup and service
+installation still need separate handling by the package maintainer.
+
 ## Noise control on Evolve2 85
 
 Switch between ANC, HearThrough and Off:

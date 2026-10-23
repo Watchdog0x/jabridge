@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Add a build-time option for distribution packagers to disable application
+self-updates. Disabled builds skip startup checks and prompts, and the update
+command directs users to their package manager. Official builds keep app
+updates enabled by default. Device firmware updates are separate.
+
 ## 1.2.1 — 2026-10-22
 
 Fix USB DFU updates stopping while Linux is still granting access to the

@@ -16,6 +16,8 @@ import (
 	"github.com/Watchdog0x/jabridge/internal/selfupdate"
 )
 
+var errAppUpdateDisabled = errors.New("updates are managed by your package manager; use it to update Jabridge")
+
 func runUpdate(args []string) error {
 	flags := flag.NewFlagSet("update", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -32,6 +34,9 @@ func runUpdate(args []string) error {
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected update argument %q", flags.Arg(0))
+	}
+	if !buildinfo.SelfUpdateEnabled() {
+		return errAppUpdateDisabled
 	}
 
 	client := selfupdate.NewClient()
@@ -54,6 +59,9 @@ func runUpdate(args []string) error {
 // Both explicit updates and startup offers install the exact release that was
 // shown, using the same signature checks and post-update setup.
 func installAppUpdate(ctx context.Context, client *selfupdate.Client, plan selfupdate.Plan, output io.Writer) error {
+	if !buildinfo.SelfUpdateEnabled() {
+		return errAppUpdateDisabled
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("find running executable: %w", err)

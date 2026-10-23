@@ -85,6 +85,14 @@ answer line. An accepted offer and `jabridge update` both call
 `app_update.go` refreshes completion and the installed service copy. Startup
 offers restart the updated executable with the original arguments.
 
+`internal/buildinfo.SelfUpdate` is a build-time policy for package maintainers.
+It defaults to `enabled` and can be set with Go's linker `-X` option. Only that
+exact value permits app updates. `offerStartupAppUpdate` returns before creating
+an update client when disabled; `runUpdate` returns a package-manager error
+after help and argument parsing. `installAppUpdate` repeats the check before
+output, service inspection, downloads or executable replacement. There is no
+runtime override. This policy does not control device firmware or setup.
+
 `tui_app_update.go` owns the update decision screen and its single-key input.
 It stops its input reader and restores the terminal before handing control to
 the installer or main menu. `tui_theme.go` holds the shared home/update palette.
