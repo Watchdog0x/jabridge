@@ -12,6 +12,7 @@ const updatedCompletionFixture = "# completion from the updated app\ncomplete -W
 
 func updateFixture(t *testing.T, completionCommand, restartCommand string) (string, string, string) {
 	t.Helper()
+	useSetupEnabled(t)
 	homeDirectory := t.TempDir()
 	t.Setenv("HOME", homeDirectory)
 	marker := filepath.Join(homeDirectory, "service-restarted")

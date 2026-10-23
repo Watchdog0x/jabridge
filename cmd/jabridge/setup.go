@@ -13,12 +13,15 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/assets"
+	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 	"github.com/Watchdog0x/jabridge/internal/completion"
 	"github.com/Watchdog0x/jabridge/internal/firmware"
 	"golang.org/x/term"
 )
 
 const systemUdevRulePath = "/etc/udev/rules.d/70-jabridge.rules"
+
+var errSetupDisabled = errors.New("setup is managed by your package manager; use it to install Jabridge's device access rules and user service")
 
 var embeddedUdevRule = assets.UdevRule
 
@@ -28,8 +31,17 @@ var embeddedBashCompletion = []byte(completion.JabridgeBash)
 
 func offerDeviceAccessSetup() error {
 	found, usable := probeJabraHidrawAccess()
+	return offerDeviceAccessSetupFor(found, usable)
+}
+
+// A package-managed build never offers setup. It reports the missing access
+// and leaves the udev rules to the package.
+func offerDeviceAccessSetupFor(found, usable bool) error {
 	if !found || usable {
 		return nil
+	}
+	if !buildinfo.SetupEnabled() {
+		return fmt.Errorf("one-time device access is needed: %w", errSetupDisabled)
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return errors.New("one-time device access is needed; run: jabridge setup")
@@ -58,6 +70,9 @@ func runSetup(args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
 		printSetupUsage()
 		return nil
+	}
+	if !buildinfo.SetupEnabled() {
+		return errSetupDisabled
 	}
 	if len(args) == 1 && args[0] == "--system" {
 		if os.Geteuid() != 0 {
@@ -195,7 +210,13 @@ func privilegedSetupCommand(executable string, forceSudo bool) (*exec.Cmd, error
 	return command, nil
 }
 
+// Setup, the service commands and the terminal menu all install through this
+// function. It repeats the build policy so that no caller can copy the
+// executable or write a user service, even if its own check is missing.
 func installUserFiles() (string, error) {
+	if !buildinfo.SetupEnabled() {
+		return "", errSetupDisabled
+	}
 	if os.Geteuid() == 0 {
 		return "", errors.New("run 'jabridge setup' as your normal user, without sudo")
 	}
@@ -462,6 +483,10 @@ func jabraHIDUevent(data []byte) bool {
 }
 
 func printSetupUsage() {
+	if !buildinfo.SetupEnabled() {
+		fmt.Println("Usage:\n  jabridge setup --help\n\n" + errSetupDisabled.Error() + ".")
+		return
+	}
 	fmt.Println(`Usage:
   jabridge setup
   jabridge setup --force

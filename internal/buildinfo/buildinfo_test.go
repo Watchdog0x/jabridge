@@ -14,3 +14,16 @@ func TestSelfUpdateRequiresExplicitEnabledValue(t *testing.T) {
 		})
 	}
 }
+
+func TestSetupRequiresExplicitEnabledValue(t *testing.T) {
+	original := Setup
+	t.Cleanup(func() { Setup = original })
+	for _, value := range []string{"enabled", "disabled", "", "Enabled", "true", "typo"} {
+		t.Run(value, func(t *testing.T) {
+			Setup = value
+			if got, want := SetupEnabled(), value == "enabled"; got != want {
+				t.Fatalf("SetupEnabled(%q) = %t, want %t", value, got, want)
+			}
+		})
+	}
+}

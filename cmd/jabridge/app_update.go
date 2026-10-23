@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"os/exec"
 	"time"
+
+	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 )
 
 // completeAppUpdate runs only after the release has been verified and installed.
 // Completion is independent of the service's state. Do not use this process's
 // embedded script: this process still contains the previous release's data.
+// A package-managed build owns the completion, service binary and unit, so it
+// has nothing to refresh.
 func completeAppUpdate(executable string, serviceWasActive bool) error {
+	if !buildinfo.SetupEnabled() {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	completion, err := exec.CommandContext(ctx, executable, "completion", "bash").Output()

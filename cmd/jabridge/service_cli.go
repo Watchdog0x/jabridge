@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
+	"github.com/Watchdog0x/jabridge/internal/buildinfo"
 )
 
 func runService(args []string) error {
@@ -26,7 +27,7 @@ func runService(args []string) error {
 	var installedExecutable string
 	if args[0] == "start" || args[0] == "restart" {
 		var err error
-		installedExecutable, err = installUserFiles()
+		installedExecutable, err = prepareUserService()
 		if err != nil {
 			return err
 		}
@@ -36,6 +37,16 @@ func runService(args []string) error {
 		return runSystemdServiceCommand(args[0])
 	}
 	return runPortableServiceCommand(args[0], installedExecutable)
+}
+
+// prepareUserService installs the files the service needs and returns the
+// executable that will run it. A package-managed build installs nothing and
+// runs its packaged executable under the unit the package provides.
+func prepareUserService() (string, error) {
+	if !buildinfo.SetupEnabled() {
+		return os.Executable()
+	}
+	return installUserFiles()
 }
 
 func runSystemdServiceCommand(action string) error {
@@ -351,7 +362,13 @@ X-GNOME-Autostart-enabled=true
 	return installUserFile(path, []byte(content), 0o644)
 }
 
+// installedUserExecutable names the executable that runs the service without a
+// systemd unit. A package-managed build has no copy of its own, so it uses the
+// packaged executable.
 func installedUserExecutable() (string, error) {
+	if !buildinfo.SetupEnabled() {
+		return os.Executable()
+	}
 	path, err := installedUserExecutablePath()
 	if err != nil {
 		return "", err
@@ -368,8 +385,12 @@ func printServiceUsage() {
   jabridge service start
   jabridge service status
   jabridge service stop
-  jabridge service restart
+  jabridge service restart`)
 
-Run ` + "`jabridge setup`" + ` once to install and enable the service for future
+	if !buildinfo.SetupEnabled() {
+		fmt.Println("\nThis build uses the service installed by your package manager.")
+		return
+	}
+	fmt.Println("\nRun " + "`jabridge setup`" + ` once to install and enable the service for future
 sign-ins.`)
 }

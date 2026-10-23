@@ -92,8 +92,32 @@ go build -ldflags "-X github.com/Watchdog0x/jabridge/internal/buildinfo.SelfUpda
 This skips the startup update check and prompt. The `update` command tells users
 to use their package manager. Only the exact value `enabled` allows app updates;
 other values disable them. Official downloads enable app updates by default.
-This option does not disable device firmware updates. Setup and service
-installation still need separate handling by the package maintainer.
+This option does not disable device firmware updates.
+
+Packagers can disable setup when building Jabridge:
+
+```sh
+go build -ldflags "-X github.com/Watchdog0x/jabridge/internal/buildinfo.Setup=disabled" ./cmd/jabridge
+```
+
+The `setup` command then tells users to use their package manager, and
+`setup --help` still works. Jabridge no longer offers setup when a headset needs
+device access. The terminal menu and `jabridge service start` or `restart` stop
+copying the executable to the home folder, installing Bash completion or writing
+a user service. They run the packaged executable, so the package must install
+the udev rule and, if it wants a background service, a user unit that runs
+`jabridge --daemon`. Both files are in `internal/assets`. The terminal menu does
+not start or enable a service in this build; it reports that the service is not
+running. Only the exact value `enabled` allows setup; other values disable it.
+Official downloads enable setup by default.
+
+Set both `SelfUpdate=disabled` and `Setup=disabled` in the same build if your
+package manager handles both app updates and setup.
+
+If you previously ran `jabridge setup`, its unit at
+`~/.config/systemd/user/jabridge.service` can override the packaged service.
+Follow your package's migration steps to move the old unit aside and use the
+packaged unit. Restarting the old unit alone still runs the old app copy.
 
 ## Noise control on Evolve2 85
 
