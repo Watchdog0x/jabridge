@@ -1,246 +1,65 @@
 # Jabridge: Jabra Direct for Linux
 
-Jabra headset and dongle controls for Linux. Think Jabra Direct, built by the community for Linux.
+Control Jabra headsets and dongles on Linux. Change settings, manage sound and update supported firmware.
 
-**1.0.0 is the native Go rewrite of jLink.** One app gives you a terminal menu, simple commands, settings, sound controls and firmware updates for supported models. No Jabra SDK is needed. This is not an official Jabra product.
+Made by the community. This is not an official Jabra product.
 
-![Jabridge main menu with a Link 390 dongle and Evolve3 85 headset](docs/tui-example.png)
+![Jabridge main menu](docs/tui-example.png)
 
-*Jabridge 1.1.0 with a Link 390 and Evolve3 85, using sample data. Your menus depend on your device.*
+*Example menu with sample data.*
 
 ## Start
 
-Extract the [Linux download](https://github.com/Watchdog0x/jabridge/releases), open that folder in a terminal and run setup first:
+[Download Jabridge](https://github.com/Watchdog0x/jabridge/releases/latest), extract it and open the folder in a terminal:
 
-```bash
+```sh
 ./jabridge setup
-```
-
-Follow the prompts. Then open the menu:
-
-```bash
 ./jabridge
 ```
 
-Or install with Go 1.27.1 or newer, run setup and open the menu:
+Follow the setup prompts. Use the arrows to move, Enter to choose and Q to go back.
 
-```bash
-go install github.com/Watchdog0x/jabridge/cmd/jabridge@latest
-jabridge setup
-jabridge
-```
+## Update
 
-Make sure Go's bin folder is in your PATH.
+Press Y when Jabridge offers an update, or run:
 
-## Navigation
-
-| Key | Action |
-| --- | --- |
-| `w` or `↑` | Move up |
-| `s` or `↓` | Move down |
-| `Enter` | Select an option |
-
-### Side Menu
-
-| Key | Action |
-| --- | --- |
-| `1`, `2`, `3`, `4` | Select the option shown on screen |
-| `Enter` | Open or confirm the selected option |
-| `q` | Go back |
-
-Long lists scroll as you move. Choose Quit from the main menu to close the app.
-
-With a Link 380, choose **Find headset** and put your headset in pairing mode. Q stops the search.
-
-## Update Jabridge to the latest release
-
-When you open Jabridge in a terminal, it checks for a new app version. If one
-is available, the menu shows an update screen. Press `Y` to update or `N` to
-continue. You can also use the arrow keys and Enter; No is selected by default.
-![Jabridge update screen with Yes and Not now choices](docs/update-example.png)
-
-*Example update from 1.0.2 to 1.1.0. No is selected by default.*
-
-The command line asks:
-
-```text
-A new Jabridge update is available: VERSION
-Update now? (yes/no) [no]:
-```
-
-Type `yes` to update and restart, or `no` to continue. Enter also means no.
-The prompt appears before the menu or command starts. If the check fails or
-takes more than two seconds, Jabridge continues normally. Scripts and
-background services do not get the prompt.
-
-You can also update directly:
-
-```bash
+```sh
 ./jabridge update
 ```
 
-This updates the app, not your device firmware.
+![Jabridge update screen](docs/update-example.png)
 
-### Package-managed builds
+*Older example update screen. No is selected by default.*
 
-Packagers can disable app self-updates when building Jabridge:
+## Headset firmware
 
-```sh
-go build -ldflags "-X github.com/Watchdog0x/jabridge/internal/buildinfo.SelfUpdate=disabled" ./cmd/jabridge
-```
+Open **Firmware**, choose your device and follow the steps. Keep it plugged in until the update finishes.
 
-This skips the startup update check and prompt. The `update` command tells users
-to use their package manager. Only the exact value `enabled` allows app updates;
-other values disable them. Official downloads enable app updates by default.
-This option does not disable device firmware updates.
+Support depends on your model. Evolve2 40 still has an [unresolved firmware problem](docs/FIRMWARE.md#known-limitation-evolve2-40-firmware).
 
-Packagers can disable setup when building Jabridge:
+## Need help?
+
+Save a debug report:
 
 ```sh
-go build -ldflags "-X github.com/Watchdog0x/jabridge/internal/buildinfo.Setup=disabled" ./cmd/jabridge
-```
-
-The `setup` command then tells users to use their package manager, and
-`setup --help` still works. Jabridge no longer offers setup when a headset needs
-device access. The terminal menu and `jabridge service start` or `restart` stop
-copying the executable to the home folder, installing Bash completion or writing
-a user service. They run the packaged executable, so the package must install
-the udev rule and, if it wants a background service, a user unit that runs
-`jabridge --daemon`. Both files are in `internal/assets`. The terminal menu does
-not start or enable a service in this build; it reports that the service is not
-running. Only the exact value `enabled` allows setup; other values disable it.
-Official downloads enable setup by default.
-
-Set both `SelfUpdate=disabled` and `Setup=disabled` in the same build if your
-package manager handles both app updates and setup.
-
-If you previously ran `jabridge setup`, its unit at
-`~/.config/systemd/user/jabridge.service` can override the packaged service.
-Follow your package's migration steps to move the old unit aside and use the
-packaged unit. Restarting the old unit alone still runs the old app copy.
-
-## Noise control on Evolve2 85
-
-Switch between ANC, HearThrough and Off:
-
-```bash
-jabridge settings set headset.noise-control anc
-jabridge settings set headset.noise-control hearthrough
-jabridge settings set headset.noise-control off
-```
-
-These modes were tested on Evolve2 85 through Link 380 in
-[PR #48](https://github.com/Watchdog0x/jabridge/pull/48). Direct USB is untested.
-The mixed HearThrough mode and HearThrough level are not offered.
-
-## Headset volume (experimental)
-
-For supported Evolve2 30 SE models with firmware 1.11.0, connected directly by USB:
-
-```sh
-jabridge headset volume 50
-```
-
-Start audio playback, then use this command to change the headset’s own volume.
-The headset rounds requests to its internal steps. At a volume limit, it may
-also send a normal volume key to Linux.
-`jabridge sound volume` controls Linux volume separately.
-
-Check support for your selected model and connection:
-
-```sh
-jabridge headset volume info
-```
-
-Read the saved headset level:
-
-```sh
-jabridge headset volume get
-```
-
-The saved level can differ from the current playback volume. Running
-`jabridge headset volume` without a value also reads the saved level.
-
-Volume writes and saved-level reads have been tested on the Evolve2 30 SE
-(0b0e:0e36) from [issue #44](https://github.com/Watchdog0x/jabridge/issues/44).
-The four USB variants (0e36, 0e37, 0e38 and 0e39) have model-specific checks tested
-against their original firmware. The other three variants still need physical
-testing. Saved readings can stay unchanged for several seconds after a volume
-request and do not verify current playback. A headset-volume command through a Link
-dongle is still being investigated; it is not enabled yet.
-
-## Device firmware
-
-Open **Firmware** in the menu, choose your device and press Enter. Follow the prompts to update. Keep the device plugged in until it finishes.
-
-To check for firmware updates from the command line, run `./jabridge firmware`.
-
-Support depends on your device. See [tested devices](docs/HARDWARE_TESTING.md#tested-devices) and [firmware recovery](docs/HARDWARE_TESTING.md#firmware-recovery).
-
-Evolve2 40 firmware preparation still times out in the latest hardware report.
-A complete update is not confirmed. See the [known firmware limitation](docs/FIRMWARE.md#known-limitation-evolve2-40-firmware).
-
-## Help
-
-See all commands:
-
-```bash
-./jabridge --help
-```
-
-| Command | What it does |
-| --- | --- |
-| `./jabridge status` | Show connected devices |
-| `./jabridge battery` | Show battery level |
-| `./jabridge settings` | View or change settings |
-| `./jabridge sound` | Control volume and microphone |
-| `./jabridge firmware` | Check device firmware |
-| `./jabridge update` | Update Jabridge |
-| `./jabridge service status` | Check the background service |
-
-## Problems
-
-### Silent playback on Evolve2 30 SE
-
-If audio is playing but you hear nothing, this experimental command tries the
-recovery sequence reported in [issue #44](https://github.com/Watchdog0x/jabridge/issues/44).
-It currently supports Evolve2 30 SE connected directly by USB.
-
-Stop calls and recordings first, keep audio playback running, then run:
-
-```sh
-jabridge sound recover
-```
-
-This briefly opens the headset microphone and discards the captured audio while
-restarting playback. It leaves volume, mute and the selected audio profile alone.
-Check whether you can hear sound afterward. Audible recovery has not been
-confirmed. This command does not fix the separate Linux kernel mixer problem.
-
-### Debug report
-
-Before opening an issue, save a debug report:
-
-```bash
 ./jabridge debug --output jabridge-debug.txt
 ```
 
-If that file already exists, Jabridge saves a new report as `jabridge-debug-1.txt`, then `jabridge-debug-2.txt`, and so on. The command shows the exact file to attach.
+Check the file before sharing it. [Open an issue](https://github.com/Watchdog0x/jabridge/issues/new) and attach the report with your headset model and what went wrong.
 
-Check that file before sharing it. Then [open an issue](https://github.com/Watchdog0x/jabridge/issues/new), attach the file and tell us your device model and what went wrong. Debug does not change settings or firmware.
+## Package-managed builds
 
-## Build your own app
-
-The service shares device state and controls through IPC. Build a GNOME, KDE, Hyprland or other frontend using the [simple IPC guide](docs/IPC.md). No applet is bundled.
-
-For the source code, start with the [codebase guide](https://github.com/Watchdog0x/jabridge/blob/main/docs/CODEBASE.md).
+Package maintainers can [let their package manager handle updates and setup](docs/DEVELOPMENT.md#package-managed-builds).
 
 ## Thank you
 
-Thanks to [am4c130d](https://github.com/am4c130d), [delacor](https://github.com/delacor) and [Danfro](https://github.com/Danfro) for testing, reports and screenshots. Thanks also to [keydon](https://github.com/keydon), [zetneteork](https://github.com/zetneteork), [Atem18](https://github.com/Atem18) and everyone helping the project.
+Thanks to [am4c130d](https://github.com/am4c130d), [delacor](https://github.com/delacor), [Danfro](https://github.com/Danfro), [keydon](https://github.com/keydon), [zetneteork](https://github.com/zetneteork), [Atem18](https://github.com/Atem18) and everyone helping.
+
+## More help
+
+- [Commands and headset controls](docs/USAGE.md)
+- [Tested devices and firmware recovery](docs/HARDWARE_TESTING.md)
+- [Build from source and package options](docs/DEVELOPMENT.md)
+- [Build your own interface](docs/IPC.md)
 
 [License](LICENSE) · [Release notes](CHANGELOG.md)
-
-## Keywords
-
-Jabra Direct Linux · Jabra headset Linux support · Jabra Linux command-line tool · Manage Jabra devices on Linux · Jabra Link 380 Linux · Jabra Evolve2 85 Linux

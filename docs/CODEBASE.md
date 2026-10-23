@@ -3,6 +3,10 @@
 Jabridge has a terminal interface and a background service. Both use the same
 Go packages to work with devices. No Jabra SDK or vendor helper is required.
 
+[README](../README.md) covers the quick start. [Using Jabridge](USAGE.md)
+has detailed commands and device limits. [Build and test](DEVELOPMENT.md)
+includes package-managed builds.
+
 ## Where to start
 
 | Folder | Responsibility |
@@ -155,7 +159,8 @@ Their firmware files stay outside this repository and release archives.
 If you have repomap installed, ask it for the parts related to your task:
 
 ```sh
-repomap . --query 'firmware install recovery' --mentioned-symbol PrepareInteractiveInstall
+repomap . --query 'firmware install recovery' \
+  --mentioned-symbol PrepareInteractiveInstall
 ```
 
 Then read the named functions and their callers. A map is a starting point;
