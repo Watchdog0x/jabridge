@@ -111,6 +111,14 @@ not start or enable a service in this build; it reports that the service is not
 running. Only the exact value `enabled` allows setup; other values disable it.
 Official downloads enable setup by default.
 
+Set both `SelfUpdate=disabled` and `Setup=disabled` in the same build if your
+package manager handles both app updates and setup.
+
+If you previously ran `jabridge setup`, its unit at
+`~/.config/systemd/user/jabridge.service` can override the packaged service.
+Follow your package's migration steps to move the old unit aside and use the
+packaged unit. Restarting the old unit alone still runs the old app copy.
+
 ## Noise control on Evolve2 85
 
 Switch between ANC, HearThrough and Off:

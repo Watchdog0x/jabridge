@@ -14,6 +14,10 @@ home folder from setup, the terminal menu or the service commands. They run the
 packaged executable and leave device access rules and the service to the
 package. Official builds keep setup enabled by default.
 
+Package-managed menus keep using a matching service when its history folder is
+read-only, without trying to replace the package's service unit.
+Setup and service help direct packaged builds to their package manager.
+
 ## 1.2.1 — 2026-10-22
 
 Fix USB DFU updates stopping while Linux is still granting access to the

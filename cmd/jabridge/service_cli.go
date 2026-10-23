@@ -385,8 +385,12 @@ func printServiceUsage() {
   jabridge service start
   jabridge service status
   jabridge service stop
-  jabridge service restart
+  jabridge service restart`)
 
-Run ` + "`jabridge setup`" + ` once to install and enable the service for future
+	if !buildinfo.SetupEnabled() {
+		fmt.Println("\nThis build uses the service installed by your package manager.")
+		return
+	}
+	fmt.Println("\nRun " + "`jabridge setup`" + ` once to install and enable the service for future
 sign-ins.`)
 }

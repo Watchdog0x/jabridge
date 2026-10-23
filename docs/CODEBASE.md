@@ -107,6 +107,11 @@ user service, so its other callers cannot bypass it. `prepareUserService` and
 package's own unit. There is no runtime override, and device firmware is not
 affected.
 
+When setup is disabled, a matching service is used without the legacy
+read-only-history check that normally refreshes a self-installed user unit.
+The package owns that unit, and a history problem must not block the menu.
+Setup and service help also explain package management when setup is disabled.
+
 `tui_app_update.go` owns the update decision screen and its single-key input.
 It stops its input reader and restores the terminal before handing control to
 the installer or main menu. `tui_theme.go` holds the shared home/update palette.

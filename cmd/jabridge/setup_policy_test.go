@@ -2,12 +2,21 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 
+	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/buildinfo"
+	"github.com/Watchdog0x/jabridge/internal/history"
 )
 
 // useSetupEnabled lets a test exercise the installers in a binary linked with
@@ -27,6 +36,7 @@ func useSetupPolicyHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	t.Setenv("JABRIDGE_FIRMWARE_STATE_DIR", filepath.Join(home, ".local", "state"))
 	t.Setenv("JABRIDGE_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
 	t.Setenv("PATH", t.TempDir())
 	return home
@@ -46,10 +56,30 @@ func setupPolicyPaths(home string) []string {
 
 func requireNoSetupFiles(t *testing.T, home string) {
 	t.Helper()
+	if err := checkNoSetupFiles(home); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkNoSetupFiles(home string) error {
 	for _, path := range setupPolicyPaths(home) {
 		if _, err := os.Lstat(path); err == nil {
-			t.Fatalf("setup installed %s", path)
+			return fmt.Errorf("setup installed %s", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("check setup path: %w", err)
 		}
+	}
+	return nil
+}
+
+func TestSetupFileCheckRejectsUnreadablePath(t *testing.T) {
+	home := t.TempDir()
+	// A regular file in place of a directory produces ENOTDIR even as root.
+	if err := os.WriteFile(filepath.Join(home, ".local"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkNoSetupFiles(home); !errors.Is(err, syscall.ENOTDIR) {
+		t.Fatalf("setup file check ignored an invalid parent: %v", err)
 	}
 }
 
@@ -167,4 +197,102 @@ func TestDisabledSetupLeavesTerminalMenuServiceToPackage(t *testing.T) {
 		t.Fatalf("terminal menu: error=%v, output=%q", err, output.String())
 	}
 	requireNoSetupFiles(t, home)
+}
+
+func TestPackagedTUIConnects(t *testing.T) {
+	original := buildinfo.Setup
+	t.Cleanup(func() { buildinfo.Setup = original })
+	for _, test := range []struct {
+		name         string
+		setup        string
+		version      string
+		history      history.RecordingStatus
+		connects     bool
+		legacyRepair bool
+	}{
+		{name: "matching", setup: "disabled", version: buildinfo.Version, connects: true},
+		{name: "history-read-only", setup: "disabled", version: buildinfo.Version, history: history.RecordingStatus{Enabled: true, Error: "read-only-filesystem"}, connects: true},
+		{name: "mismatch", setup: "disabled", version: "old-test-version"},
+		{name: "default-matching", setup: "enabled", version: buildinfo.Version, connects: true},
+		{name: "default-read-only", setup: "enabled", version: buildinfo.Version, history: history.RecordingStatus{Enabled: true, Error: "read-only-filesystem"}, legacyRepair: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			buildinfo.Setup = test.setup
+			home := useSetupPolicyHome(t)
+			if test.legacyRepair {
+				// Preserve the old migration path, but stop at the home lookup
+				// before it can copy files or try to start any service.
+				t.Setenv("HOME", "")
+			}
+			listener, err := net.Listen("unix", ipcSocketPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = listener.Close() })
+			done := make(chan error, 1)
+			go func() {
+				conn, err := listener.Accept()
+				if err != nil {
+					done <- err
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+				decoder, encoder := json.NewDecoder(conn), json.NewEncoder(conn)
+				for {
+					var req ipc.Request
+					if err := decoder.Decode(&req); err != nil {
+						if errors.Is(err, io.EOF) {
+							err = nil
+						}
+						done <- err
+						return
+					}
+					var result any
+					switch req.Method {
+					case "version":
+						result = map[string]string{"version": test.version}
+					case "history.status":
+						result = test.history
+					default:
+						done <- fmt.Errorf("unexpected service call %q", req.Method)
+						return
+					}
+					if err := encoder.Encode(ipc.SuccessResponse(req.ID, result)); err != nil {
+						done <- err
+						return
+					}
+				}
+			}()
+			var output bytes.Buffer
+			backend, err := connectTUIServiceWithOutput(&output)
+			if backend != nil {
+				backend.close()
+			}
+			_ = listener.Close()
+			if test.connects {
+				if backend == nil || err != nil {
+					t.Errorf("matching packaged service: backend=%v, error=%v", backend, err)
+				}
+			} else if test.legacyRepair {
+				if backend != nil || err == nil || !strings.Contains(err.Error(), "install user service: find user home:") {
+					t.Errorf("default service migration changed: backend=%v, error=%v", backend, err)
+				}
+			} else if backend != nil || !errors.Is(err, errPackagedServiceNotRunning) {
+				t.Errorf("mismatched packaged service: backend=%v, error=%v", backend, err)
+			}
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(4 * time.Second):
+				t.Fatal("fake service did not stop")
+			}
+			if !test.legacyRepair && output.Len() != 0 {
+				t.Fatalf("packaged service triggered setup output: %q", output.String())
+			}
+			requireNoSetupFiles(t, home)
+		})
+	}
 }

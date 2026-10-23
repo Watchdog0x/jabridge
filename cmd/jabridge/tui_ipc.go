@@ -79,7 +79,7 @@ func connectTUIServiceWithOutput(output io.Writer) (*tuiIPCBackend, error) {
 	}
 	defer func() { _ = lease.Close() }()
 	socket := ipcSocketPath()
-	if client, version, err := dialServiceVersion(socket, 700*time.Millisecond); err == nil && version == buildinfo.Version && !serviceHistoryNeedsSetup(client) {
+	if client, version, err := dialServiceVersion(socket, 700*time.Millisecond); err == nil && version == buildinfo.Version && (!buildinfo.SetupEnabled() || !serviceHistoryNeedsSetup(client)) {
 		return &tuiIPCBackend{client: client, socket: socket}, nil
 	} else if client != nil {
 		_ = client.Close()

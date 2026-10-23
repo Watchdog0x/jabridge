@@ -483,6 +483,10 @@ func jabraHIDUevent(data []byte) bool {
 }
 
 func printSetupUsage() {
+	if !buildinfo.SetupEnabled() {
+		fmt.Println("Usage:\n  jabridge setup --help\n\n" + errSetupDisabled.Error() + ".")
+		return
+	}
 	fmt.Println(`Usage:
   jabridge setup
   jabridge setup --force
