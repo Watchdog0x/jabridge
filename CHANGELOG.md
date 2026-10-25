@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 — 2026-10-25
 
 Allow the Link 390 dongle with USB ID 0b0e:2e57 to use the pairing-list read,
 headset search and search connect, remembered-device connect, disconnect and
