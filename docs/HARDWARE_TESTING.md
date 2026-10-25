@@ -23,7 +23,7 @@ with its name, what worked and your debug report so we can add it to this list.
 
 On 2026-10-25 a Link 390 (`0b0e:2e57`, variant `04-10`, firmware `1.3.0`) was
 tested with an Evolve2 55 (`0b0e:24f5`, variant `01-76`, firmware `1.2.13`) on
-Ubuntu with Linux 7.0, using a build that adds the Link 390 USB IDs to the
+Ubuntu with Linux 7.0, using a build that adds USB ID `0b0e:2e57` to the
 pairing-read and experimental-write allowlists.
 
 The pairing-list read returned the remembered headset by name, and
@@ -53,12 +53,14 @@ enabling auto pairing did not pair within 45 seconds. After unplugging and
 re-inserting the dongle and restarting the headset, the dongle connected the
 headset on its own and search and connect restored the record name. Factory
 reset is therefore not verified as a clean reset on this dongle; a physical
-reconnect was needed before it would pair again.
+reconnect was needed before it would pair again, and factory reset keeps its
+Link 380-only allowlist.
 
 Not verified: Bluetooth radio, softphone integration, prioritize-computer-audio
-and dedicated-call writes, and firmware updates. The other Link 390 USB IDs
-(`0b0e:2e50`, `0b0e:2e51`, `0b0e:2e56`) are allowlisted as the same product
-family without a hardware report.
+and dedicated-call writes, and firmware updates. Bluetooth radio and softphone
+integration stay read-only on Link 390 until their writes are tested. The other
+Link 390 USB IDs (`0b0e:2e50`, `0b0e:2e51`, `0b0e:2e56`) are not allowlisted;
+report a test to add them.
 
 ## Speak2 75 USB test
 

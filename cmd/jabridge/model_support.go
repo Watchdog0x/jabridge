@@ -171,7 +171,7 @@ func printModelCatalogSummary(inventory *modelcatalog.Inventory) {
 	for _, family := range families {
 		fmt.Printf("  %-10s %3d model groups, %3d USB IDs\n", family.Name, family.Profiles, len(family.PIDs))
 	}
-	fmt.Println("Hardware-qualified in Jabridge: Link 380 0b0e:24c7 and Link 390 0b0e:2e57.")
+	fmt.Println("Hardware-qualified in Jabridge: Link 380 0b0e:24c7 and 0b0e:24c8, Link 390 0b0e:2e57.")
 	fmt.Println("Use `jabridge models Evolve2` (or another name) for exact IDs and firmware types.")
 }
 

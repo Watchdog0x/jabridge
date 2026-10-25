@@ -54,13 +54,23 @@ func TestKnownDonglePIDs(t *testing.T) {
 	}
 }
 
+// unqualifiedDonglePIDs are known dongle IDs without a hardware report for
+// pairing reads or writes: historical IDs, a headset, the Link 380 USB-C
+// variants, the untested Link 390 variants and Link 360, 370 and 400.
+var unqualifiedDonglePIDs = []uint16{
+	0x0a17, 0x2483, 0x2484, 0x24b9,
+	0x24c9, 0x24ca, 0x24e9,
+	0x2e50, 0x2e51, 0x2e56,
+	0xa345, 0x245d, 0x1131,
+}
+
 func TestValidatedPairingReadsAreNarrowlyAllowlisted(t *testing.T) {
-	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e50, 0x2e51, 0x2e56, 0x2e57} {
+	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e57} {
 		if !supportsValidatedPairingReads(pid) {
 			t.Errorf("Link 380/390 PID 0x%04x should allow read-only pairing-list queries", pid)
 		}
 	}
-	for _, pid := range []uint16{0x0a17, 0x2483, 0x2484, 0x24b9} {
+	for _, pid := range unqualifiedDonglePIDs {
 		if supportsValidatedPairingReads(pid) {
 			t.Errorf("unvalidated PID 0x%04x was allowlisted for pairing reads", pid)
 		}
@@ -68,14 +78,27 @@ func TestValidatedPairingReadsAreNarrowlyAllowlisted(t *testing.T) {
 }
 
 func TestExperimentalDongleWritesAreNarrowlyAllowlisted(t *testing.T) {
-	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e50, 0x2e51, 0x2e56, 0x2e57} {
+	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e57} {
 		if !supportsExperimentalDongleWrites(pid) {
 			t.Errorf("Link 380/390 PID 0x%04x should be allowlisted", pid)
 		}
 	}
-	for _, pid := range []uint16{0x0a17, 0x2483, 0x2484, 0x24b9} {
+	for _, pid := range unqualifiedDonglePIDs {
 		if supportsExperimentalDongleWrites(pid) {
 			t.Errorf("unvalidated PID 0x%04x was allowlisted for writes", pid)
+		}
+	}
+}
+
+func TestFactoryResetStaysLink380Only(t *testing.T) {
+	for _, pid := range []uint16{0x24c7, 0x24c8} {
+		if !supportsValidatedFactoryReset(pid) {
+			t.Errorf("Link 380 PID 0x%04x should allow factory reset", pid)
+		}
+	}
+	for _, pid := range append([]uint16{0x2e57}, unqualifiedDonglePIDs...) {
+		if supportsValidatedFactoryReset(pid) {
+			t.Errorf("PID 0x%04x was allowlisted for factory reset without a clean-reset report", pid)
 		}
 	}
 }

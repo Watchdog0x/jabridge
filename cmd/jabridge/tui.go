@@ -673,7 +673,7 @@ func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
 		resetConfirmUntil = time.Time{}
 		toggleSelectedSetting(settingScopeDongle, results)
 	case keyAction2:
-		if !supportsExperimentalDongleWrites(dongle.productID) {
+		if !supportsValidatedFactoryReset(dongle.productID) {
 			setStatus(fmt.Sprintf("Factory reset is not supported for dongle PID 0x%04x", dongle.productID), true)
 			return
 		}
@@ -1516,14 +1516,14 @@ func renderDongleSettings() {
 	left, _, panelBottom := panelBounds()
 	if lastRow < panelBottom {
 		factoryLabel := "Factory reset: not supported on this dongle"
-		if dongle, exists := selectedDongleSnapshot(); exists && supportsExperimentalDongleWrites(dongle.productID) {
+		if dongle, exists := selectedDongleSnapshot(); exists && supportsValidatedFactoryReset(dongle.productID) {
 			factoryLabel = "Factory reset: press 2 twice (erases remembered headsets)"
 		}
 		drawListItem(lastRow, left+4, factoryLabel, false)
 	}
 
 	actions := settingsActionBar(dongleSettingsValues)
-	if dongle, exists := selectedDongleSnapshot(); exists && supportsExperimentalDongleWrites(dongle.productID) {
+	if dongle, exists := selectedDongleSnapshot(); exists && supportsValidatedFactoryReset(dongle.productID) {
 		actions = append(actions, "2 Factory reset")
 		if !resetConfirmUntil.IsZero() && time.Now().Before(resetConfirmUntil) {
 			actions = []string{"Q Cancel", "2 CONFIRM factory reset"}

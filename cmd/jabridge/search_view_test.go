@@ -11,7 +11,7 @@ func TestFindHeadsetMenuUsesSupportedDongle(t *testing.T) {
 	old := currentTUIBackend()
 	setTUIBackend(&tuiIPCBackend{})
 	defer setTUIBackend(old)
-	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e50, 0x2e57, 0xffff} {
+	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e50, 0xffff} {
 		t.Run(string(rune(pid)), func(t *testing.T) {
 			d := metadataTestDongle()
 			d.productID = pid

@@ -34,6 +34,7 @@ type boolSettingDefinition struct {
 	Writable            bool
 	NeedsConfigMode     bool
 	ValidatedLink380    bool
+	ValidatedLink390    bool
 	CatalogProperties   []string
 	HasRawValues        bool
 	FalseRaw            byte
@@ -220,7 +221,7 @@ func writeNextDeviceSetting(device *jabra_DeviceInfo, setting deviceSettingValue
 var dongleBoolSettingDefinitions = []boolSettingDefinition{
 	{
 		Key: "auto-pairing", Label: "Auto pairing", Scope: settingScopeDongle,
-		Class: gnpClassConfig, Op: 0x40, Writable: true, ValidatedLink380: true,
+		Class: gnpClassConfig, Op: 0x40, Writable: true, ValidatedLink380: true, ValidatedLink390: true,
 	},
 	{
 		Key: "prioritize-computer-audio", Label: "Prioritize computer audio", Scope: settingScopeDongle,
@@ -514,20 +515,31 @@ func encodeBoolSettingPayload(definition boolSettingDefinition, value bool) []by
 
 // canEditBoolSetting reports whether a setting may be written on the device.
 // Dongle settings need an allowlisted USB ID (supportsExperimentalDongleWrites)
-// and a definition whose write and read-back were first checked on Link 380
-// (ValidatedLink380). On Link 390 only auto-pairing has a hardware report
+// and a definition whose write and read-back were checked on that dongle
 // (docs/HARDWARE_TESTING.md).
 func canEditBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition) bool {
 	if device == nil || !definition.Writable {
 		return false
 	}
 	if device.isDongle {
-		return supportsExperimentalDongleWrites(device.productID) && definition.ValidatedLink380
+		return supportsExperimentalDongleWrites(device.productID) && definition.validatedForDongle(device.productID)
 	}
 	// Headset settings are shown only after the matching destination answers,
 	// and every write is immediately read back. Direct USB uses destination 8;
 	// a headset behind a dongle uses destination 4.
 	return true
+}
+
+// validatedForDongle reports whether the setting's write and read-back were
+// checked on the given dongle USB ID.
+func (definition boolSettingDefinition) validatedForDongle(pid uint16) bool {
+	switch pid {
+	case 0x24c7, 0x24c8: // Link 380
+		return definition.ValidatedLink380
+	case 0x2e57: // Link 390
+		return definition.ValidatedLink390
+	}
+	return false
 }
 
 func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition, value bool) error {
