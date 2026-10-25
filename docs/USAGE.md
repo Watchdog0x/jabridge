@@ -20,7 +20,7 @@ For downloads and setup, see the [quick start](../README.md#start).
 
 Long lists scroll as you move. Choose Quit from the main menu to close the app.
 
-With a Link 380, choose **Find headset** and put your headset in pairing mode. Q stops the search.
+With a Link 380 or Link 390, choose **Find headset** and put your headset in pairing mode. Q stops the search.
 
 ## App updates
 

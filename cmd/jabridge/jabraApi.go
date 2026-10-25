@@ -710,16 +710,39 @@ func isKnownDonglePID(pid uint16) bool {
 	return false
 }
 
+// supportsValidatedPairingReads lists the USB IDs enabled for pairing-list
+// queries and headset discovery. Physical test scope is recorded separately
+// in docs/HARDWARE_TESTING.md; an allowlisted variant does not imply every
+// operation was tested on it. Pairing writes require their own allowlist.
 func supportsValidatedPairingReads(pid uint16) bool {
-	return pid == 0x24c7 || pid == 0x24c8
+	switch pid {
+	case 0x24c7, 0x24c8, // Link 380
+		0x2e57: // Link 390
+		return true
+	}
+	return false
 }
 
 // supportsExperimentalDongleWrites deliberately stays narrower than dongle
-// discovery. These are the two Link 380 variants for which the read side and
-// command framing have been checked. Writes still require the explicit
-// developer acknowledgement and an operation-specific confirmation in the
-// TUI.
+// discovery. Pairing, remembered-device editing and the validated dongle
+// settings are enabled only for these IDs. Keep this list independent from
+// pairing reads so adding read-only support does not also permit writes.
+// Physical test scope is in docs/HARDWARE_TESTING.md. Factory reset has its
+// own, narrower allowlist.
 func supportsExperimentalDongleWrites(pid uint16) bool {
+	switch pid {
+	case 0x24c7, 0x24c8, // Link 380
+		0x2e57: // Link 390
+		return true
+	}
+	return false
+}
+
+// supportsValidatedFactoryReset preserves the existing Link 380 allowlist
+// for the Bluetooth-device factory-default operation. On Link 390
+// 0x2e57 the command completed but the dongle would not pair until it was
+// physically reconnected (docs/HARDWARE_TESTING.md), so it stays excluded.
+func supportsValidatedFactoryReset(pid uint16) bool {
 	return pid == 0x24c7 || pid == 0x24c8
 }
 
@@ -1448,7 +1471,7 @@ func factoryResetConfirmed(deviceID uint16) error {
 	if deviceID != dongle.deviceID {
 		return fmt.Errorf("factory reset target %d is not the selected dongle %d", deviceID, dongle.deviceID)
 	}
-	if !supportsExperimentalDongleWrites(dongle.productID) {
+	if !supportsValidatedFactoryReset(dongle.productID) {
 		return fmt.Errorf("factory reset is not enabled for dongle PID 0x%04x: %w", dongle.productID, ErrNotSupported)
 	}
 	h := openDeviceHidraw(dongle)

@@ -116,6 +116,9 @@ func connectSearchDeviceBound(index int, token string) error {
 	if selected.instance != target.instance || !supportsValidatedPairingReads(selected.productID) || !searchMatchesCurrent(target) {
 		return errors.New("selected dongle changed; search again")
 	}
+	if !supportsExperimentalDongleWrites(selected.productID) {
+		return fmt.Errorf("connecting search results is not enabled for dongle PID 0x%04x: %w", selected.productID, ErrNotSupported)
+	}
 	state := session.Snapshot()
 	if state.State != "searching" && state.State != "complete" {
 		return errors.New("search is no longer available; search again")

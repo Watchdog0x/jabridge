@@ -7,6 +7,8 @@ Testing a device does not mean every feature or firmware update has been tested.
 | Device |
 | --- |
 | Jabra Link 380 |
+| [Jabra Link 390](#link-390-pairing-and-dongle-write-test) |
+| [Jabra Evolve2 55 (through Link 390)](#link-390-pairing-and-dongle-write-test) |
 | Jabra Evolve2 65 |
 | [Jabra Evolve2 85](#evolve2-85-noise-control-test) |
 | Jabra Evolve3 85 |
@@ -16,6 +18,49 @@ Testing a device does not mean every feature or firmware update has been tested.
 
 Tested another device? [Open an issue](https://github.com/Watchdog0x/jabridge/issues/new)
 with its name, what worked and your debug report so we can add it to this list.
+
+## Link 390 pairing and dongle write test
+
+On 2026-10-25 a Link 390 (`0b0e:2e57`, variant `04-10`, firmware `1.3.0`) was
+tested with an Evolve2 55 (`0b0e:24f5`, variant `01-76`, firmware `1.2.13`) on
+Ubuntu with Linux 7.0, using a build that adds USB ID `0b0e:2e57` to the
+pairing-read and experimental-write allowlists.
+
+The pairing-list read returned the remembered headset by name, and
+`device.features` then reported `pairingList`. `bt.search` found the headset
+within about one second and completed at 20 seconds. `bt.search.connect` paired
+and connected it immediately, after which the headset was shown through the
+dongle with battery and firmware reads. Auto pairing, Bluetooth radio and
+softphone integration were read; the dongle rejected the
+prioritize-computer-audio and dedicated-call queries, so those settings are not
+listed. `bt.pair` returned success twice but did not pair on this dongle;
+search and connect did.
+
+Dongle writes checked on the same unit: `bt.disconnect` then `bt.connect` of
+the remembered headset, each confirmed from the pairing list; auto pairing set
+on and read back through `bt.autopair` and `settings.list`, then restored to
+off, with the service recording a device acknowledgement and a matching
+read-back; `bt.forget`, after which the pairing list was empty, followed by
+re-pairing through search and connect.
+
+`device.reset` with the confirmation string returned success. The dongle
+disconnected from USB and re-enumerated, its HID interface registered again
+12 seconds later, and the service had to be restarted to regain the control
+interface. The pairing list afterwards still held one record, shown by
+Bluetooth address instead of name, and then became unreadable. Two search and
+connect attempts timed out with `headset did not connect before timeout`, and
+enabling auto pairing did not pair within 45 seconds. After unplugging and
+re-inserting the dongle and restarting the headset, the dongle connected the
+headset on its own and search and connect restored the record name. Factory
+reset is therefore not verified as a clean reset on this dongle; a physical
+reconnect was needed before it would pair again, and factory reset keeps its
+Link 380-only allowlist.
+
+Not verified: Bluetooth radio, softphone integration, prioritize-computer-audio
+and dedicated-call writes, and firmware updates. Bluetooth radio and softphone
+integration stay read-only on Link 390 until their writes are tested. The other
+Link 390 USB IDs (`0b0e:2e50`, `0b0e:2e51`, `0b0e:2e56`) are not allowlisted;
+report a test to add them.
 
 ## Speak2 75 USB test
 

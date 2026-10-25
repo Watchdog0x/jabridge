@@ -135,6 +135,36 @@ Cached native completion, timeout and failure states remain visible in the menu.
 Terminal tests cover slow service replies, stale results, resizing, key hints
 and output backpressure through a real pseudo-terminal.
 
+## Dongle pairing
+
+### Reads and discovery
+
+`supportsValidatedPairingReads` in `jabraApi.go` checks the dongle's USB ID.
+`bluetooth_search.go` uses that policy for discovery. Headset models are not
+hardcoded into this gate. See the [Link 390 test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
+for the tested dongle and headset.
+
+### Pairing writes
+
+`supportsExperimentalDongleWrites` keeps an independent USB ID list.
+`paired_devices.go` uses it for connect, disconnect and forget. Search-connect
+requires both read and write support before stopping discovery or opening the
+management interface. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
+lists the operations checked on Link 390.
+
+### Setting validation
+
+`settings.go` requires both write support and `validatedForDongle` for each
+dongle setting. Only auto-pairing is writable on the tested Link 390; its
+other settings remain read-only as described in the [test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
+
+### Factory reset
+
+`supportsValidatedFactoryReset` is separate and remains Link 380-only.
+Both the menu and the IPC reset route reach this check before opening the
+device. The [Link 390 reset report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
+explains why that dongle is excluded.
+
 ## Build and check
 
 ```sh

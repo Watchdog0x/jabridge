@@ -197,6 +197,18 @@ func TestSettingEditPolicy(t *testing.T) {
 	if !canEditBoolSetting(&jabra_DeviceInfo{isDongle: true, productID: 0x24c7}, definition) {
 		t.Fatal("validated Link 380 setting is not editable")
 	}
+	if !canEditBoolSetting(&jabra_DeviceInfo{isDongle: true, productID: 0x2e57}, definition) {
+		t.Fatal("Link 390 auto-pairing setting is not editable")
+	}
+	for _, key := range []string{"bluetooth-radio", "softphone-integration"} {
+		restartDefinition, _ := findBoolSettingDefinition(settingScopeDongle, key)
+		if !canEditBoolSetting(&jabra_DeviceInfo{isDongle: true, productID: 0x24c7}, restartDefinition) {
+			t.Fatalf("validated Link 380 setting %q is not editable", key)
+		}
+		if canEditBoolSetting(&jabra_DeviceInfo{isDongle: true, productID: 0x2e57}, restartDefinition) {
+			t.Fatalf("unverified Link 390 setting %q became editable", key)
+		}
+	}
 	if canEditBoolSetting(&jabra_DeviceInfo{isDongle: true, productID: 0x0a17}, definition) {
 		t.Fatal("untested Link 370 setting became editable")
 	}
