@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Allow the Link 390 dongle with USB ID 0b0e:2e57 to use the pairing-list read,
+headset search and search connect, remembered-device connect, disconnect and
+forget, and the auto-pairing setting that were limited to two Link 380 USB IDs.
+A Link 390 on firmware 1.3.0 was tested with an Evolve2 55: pairing-list reads,
+search and connect, disconnect and reconnect, forget and re-pair, and an
+auto-pairing write with read-back all succeeded. Factory reset completed and
+re-enumerated the dongle, but the dongle needed a physical reconnect before it
+would pair again, so factory reset keeps its Link 380-only allowlist. The
+Bluetooth radio and softphone integration settings stay read-only on Link 390
+until their writes are tested. The dongle pairing-mode command returned
+success without pairing on this dongle. Other Link 390 USB IDs are added when
+they are reported.
+
 ## 1.3.0 — 2026-10-23
 
 Add a build-time option for distribution packagers to disable application
