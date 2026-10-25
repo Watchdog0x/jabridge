@@ -99,13 +99,15 @@ The stream is not a complete history of every physical button press.
 | Speakers, microphones and sound | `sound.list` |
 | Button-control status | `buttons.status` |
 
-For supported Link 380 dongles, `bt.search` starts a 20-second discovery scan.
+For supported Link 380 and Link 390 dongles, `bt.search` starts a 20-second discovery scan.
 Read `bt.search.status` for its state, results and opaque `session` token.
 Use `bt.search.stop` to cancel. To connect a selected result, send its `index`
 and that same `session` to `bt.search.connect`. A previous search's token is
 rejected. Connecting is a user-requested device write; merely listing results
 does not pair anything. A timed-out scan is not reported as a successful empty
-search. Search support on other dongle models is not implied.
+search. Search support on other dongle models is not implied. Link 390 support
+was checked on USB ID `0b0e:2e57`; its other USB IDs are allowlisted without a
+hardware report (see [hardware testing](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)).
 
 Events include `device.attached`, `device.detached`, `device.battery.update`,
 `device.pairing.update`, `device.button`, `device.signal` and `sound.changed`.
