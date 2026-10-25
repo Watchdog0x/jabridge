@@ -710,11 +710,10 @@ func isKnownDonglePID(pid uint16) bool {
 	return false
 }
 
-// supportsValidatedPairingReads lists the dongle USB IDs whose pairing-list
-// read, headset search and search-connect framing have been checked on
-// hardware: Link 380 (0x24c7, 0x24c8) and Link 390 (0x2e57). Other IDs of the
-// same products are added only with a hardware report
-// (docs/HARDWARE_TESTING.md).
+// supportsValidatedPairingReads lists the USB IDs enabled for pairing-list
+// queries and headset discovery. Physical test scope is recorded separately
+// in docs/HARDWARE_TESTING.md; an allowlisted variant does not imply every
+// operation was tested on it. Pairing writes require their own allowlist.
 func supportsValidatedPairingReads(pid uint16) bool {
 	switch pid {
 	case 0x24c7, 0x24c8, // Link 380
@@ -725,19 +724,22 @@ func supportsValidatedPairingReads(pid uint16) bool {
 }
 
 // supportsExperimentalDongleWrites deliberately stays narrower than dongle
-// discovery. Remembered-device connect, disconnect and forget and the dongle
-// settings validated for the dongle have been checked on the same IDs as the
-// pairing reads, so the two sets match today; they stay separate functions so
-// one can grow without the other. Writes still require the explicit developer
-// acknowledgement and an operation-specific confirmation in the TUI. Factory
-// reset has its own, narrower allowlist.
+// discovery. Pairing, remembered-device editing and the validated dongle
+// settings are enabled only for these IDs. Keep this list independent from
+// pairing reads so adding read-only support does not also permit writes.
+// Physical test scope is in docs/HARDWARE_TESTING.md. Factory reset has its
+// own, narrower allowlist.
 func supportsExperimentalDongleWrites(pid uint16) bool {
-	return supportsValidatedPairingReads(pid)
+	switch pid {
+	case 0x24c7, 0x24c8, // Link 380
+		0x2e57: // Link 390
+		return true
+	}
+	return false
 }
 
-// supportsValidatedFactoryReset lists the dongles on which the
-// Bluetooth-device factory-default operation has been checked to clear the
-// pairing database and leave the dongle able to pair again. On Link 390
+// supportsValidatedFactoryReset preserves the existing Link 380 allowlist
+// for the Bluetooth-device factory-default operation. On Link 390
 // 0x2e57 the command completed but the dongle would not pair until it was
 // physically reconnected (docs/HARDWARE_TESTING.md), so it stays excluded.
 func supportsValidatedFactoryReset(pid uint16) bool {
