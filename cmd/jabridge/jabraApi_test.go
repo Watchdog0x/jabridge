@@ -55,18 +55,22 @@ func TestKnownDonglePIDs(t *testing.T) {
 }
 
 func TestValidatedPairingReadsAreNarrowlyAllowlisted(t *testing.T) {
-	if !supportsValidatedPairingReads(0x24c7) || !supportsValidatedPairingReads(0x24c8) {
-		t.Fatal("Link 380 variants should allow read-only pairing-list queries")
+	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e50, 0x2e51, 0x2e56, 0x2e57} {
+		if !supportsValidatedPairingReads(pid) {
+			t.Errorf("Link 380/390 PID 0x%04x should allow read-only pairing-list queries", pid)
+		}
 	}
-	if supportsValidatedPairingReads(0x0a17) {
-		t.Fatal("untested Link 370 was allowlisted")
+	for _, pid := range []uint16{0x0a17, 0x2483, 0x2484, 0x24b9} {
+		if supportsValidatedPairingReads(pid) {
+			t.Errorf("unvalidated PID 0x%04x was allowlisted for pairing reads", pid)
+		}
 	}
 }
 
 func TestExperimentalDongleWritesAreNarrowlyAllowlisted(t *testing.T) {
-	for _, pid := range []uint16{0x24c7, 0x24c8} {
+	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e50, 0x2e51, 0x2e56, 0x2e57} {
 		if !supportsExperimentalDongleWrites(pid) {
-			t.Errorf("Link 380 PID 0x%04x should be allowlisted", pid)
+			t.Errorf("Link 380/390 PID 0x%04x should be allowlisted", pid)
 		}
 	}
 	for _, pid := range []uint16{0x0a17, 0x2483, 0x2484, 0x24b9} {

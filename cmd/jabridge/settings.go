@@ -512,6 +512,11 @@ func encodeBoolSettingPayload(definition boolSettingDefinition, value bool) []by
 	return append(payload, raw)
 }
 
+// canEditBoolSetting reports whether a setting may be written on the device.
+// Dongle settings need an allowlisted USB ID (supportsExperimentalDongleWrites)
+// and a definition whose write and read-back were first checked on Link 380
+// (ValidatedLink380). On Link 390 only auto-pairing has a hardware report
+// (docs/HARDWARE_TESTING.md).
 func canEditBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition) bool {
 	if device == nil || !definition.Writable {
 		return false

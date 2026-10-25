@@ -710,17 +710,33 @@ func isKnownDonglePID(pid uint16) bool {
 	return false
 }
 
+// supportsValidatedPairingReads lists dongles whose pairing-list read, headset
+// search and search-connect framing have been checked on hardware: Link 380
+// (0x24c7, 0x24c8) and Link 390 (0x2e57, docs/HARDWARE_TESTING.md). The other
+// Link 390 USB IDs are allowlisted as the same product family without a
+// hardware report.
 func supportsValidatedPairingReads(pid uint16) bool {
-	return pid == 0x24c7 || pid == 0x24c8
+	switch pid {
+	case 0x24c7, 0x24c8, // Link 380
+		0x2e50, 0x2e51, 0x2e56, 0x2e57: // Link 390; 0x2e57 checked on hardware
+		return true
+	}
+	return false
 }
 
 // supportsExperimentalDongleWrites deliberately stays narrower than dongle
-// discovery. These are the two Link 380 variants for which the read side and
-// command framing have been checked. Writes still require the explicit
+// discovery. These are the Link 380 and Link 390 variants for which the read
+// side and command framing have been checked; Link 390 was checked on 0x2e57
+// only (docs/HARDWARE_TESTING.md). Writes still require the explicit
 // developer acknowledgement and an operation-specific confirmation in the
 // TUI.
 func supportsExperimentalDongleWrites(pid uint16) bool {
-	return pid == 0x24c7 || pid == 0x24c8
+	switch pid {
+	case 0x24c7, 0x24c8, // Link 380
+		0x2e50, 0x2e51, 0x2e56, 0x2e57: // Link 390; 0x2e57 checked on hardware
+		return true
+	}
+	return false
 }
 
 func isAccessoryName(name string) bool {
