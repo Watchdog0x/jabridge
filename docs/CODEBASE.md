@@ -152,6 +152,46 @@ requires both read and write support before stopping discovery or opening the
 management interface. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
 lists the operations checked on Link 390.
 
+For the candidate `2e57` search flow, `internal/btsearch` has a separate
+dual-mode decoder and typed pairing transaction. Raw discovery flags are
+translated into classic/LE namespaces; duplicate addresses with different types
+remain separate choices. The service labels those choices for the client.
+The legacy Link 380 decoder and command bytes are unchanged.
+
+`bluetooth_search_bound.go` captures `firmware.ControlBinding` at search start.
+That small wrapper reuses the firmware module's USB generation and opened-FD
+parent/VID/PID checks. The binding follows neither a PID match nor a replacement
+USB attachment. Available USB serials are checked in their own format.
+An independent passive reader is opened before Stop/Pair. Attach/name events
+accelerate a fresh connected-entry check; missing events fall back to reads no
+faster than once a second. Each complete confirmation has a one-second deadline
+inside the unchanged 30-second pairing budget. Writes are never replayed.
+
+### Experimental Link 390 firmware
+
+`csr_link390.go` recognizes the narrow monolithic package and owns the
+protocol-7 transaction. Its stage uses the shared transfer primitive with an
+explicit protocol-7 policy: 8-byte count/CRC header, 52-byte blocks, final-batch
+acknowledgement, and version plus language. The existing extended 16/17 and
+legacy partitioned gnV flows keep their wire behavior.
+
+`csr_link390_linux.go` reads identity and protocol from the bound dongle.
+Language may be unavailable for this policy, matching the vendor's fallback;
+the candidate accepts only an unambiguous single-English image. Commit uses no
+configuration-end command. Fresh runtime identity and requested firmware must
+be read back, on either the same or a correctly rebound USB generation.
+
+`csr_link390_install.go` integrates the existing sealed archive, official release
+authorization, daemon pause, firmware lease and confirmation. It requires its
+own process-start opt-in. Recovery is saved durably before transfer and before
+commit. A `csr7-committing` record only permits read-only verification after
+interruption. It never authorizes another erase or commit.
+
+Archive inspection and installation share the profile validator. A successful
+layout check does not claim that the device was tested or that installation is
+enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
+`TEST_LINK390.md` contains the isolated review-service and firmware test steps.
+
 ### Setting validation
 
 `settings.go` requires both write support and `validatedForDongle` for each

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Prepare a Link 390 pairing fix for USB ID 0b0e:2e57. Search includes classic
+Bluetooth and Bluetooth LE, keeps both choices visible, stops both searches
+before pairing, and uses the connection type the user selected. Connection
+checks stay bound to the original USB device. The Link 380 flow is unchanged.
+Recovery after reset still needs a test on the affected dongle and headset.
+
+Add an experimental installer for the Link 390 single-file firmware format
+reported in #54. It keeps the official checksum, device and protocol checks,
+and stays off by default behind its own process-start opt-in. An interrupted
+commit is checked by reading the installed version; it is never repeated
+automatically. The real 3.2.0 package passed software simulation, including
+transfer faults and process interruption. Physical installation is not yet
+verified. File inspection now clearly distinguishes layout checks from
+installation support. Link 390 factory reset remains disabled.
+
 ## 1.4.0 — 2026-10-25
 
 Allow the Link 390 dongle with USB ID 0b0e:2e57 to use the pairing-list read,

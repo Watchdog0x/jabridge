@@ -152,56 +152,85 @@ func openExtendedCSRConnection(ctx context.Context, device USBDevice) (csrExtend
 // endpoint is usable only if its own PID, serial, variant, firmware and language
 // can be read. A successful version read alone never authorizes a flash route.
 func identifyExtendedCSRConnection(ctx context.Context, transport csrStageIO, device USBDevice, reportSize int, closeConnection func() error) (csrExtendedConnection, error) {
+	return identifyCSRConnection(ctx, transport, device, reportSize, closeConnection, false)
+}
+
+func identifyCSRConnection(ctx context.Context, transport csrStageIO, device USBDevice, reportSize int, closeConnection func() error, protocol7 bool) (csrExtendedConnection, error) {
 	if device.attachment == nil || device.ViaDongle || device.VendorID != JabraVendorID {
 		return csrExtendedConnection{}, errors.New("extended CSR requires a bound direct USB device")
 	}
 	var matches []csrExtendedConnection
-	for _, address := range []byte{8, 1} {
+	var identityFailures []error
+	fail := func(field string, err error) {
+		if protocol7 {
+			identityFailures = append(identityFailures, fmt.Errorf("cannot verify Link 390 %s: %w", field, errors.Join(errors.New("invalid or unavailable response"), err)))
+		}
+	}
+	addresses := []byte{8, 1}
+	if protocol7 {
+		addresses = []byte{1}
+	}
+	for _, address := range addresses {
 		if err := ctx.Err(); err != nil {
 			return csrExtendedConnection{}, err
 		}
 		session := &csrStageTransfer{io: transport, stage: csrExtendedStage{Address: address, ReportSize: reportSize, Timeout: time.Second}, seq: address * 16}
 		pid, err := session.query(ctx, 2, 0x11)
 		if err != nil || len(pid) != 2 || binary.LittleEndian.Uint16(pid) != device.ProductID {
+			fail("USB product ID", err)
 			continue
 		}
 		serial, err := session.query(ctx, 2, 1)
 		if err != nil {
+			fail("serial query", err)
 			continue
 		}
 		serialText, err := decodeExtendedIdentityString(serial)
 		if err != nil {
+			fail("serial encoding", err)
 			continue
 		}
 		variant, err := session.query(ctx, 2, 2)
 		if err != nil || len(variant) < 3 || len(variant) > 16 {
+			fail("variant", err)
 			continue
 		}
 		version, err := session.query(ctx, 2, 3)
 		if err != nil {
+			fail("firmware version query", err)
 			continue
 		}
 		versionText, err := decodeExtendedIdentityString(version)
 		if err != nil {
+			fail("firmware version encoding", err)
 			continue
 		}
 		if _, err := parseVersionTriplet(versionText); err != nil {
+			fail("firmware version", err)
 			continue
 		}
-		language, err := session.query(ctx, 0x13, 8)
-		if err != nil || len(language) != 2 || binary.LittleEndian.Uint16(language) == 0 {
+		language, languageErr := session.query(ctx, 0x13, 8)
+		var languageID uint16
+		if languageErr == nil && len(language) == 2 {
+			languageID = binary.LittleEndian.Uint16(language)
+		}
+		if !protocol7 && languageID == 0 {
 			continue
 		}
 		protocols, err := session.query(ctx, 2, 0x14)
 		if err != nil || len(protocols) == 0 || len(protocols) > 16 {
+			fail("firmware update protocol", err)
 			continue
 		}
 		matches = append(matches, csrExtendedConnection{IO: transport, Address: address, ReportSize: reportSize, Close: closeConnection, Identity: csrExtendedIdentity{
 			PID: device.ProductID, Port: device.SysPath, Attachment: device.attachment.fingerprint, Serial: serialText,
-			Variant: hex.EncodeToString(variant[1:]), Version: versionText, Language: binary.LittleEndian.Uint16(language), FirmwareProtocols: protocols,
+			Variant: hex.EncodeToString(variant[1:]), Version: versionText, Language: languageID, FirmwareProtocols: protocols,
 		}})
 	}
 	if len(matches) != 1 {
+		if protocol7 {
+			return csrExtendedConnection{}, fmt.Errorf("cannot identify the Link 390 firmware endpoint: %w", errors.Join(identityFailures...))
+		}
 		return csrExtendedConnection{}, fmt.Errorf("need one fully identified extended CSR endpoint; found %d", len(matches))
 	}
 	return matches[0], nil

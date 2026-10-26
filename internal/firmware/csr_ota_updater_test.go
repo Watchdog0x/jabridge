@@ -240,6 +240,7 @@ func TestParseVerifyStatusSuccess(t *testing.T) {
 type fakeTransport struct {
 	mu      sync.Mutex
 	writes  [][]byte // captured writes for inspection
+	reads   [][]byte
 	replies [][]byte // scripted replies to return on Read()
 	closed  bool
 }
@@ -262,6 +263,7 @@ func (f *fakeTransport) Read(timeout time.Duration) ([]byte, error) {
 		if len(f.replies) > 0 {
 			r := f.replies[0]
 			f.replies = f.replies[1:]
+			f.reads = append(f.reads, append([]byte(nil), r...))
 			f.mu.Unlock()
 			return r, nil
 		}
@@ -318,6 +320,7 @@ func TestFlashAllHappyPath(t *testing.T) {
 	if err := u.FlashAll(partitions, [3]byte{1, 5, 7}); err != nil {
 		t.Fatalf("FlashAll: %v", err)
 	}
+	assertLegacyCSRTranscript(t, ft.writes, ft.reads)
 	// 1 probe + 6 init + 5 partition + 1 writeDfuFromSquif = 13 total
 	if len(ft.writes) != 13 {
 		t.Errorf("wrote %d packets, want 13", len(ft.writes))

@@ -26,6 +26,8 @@ type csrExtendedStage struct {
 	ChunkBytes int // explicit negotiated limit, not inferred from HID size
 	Preload    uint16
 	Timeout    time.Duration
+	Protocol7  bool // monolithic Link 390: 16-bit count, 52 bytes, final batch ACK
+	Language   uint16
 }
 
 type csrStageTransfer struct {
@@ -52,11 +54,14 @@ func (session *csrStageTransfer) transfer(ctx context.Context, stage csrExtended
 	if session.io == nil || (stage.Address != 1 && stage.Address != 4 && stage.Address != 8) || (stage.ReportSize != 63 && stage.ReportSize != 64) || stage.ChunkBytes < 1 || stage.ChunkBytes > stage.ReportSize-11 || stage.Preload == 0 || stage.Preload > 10 || stage.Timeout <= 0 || int64(len(stage.Image)) > MaxExpandedArchiveSize {
 		return errors.New("invalid extended CSR stage configuration")
 	}
-	count, err := otaChunkCountForPayload(len(stage.Image), stage.ChunkBytes, true)
+	if stage.Protocol7 && (stage.Address != 1 || stage.ChunkBytes != 52 || stage.Language == 0) {
+		return errors.New("invalid monolithic protocol-7 stage")
+	}
+	count, err := otaChunkCountForPayload(len(stage.Image), stage.ChunkBytes, !stage.Protocol7)
 	if err != nil {
 		return err
 	}
-	header, err := otaCRCHeader(csrImageCRC(stage.Image), count, stage.Preload, true)
+	header, err := otaCRCHeader(csrImageCRC(stage.Image), count, stage.Preload, !stage.Protocol7)
 	if err != nil {
 		return err
 	}
@@ -85,7 +90,7 @@ func (session *csrStageTransfer) transfer(ctx context.Context, stage csrExtended
 			return fmt.Errorf("CSR block %d: %w", logical, err)
 		}
 		session.sent++
-		if logical%uint32(stage.Preload) == 0 {
+		if logical%uint32(stage.Preload) == 0 || stage.Protocol7 && logical+1 == count {
 			match := func(body []byte) bool {
 				got, bits, err := decodeOTAPreload(body)
 				return err == nil && (bits == 32 && got == logical || bits == 16 && got == uint32(uint16(logical)))
@@ -101,7 +106,11 @@ func (session *csrStageTransfer) transfer(ctx context.Context, stage csrExtended
 	if err := session.waitEvent(ctx, OtaEventVerifyStatus, func(body []byte) bool { return len(body) >= 2 && body[1] == 0 }); err != nil {
 		return err
 	}
-	return session.command(ctx, OtaOpWriteFwVersion, stage.Version[:])
+	version := append([]byte(nil), stage.Version[:]...)
+	if stage.Protocol7 {
+		version = append(version, byte(stage.Language), byte(stage.Language>>8))
+	}
+	return session.command(ctx, OtaOpWriteFwVersion, version)
 }
 
 func (s *csrStageTransfer) write(ctx context.Context, packet []byte) error {
@@ -237,7 +246,20 @@ func (s *csrStageTransfer) query(ctx context.Context, class, opcode byte) ([]byt
 }
 
 func (s *csrStageTransfer) waitEvent(ctx context.Context, opcode byte, matches func([]byte) bool) error {
-	wait, cancel := context.WithTimeout(ctx, s.stage.Timeout)
+	timeout := s.stage.Timeout
+	if s.stage.Protocol7 {
+		// Vendor ProtocolConfiguration defaults for this new path. Existing
+		// extended paths retain their previous timeout policy.
+		switch opcode {
+		case OtaEventFlashEraseDone:
+			timeout = 90 * time.Second
+		case OtaEventPreloadProgress:
+			timeout = 15 * time.Second
+		case OtaEventVerifyStatus:
+			timeout = 30 * time.Second
+		}
+	}
+	wait, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
 		for i := 0; i < len(s.events); {

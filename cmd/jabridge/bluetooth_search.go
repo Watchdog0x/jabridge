@@ -19,6 +19,7 @@ var nativeSearch struct {
 	parent    context.Context
 	session   *btsearch.Session
 	target    *jabra_DeviceInfo
+	binding   *firmware.ControlBinding
 	token     string
 	lastError string
 }
@@ -42,6 +43,7 @@ func searchForNewDevices() (resultErr error) {
 		}
 	}
 	nativeSearch.session, nativeSearch.target, nativeSearch.token, nativeSearch.lastError = nil, nil, "", ""
+	nativeSearch.binding = nil
 	dongle, err := selectedDongleDevice()
 	if err != nil {
 		return err
@@ -56,11 +58,16 @@ func searchForNewDevices() (resultErr error) {
 	if err != nil {
 		return err
 	}
-	session, err := btsearch.Start(nativeSearch.parent, reader, 25*time.Second)
+	start := btsearch.Start
+	if usesDualModeSearch(dongle) {
+		start = btsearch.StartDualMode
+	}
+	session, err := start(nativeSearch.parent, reader, 25*time.Second)
 	if err != nil {
 		return fmt.Errorf("start headset search: %w", err)
 	}
 	nativeSearch.session, nativeSearch.target, nativeSearch.token = session, dongle, newDeviceInstance()
+	nativeSearch.binding = reader.binding
 	return nil
 }
 
@@ -99,12 +106,18 @@ func currentNativeSearch() (ipc.SearchState, []btsearch.Device) {
 	}
 	snapshot := nativeSearch.session.Snapshot()
 	state.State, state.Count, state.Error = snapshot.State, len(snapshot.Devices), snapshot.Error
+	if usesDualModeSearch(nativeSearch.target) {
+		for index := range snapshot.Devices {
+			snapshot.Devices[index].Name = typedSearchName(snapshot.Devices[index])
+		}
+	}
 	return state, snapshot.Devices
 }
 
 func connectSearchDeviceBound(index int, token string) error {
 	nativeSearch.Lock()
 	session, target, currentToken := nativeSearch.session, nativeSearch.target, nativeSearch.token
+	binding, parent := nativeSearch.binding, nativeSearch.parent
 	nativeSearch.Unlock()
 	if session == nil || len(token) != 32 || token != currentToken {
 		return fmt.Errorf("search has changed; search again before connecting: %w", ErrNotSupported)
@@ -132,6 +145,24 @@ func connectSearchDeviceBound(index int, token string) error {
 	}
 	if !searchMatchesCurrent(target) {
 		return errors.New("dongle disconnected before pairing")
+	}
+	if usesDualModeSearch(target) {
+		if binding == nil || parent == nil {
+			return errors.New("search has no captured USB attachment; search again")
+		}
+		link, err := openBoundSearchLink(target, binding)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = link.Close() }()
+		link.pairing = true
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+		defer cancel()
+		if err := btsearch.PairDualMode(ctx, link, device); err != nil {
+			return err
+		}
+		requestUIRedraw()
+		return nil
 	}
 	h := openDeviceHidraw(target)
 	if h == nil {
@@ -164,11 +195,20 @@ func getSearchDeviceList(deviceID uint16) *pairingList {
 
 type searchLink struct {
 	device    *jabra_DeviceInfo
+	binding   *firmware.ControlBinding
+	pairing   bool
 	file      *os.File
 	assembler *firmware.ControlPacketAssembler
 }
 
 func openSearchLink(device *jabra_DeviceInfo) (*searchLink, error) {
+	if usesDualModeSearch(device) {
+		binding, err := firmware.BindControlDevice(firmware.USBDevice{SysPath: device.usbDevicePath, VendorID: device.vendorID, ProductID: device.productID})
+		if err != nil {
+			return nil, err
+		}
+		return openBoundSearchLink(device, binding)
+	}
 	layout, err := firmware.InspectControlLayout(device.hidrawPath)
 	if err != nil {
 		return nil, err
@@ -183,14 +223,23 @@ func openSearchLink(device *jabra_DeviceInfo) (*searchLink, error) {
 func (s *searchLink) Close() error { return s.file.Close() }
 func (s *searchLink) Start(ctx context.Context) error {
 	command := btsearch.StartCommand()
+	if s.binding != nil {
+		command = btsearch.DualModeStartCommand()
+	}
 	return s.command(ctx, command[0], command[1:])
 }
 func (s *searchLink) Stop(ctx context.Context) error {
 	command := btsearch.StopCommand()
+	if s.binding != nil {
+		command = btsearch.DualModeStopCommand()
+	}
 	return s.command(ctx, command[0], command[1:])
 }
 
 func (s *searchLink) command(ctx context.Context, opcode byte, payload []byte) error {
+	if s.binding != nil {
+		return s.Command(ctx, opcode, payload)
+	}
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
 	for !gnpIOMu.TryLock() {
@@ -248,8 +297,23 @@ func (s *searchLink) Read(ctx context.Context) ([]byte, error) {
 		if !searchMatchesCurrent(s.device) {
 			return nil, errors.New("dongle disconnected during search")
 		}
+		if s.binding != nil {
+			if err := s.Valid(); err != nil {
+				return nil, err
+			}
+		}
 		fds := []unix.PollFd{{Fd: int32(s.file.Fd()), Events: unix.POLLIN}}
-		count, err := unix.Poll(fds, 100)
+		pollMS := 100
+		if s.binding != nil {
+			if end, ok := ctx.Deadline(); ok {
+				remaining := time.Until(end)
+				if remaining <= 0 {
+					return nil, context.DeadlineExceeded
+				}
+				pollMS = min(pollMS, int((remaining+time.Millisecond-1)/time.Millisecond))
+			}
+		}
+		count, err := unix.Poll(fds, pollMS)
 		if err == unix.EINTR {
 			continue
 		}

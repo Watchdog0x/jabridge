@@ -12,7 +12,18 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      GOMAXPROCS: '4'
+      GOFLAGS: '-p=4'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -28,17 +39,23 @@ jobs:
           make fmt vet test test-static completion-check
           version="$(make -s version)-review.${GITHUB_RUN_NUMBER}"
           echo "REVIEW_VERSION=$version" >> "$GITHUB_ENV"
-          make build VERSION="$version"
+          review_flags="-X github.com/Watchdog0x/jabridge/internal/buildinfo.SelfUpdate=disabled -X github.com/Watchdog0x/jabridge/internal/buildinfo.Setup=disabled"
+          make build VERSION="$version" EXTRA_LDFLAGS="$review_flags"
           test "$(dist/bin/jabridge --version)" = "Jabridge $version"
-      - name: Build arm64
-        run: GOOS=linux GOARCH=arm64 make build BUILD_DIR=dist/arm64 VERSION="$REVIEW_VERSION"
+      - name: Check review-build installation guards
+        run: |
+          temporary_home="$(mktemp -d)"
+          trap 'rm -rf "$temporary_home"' EXIT
+          export HOME="$temporary_home"
+          export JABRIDGE_HISTORY=off
+          if dist/bin/jabridge setup > "$RUNNER_TEMP/review-setup.txt" 2>&1; then exit 1; fi
+          if dist/bin/jabridge update > "$RUNNER_TEMP/review-update.txt" 2>&1; then exit 1; fi
+          test "$(cat "$RUNNER_TEMP/review-setup.txt")" = "jabridge: setup is managed by your package manager; use it to install Jabridge's device access rules and user service"
+          test "$(cat "$RUNNER_TEMP/review-update.txt")" = "jabridge: updates are managed by your package manager; use it to update Jabridge"
+          test -z "$(ls -A "$temporary_home")"
+          test "$(dist/bin/jabridge --version)" = "Jabridge $REVIEW_VERSION"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: jabridge-linux-amd64-review
+          name: jabridge-linux-${{ matrix.arch }}-review
           path: dist/bin/jabridge
-          retention-days: 7
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: jabridge-linux-arm64-review
-          path: dist/arm64/jabridge
           retention-days: 7

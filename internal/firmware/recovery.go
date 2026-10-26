@@ -169,6 +169,11 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 		state.ProductName == "" || state.FirmwareVersion == "" || len(state.TargetUSBPIDs) == 0 || state.Attempt < 1 {
 		return firmwareRecoveryState{}, errors.New("firmware recovery state is incomplete")
 	}
+	if isLink390CSR7Recovery(state) {
+		if err := validLink390CSR7Recovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	}
 	if state.Protocol == 4 && state.SitelDECT != nil {
 		if err := validSitelDECTRecovery(state); err != nil {
 			return firmwareRecoveryState{}, err

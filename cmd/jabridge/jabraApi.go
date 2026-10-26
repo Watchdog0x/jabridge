@@ -1584,7 +1584,6 @@ func connectNewDevice(pairingID uint16) error {
 }
 
 func getPairingList(deviceID uint16) (*pairingList, error) {
-	result := &pairingList{listType: pairedDevices, pairedDevices: make([]pairedDevice, 0)}
 	dongle := deviceForID(deviceID)
 	if dongle == nil || !dongle.isDongle || dongle.hidrawPath == "" {
 		return nil, fmt.Errorf("pairing list unavailable for device %d", deviceID)
@@ -1595,13 +1594,20 @@ func getPairingList(deviceID uint16) (*pairingList, error) {
 	}
 	defer h.close()
 
+	return readPairingList([]byte{0x00, 0x01}, func(op byte, request []byte) ([]byte, error) {
+		return gnpQueryPayloadWithData(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, op, request)
+	})
+}
+
+func readPairingList(bluetoothTypes []byte, query func(byte, []byte) ([]byte, error)) (*pairingList, error) {
+	result := &pairingList{listType: pairedDevices, pairedDevices: make([]pairedDevice, 0)}
 	querySucceeded := false
 	var lastErr error
-	for _, bluetoothType := range []byte{0x00, 0x01} {
+	for _, bluetoothType := range bluetoothTypes {
 		index := uint16(0)
 		for records := 0; records < 256; records++ {
 			request := []byte{byte(index), byte(index >> 8), bluetoothType}
-			namePayload, readErr := gnpQueryPayloadWithData(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpGetDBName, request)
+			namePayload, readErr := query(gnpOpGetDBName, request)
 			if readErr != nil {
 				lastErr = readErr
 				break
@@ -1612,7 +1618,7 @@ func getPairingList(deviceID uint16) (*pairingList, error) {
 				break
 			}
 			if name != "" {
-				recordPayload, recordErr := gnpQueryPayloadWithData(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpGetDBRecord, request)
+				recordPayload, recordErr := query(gnpOpGetDBRecord, request)
 				if recordErr == nil {
 					if device, recordParseErr := parsePairingRecord(name, recordPayload, index, bluetoothType); recordParseErr == nil {
 						result.pairedDevices = append(result.pairedDevices, device)

@@ -1,6 +1,7 @@
 package firmware
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,10 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// ErrControlReadTimeout lets context-aware callers distinguish an idle read
+// from a disconnected or malformed management interface.
+var ErrControlReadTimeout = errors.New("hidraw read timeout")
 
 // Management uses FF00:0001; HID report numbers and sizes come from the
 // descriptor. Firmware flashing retains its separate protocol-specific path.
@@ -164,7 +169,11 @@ type ControlHidraw struct {
 }
 
 func OpenControlHidraw(path string) (*ControlHidraw, error) {
-	fd, err := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	return openControlHidraw(path, unix.O_RDWR)
+}
+
+func openControlHidraw(path string, mode int) (*ControlHidraw, error) {
+	fd, err := unix.Open(path, mode|unix.O_NONBLOCK|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +215,56 @@ func (t *ControlHidraw) Write(report []byte) error {
 	return nil
 }
 
+// WriteContext uses nonblocking syscalls rather than leaving an os.File write
+// waiting beyond cancellation. EAGAIN means no bytes were sent; partial writes
+// fail without replaying the frame.
+func (t *ControlHidraw) WriteContext(ctx context.Context, report []byte) error {
+	frames, err := t.Layout.Encode(report)
+	if err != nil {
+		return err
+	}
+	for _, frame := range frames {
+		for {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			fds := []unix.PollFd{{Fd: int32(t.file.Fd()), Events: unix.POLLOUT}}
+			wait := 50 * time.Millisecond
+			if end, ok := ctx.Deadline(); ok {
+				wait = min(wait, time.Until(end))
+			}
+			if wait <= 0 {
+				return context.DeadlineExceeded
+			}
+			n, err := unix.Poll(fds, int((wait+time.Millisecond-1)/time.Millisecond))
+			if errors.Is(err, unix.EINTR) || err == nil && n == 0 {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+				return errors.New("management device disconnected")
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			n, err = unix.Write(int(t.file.Fd()), frame)
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EINTR) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if n != len(frame) {
+				return errors.New("short management write; frame was not retried")
+			}
+			break
+		}
+	}
+	return nil
+}
+
 func (t *ControlHidraw) Read(timeout time.Duration) ([]byte, error) {
 	deadline := time.Now().Add(timeout)
 	assembler := controlAssembler{layout: t.Layout}
@@ -213,7 +272,7 @@ func (t *ControlHidraw) Read(timeout time.Duration) ([]byte, error) {
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return nil, errors.New("hidraw read timeout")
+			return nil, ErrControlReadTimeout
 		}
 		fds := []unix.PollFd{{Fd: int32(t.file.Fd()), Events: unix.POLLIN}}
 		n, err := unix.Poll(fds, int((remaining+time.Millisecond-1)/time.Millisecond))
@@ -224,7 +283,7 @@ func (t *ControlHidraw) Read(timeout time.Duration) ([]byte, error) {
 			return nil, err
 		}
 		if n == 0 {
-			return nil, errors.New("hidraw read timeout")
+			return nil, ErrControlReadTimeout
 		}
 		if fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
 			return nil, errors.New("management device disconnected")
