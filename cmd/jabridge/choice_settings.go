@@ -164,15 +164,17 @@ var headsetChoiceSettingDefinitions = []choiceSettingDefinition{
 	},
 	{
 		Key: "auto-sleep", Label: "Auto sleep", Scope: settingScopeHeadset,
+		// Jabra Plus labels AUTO_SLEEP sleep1..sleep7 as 15 min through
+		// 8 hours (#56). Keep the catalog and wire values unchanged.
 		Class: gnpClassConfig, Op: 0x90, Choices: []settingChoice{
 			{Name: "Never", Raw: 0, CatalogValue: "0"},
-			{Name: "30 min", Raw: 3, CatalogValue: "3"},
-			{Name: "1 hour", Raw: 6, CatalogValue: "6"},
-			{Name: "2 hours", Raw: 12, CatalogValue: "12"},
-			{Name: "4 hours", Raw: 24, CatalogValue: "24"},
-			{Name: "8 hours", Raw: 48, CatalogValue: "48"},
-			{Name: "12 hours", Raw: 72, CatalogValue: "72"},
-			{Name: "16 hours", Raw: 96, CatalogValue: "96"},
+			{Name: "15 min", Raw: 3, CatalogValue: "3"},
+			{Name: "30 min", Raw: 6, CatalogValue: "6"},
+			{Name: "1 hour", Raw: 12, CatalogValue: "12"},
+			{Name: "2 hours", Raw: 24, CatalogValue: "24"},
+			{Name: "4 hours", Raw: 48, CatalogValue: "48"},
+			{Name: "6 hours", Raw: 72, CatalogValue: "72"},
+			{Name: "8 hours", Raw: 96, CatalogValue: "96"},
 		}, CatalogProperties: []string{"inactivityDelay"}, Writable: true,
 	},
 	{

@@ -194,6 +194,11 @@ enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
 
 ### Setting validation
 
+`choice_settings.go` shares choice names between the menu, command line and
+IPC. Auto-sleep labels match Jabra Plus's 15-minute to 8-hour choices; catalog
+values still filter the supported raw bytes for each model. Bash completion
+mirrors these names, with regression tests for both settings and IPC commands.
+
 `settings.go` requires both write support and `validatedForDongle` for each
 dongle setting. Only auto-pairing is writable on the tested Link 390; its
 other settings remain read-only as described in the [test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).

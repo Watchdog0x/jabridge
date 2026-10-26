@@ -87,7 +87,7 @@ _jabridge_completion() {
                         mapfile -t COMPREPLY < <(compgen -W 'basic-peakstop level-1 level-2 level-3 level-4 g616' -- "$current")
                         ;;
                     auto-sleep)
-                        mapfile -t COMPREPLY < <(compgen -W 'never 30-min 1-hour 2-hours 4-hours 8-hours 12-hours 16-hours' -- "$current")
+                        mapfile -t COMPREPLY < <(compgen -W 'never 15-min 30-min 1-hour 2-hours 4-hours 6-hours 8-hours' -- "$current")
                         ;;
                     mute-reminder)
                         mapfile -t COMPREPLY < <(compgen -W 'off 10-seconds 20-seconds 30-seconds 40-seconds 50-seconds 60-seconds' -- "$current")
@@ -163,7 +163,7 @@ _jabridge_completion() {
                         mapfile -t COMPREPLY < <(compgen -W 'basic-peakstop level-1 level-2 level-3 level-4 g616' -- "$current")
                         ;;
                     headset.auto-sleep)
-                        mapfile -t COMPREPLY < <(compgen -W 'never 30-min 1-hour 2-hours 4-hours 8-hours 12-hours 16-hours' -- "$current")
+                        mapfile -t COMPREPLY < <(compgen -W 'never 15-min 30-min 1-hour 2-hours 4-hours 6-hours 8-hours' -- "$current")
                         ;;
                     headset.mute-reminder)
                         mapfile -t COMPREPLY < <(compgen -W 'off 10-seconds 20-seconds 30-seconds 40-seconds 50-seconds 60-seconds' -- "$current")

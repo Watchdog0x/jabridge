@@ -1,6 +1,116 @@
 package main
 
-import "testing"
+import (
+	"os/exec"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/Watchdog0x/jabridge/internal/completion"
+)
+
+// Issue #56 reports these durations from Jabra Plus. The exact Evolve3 65
+// profile maps sleep1..sleep7 to 3, 6, 12, 24, 48, 72, 96 respectively.
+func TestAutoSleepDurationsAndCLIValues(t *testing.T) {
+	definition := autoSleepDefinitionForTest(t)
+	want := []settingChoice{
+		{Name: "Never", Raw: 0, CatalogValue: "0"},
+		{Name: "15 min", Raw: 3, CatalogValue: "3"},
+		{Name: "30 min", Raw: 6, CatalogValue: "6"},
+		{Name: "1 hour", Raw: 12, CatalogValue: "12"},
+		{Name: "2 hours", Raw: 24, CatalogValue: "24"},
+		{Name: "4 hours", Raw: 48, CatalogValue: "48"},
+		{Name: "6 hours", Raw: 72, CatalogValue: "72"},
+		{Name: "8 hours", Raw: 96, CatalogValue: "96"},
+	}
+	if len(definition.Choices) != len(want) {
+		t.Fatalf("auto-sleep choices = %v, want %v", definition.Choices, want)
+	}
+	for index, expected := range want {
+		t.Run(expected.Name, func(t *testing.T) {
+			if got := definition.Choices[index]; got != expected {
+				t.Errorf("choice = %#v, want %#v", got, expected)
+			}
+			value := choiceSettingValue{Definition: definition, ChoiceIndex: index, Raw: expected.Raw}
+			if got := choiceSettingName(value); got != expected.Name {
+				t.Errorf("shown duration for raw %d = %q, want %q", expected.Raw, got, expected.Name)
+			}
+			for _, input := range []string{expected.Name, choiceValueToken(expected.Name), expected.CatalogValue} {
+				got, ok := findChoiceIndex(definition, input)
+				if !ok || definition.Choices[got].Raw != expected.Raw {
+					t.Errorf("%q did not select raw %d", input, expected.Raw)
+				}
+			}
+		})
+	}
+	for _, invalid := range []string{"12-hours", "16-hours"} {
+		if _, ok := findChoiceIndex(definition, invalid); ok {
+			t.Errorf("accepted old incorrect duration %q", invalid)
+		}
+	}
+}
+
+func TestAutoSleepCatalogProfilesKeepRawValues(t *testing.T) {
+	definition := autoSleepDefinitionForTest(t)
+	// Official AUTO_SLEEP profiles: Evolve3 65 2549/01-A3/1.0.1,
+	// Evolve2 75, Evolve2 85 24bb/01-67/1.5.7, and Evolve3 85.
+	profiles := map[string][]string{
+		"Evolve3 65": {"3", "6", "12", "24", "48", "72", "96", "0"},
+		"Evolve2 75": {"3", "96", "6", "24", "48", "72", "12", "0"},
+		"Evolve2 85": {"72", "3", "48", "6", "0", "24", "96", "12"},
+		"Evolve3 85": {"96", "24", "12", "0", "3", "72", "6", "48"},
+	}
+	for name, values := range profiles {
+		t.Run(name, func(t *testing.T) {
+			if got := choicesAllowedByCatalog(definition.Choices, values); !slices.Equal(got, definition.Choices) {
+				t.Fatalf("catalog filtering changed raw choices: %v", got)
+			}
+		})
+	}
+	limited := choicesAllowedByCatalog(definition.Choices, []string{"3", "24", "255"})
+	if len(limited) != 2 || limited[0].Name != "15 min" || limited[0].Raw != 3 || limited[1].Name != "2 hours" || limited[1].Raw != 24 {
+		t.Fatalf("limited profile = %v; must keep only the supported 15-min and 2-hour choices", limited)
+	}
+	if got := choicesAllowedByCatalog(definition.Choices, nil); len(got) != 0 {
+		t.Fatalf("offered choices without catalog support: %v", got)
+	}
+}
+
+func TestAutoSleepBashCompletionMatchesChoices(t *testing.T) {
+	want := []string{"never", "15-min", "30-min", "1-hour", "2-hours", "4-hours", "6-hours", "8-hours"}
+	for _, command := range []struct {
+		name  string
+		words string
+		index string
+	}{
+		{"settings", "jabridge settings set headset.auto-sleep ''", "4"},
+		{"ipc", "jabridge ipc set headset auto-sleep ''", "5"},
+	} {
+		t.Run(command.name, func(t *testing.T) {
+			script := completion.JabridgeBash + "\nCOMP_WORDS=(" + command.words + ")\nCOMP_CWORD=" + command.index + "\n_jabridge_completion\nprintf '%s\\n' \"${COMPREPLY[@]}\"\n"
+			cmd := exec.Command("bash", "--noprofile", "--norc")
+			cmd.Stdin = strings.NewReader(script)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("completion: %v\n%s", err, out)
+			}
+			if got := strings.Fields(string(out)); !slices.Equal(got, want) {
+				t.Fatalf("completion = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func autoSleepDefinitionForTest(t *testing.T) choiceSettingDefinition {
+	t.Helper()
+	for _, definition := range headsetChoiceSettingDefinitions {
+		if definition.Key == "auto-sleep" {
+			return definition
+		}
+	}
+	t.Fatal("auto-sleep definition missing")
+	return choiceSettingDefinition{}
+}
 
 func TestSignedRangeChoices(t *testing.T) {
 	choices := signedRangeChoices(-2, 1, " dB")

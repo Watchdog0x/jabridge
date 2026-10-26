@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Fix doubled auto-sleep times in the menu and command line (#56). The choices
+now run from 15 minutes to 8 hours, matching Jabra Plus. Bash completion uses
+the same names. For example, `auto-sleep 30-min` now selects raw value 6 for
+30 minutes; it previously selected raw value 3 for 15 minutes. The device
+commands and catalog values are unchanged.
+
 Prepare a Link 390 pairing fix for USB ID 0b0e:2e57. Search includes classic
 Bluetooth and Bluetooth LE, keeps both choices visible, stops both searches
 before pairing, and uses the connection type the user selected. Connection
