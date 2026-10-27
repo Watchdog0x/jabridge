@@ -194,6 +194,30 @@ enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
 
 ### Setting validation
 
+`equalizer.go` validates the five bands against the exact model's static
+frequencies, Q and gain limits. Each row exposes half-dB choices, while encoding
+preserves the master gain and every other band's freshly read raw fields.
+`choice_payload.go` owns the shared codec contract and a cache scoped to one
+settings snapshot, so five EQ rows need one device query. It never caches writes.
+Unknown layouts show one generic read-only Equalizer row instead of guessing
+band frequencies. Other structured controls retain their own unavailable row.
+
+The equalizer editor in `tui_settings_editor.go` shows the actual current level,
+starts near it even when it is between steps, and uses arrows for 1 dB or
+Shift+arrows for 0.5 dB. It reserves separate rows for current value, step hints,
+the scroll window and Save/Cancel, including at 40×20.
+An invalid current value defaults to 0 dB, and Enter without moving an off-step
+selection makes no change.
+
+`settings_transaction.go` holds shared device access before taking the separate
+settings-write lease. Only read-modify-write operations take this nonblocking
+cross-process lock; scalar writes and normal reads keep their existing path.
+The lease lasts through full readback and prevents overlapping Jabridge changes
+from overwriting another band or preserved field. Firmware keeps its own lock.
+New power-saving and structured writes also verify the bound firmware version
+on their held transport, because a headset behind a dongle can update without
+changing the dongle's USB attachment. No new check is added to old scalar writes.
+
 `noise_cycle.go` validates the model's button-cycle members and encodes its
 length-prefixed list. It keeps existing mode order and appends newly selected
 modes in the vendor's order. Empty, duplicate and unknown modes are refused.

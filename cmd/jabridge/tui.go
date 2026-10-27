@@ -36,6 +36,8 @@ const (
 	keyEscape
 	keyBackspace
 	keyClearText
+	keyFineUp
+	keyFineDown
 )
 
 const keyRuneBase keyEvent = 0x110000
@@ -271,9 +273,17 @@ func (d *keyDecoder) feed(input []byte) []keyEvent {
 			parameters := string(d.pending[2:end])
 			switch d.pending[end] {
 			case 'A':
-				events = append(events, keyUp)
+				if parameters == "1;2" {
+					events = append(events, keyFineUp)
+				} else {
+					events = append(events, keyUp)
+				}
 			case 'B':
-				events = append(events, keyDown)
+				if parameters == "1;2" {
+					events = append(events, keyFineDown)
+				} else {
+					events = append(events, keyDown)
+				}
 			case '~':
 				if parameters == "200" {
 					d.pasting = true
@@ -344,6 +354,12 @@ func (d *keyDecoder) flushEscape(now time.Time) keyEvent {
 }
 
 func navigationKey(event keyEvent) keyEvent {
+	if event == keyFineUp {
+		return keyUp
+	}
+	if event == keyFineDown {
+		return keyDown
+	}
 	if event >= keyPasteBase {
 		return keyNone
 	}

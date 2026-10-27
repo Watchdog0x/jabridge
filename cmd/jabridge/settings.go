@@ -41,6 +41,7 @@ type boolSettingDefinition struct {
 	TrueRaw               byte
 	TrueUnlessFalse       bool
 	RequireExactProfile   bool
+	ExpectedFirmware      string
 	RequireBooleanChoices bool
 	BitMask               byte
 	PreservePayload       bool
@@ -559,6 +560,16 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 	if !canEditBoolSetting(device, definition) {
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
 	}
+	if definition.RequireExactProfile && definition.ExpectedFirmware == "" {
+		return errors.New("headset firmware profile is unavailable; reopen Settings")
+	}
+	if definition.PreservePayload {
+		release, err := beginSettingTransaction()
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	payload := encodeBoolSettingPayload(definition, value)
 	if definition.PreservePayload {
 		current, err := readBoolSettingPayload(device, definition)
@@ -575,13 +586,25 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 		}
 	}
 	op := startSettingWriteEvidence(device, definition.Key)
-	if err := writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
-		return fmt.Errorf("write %s: %w", definition.Key, err)
+	var writeErr error
+	if definition.RequireExactProfile {
+		if definition.NeedsConfigMode {
+			return errors.New("this firmware profile needs an unsupported configuration mode")
+		}
+		writeErr = writeProfiledSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.ExpectedFirmware)
+	} else {
+		writeErr = writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode)
+	}
+	if writeErr != nil {
+		return fmt.Errorf("write %s: %w", definition.Key, writeErr)
 	}
 
 	readBack, err := readBoolSettingWithRetry(device, definition)
 	if err == nil {
 		err = verifySettingReadbackPart(device, definition.Key, definition.Destination)
+	}
+	if err == nil && definition.RequireExactProfile {
+		err = verifyProfiledSettingReadback(device, definition.Key, definition.Destination, definition.ExpectedFirmware)
 	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
@@ -769,6 +792,9 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 			continue
 		}
 		seen[definition.Key] = struct{}{}
+		if definition.RequireExactProfile && capabilities != nil && capabilities.ExactFirmwareProfile {
+			definition.ExpectedFirmware = capabilities.Firmware
+		}
 		values = append(values, boolSettingValue{
 			Definition: definition,
 			Value:      value,

@@ -1,3 +1,22 @@
+_jabridge_equalizer_completion() {
+    local half amount sign value
+    local -a values=()
+    for ((half=-72; half<=24; half++)); do
+        sign=''
+        amount=$half
+        if (( amount < 0 )); then
+            sign='-'
+            amount=$((-amount))
+        fi
+        value="${sign}$((amount / 2))"
+        if (( amount % 2 )); then
+            value+='.5'
+        fi
+        values+=("$value")
+    done
+    mapfile -t COMPREPLY < <(compgen -W "${values[*]}" -- "$1")
+}
+
 _jabridge_completion() {
     local current
     current="${COMP_WORDS[COMP_CWORD]}"
@@ -50,7 +69,7 @@ _jabridge_completion() {
                 elif [[ "${COMP_WORDS[3]}" == "controller" ]]; then
                     mapfile -t COMPREPLY < <(compgen -W 'controller-name controller-ringtone controller-ringer-volume smart-ringer call-button mute-button three-dot-button four-dot-button speed-dial speed-dial-2' -- "$current")
                 else
-                    mapfile -t COMPREPLY < <(compgen -W 'noise-control noise-cycle hearthrough-level answer-on-undock wind-noise-reduction spatial-call-audio spatial-media-audio sidetone in-call-busylight on-head-detection music-mode auto-answer-on-head auto-pause-music reverse-stereo smart-ringer boom-arm-answer auto-reject-call button-sounds firmware-upgrade-lock prioritize-computer-audio headset-ringer headset-name device-name controller-name bluetooth-name speed-dial speed-dial-2 softphone-integration intellitone-level sidetone-level voice-prompts controller-ringer-volume controller-ringtone boom-arm-action boom-arm-guidance audio-protection auto-sleep power-saving mute-reminder sound-mode call-button mute-button three-dot-button four-dot-button' -- "$current")
+                    mapfile -t COMPREPLY < <(compgen -W 'noise-control noise-cycle hearthrough-level answer-on-undock wind-noise-reduction spatial-call-audio spatial-media-audio sidetone in-call-busylight on-head-detection music-mode auto-answer-on-head auto-pause-music reverse-stereo smart-ringer boom-arm-answer auto-reject-call button-sounds firmware-upgrade-lock prioritize-computer-audio headset-ringer headset-name device-name controller-name bluetooth-name speed-dial speed-dial-2 softphone-integration intellitone-level sidetone-level voice-prompts controller-ringer-volume controller-ringtone boom-arm-action boom-arm-guidance audio-protection auto-sleep power-saving equalizer-60hz equalizer-250hz equalizer-1khz equalizer-4khz equalizer-7.6khz mute-reminder sound-mode call-button mute-button three-dot-button four-dot-button' -- "$current")
                 fi
                 return
             fi
@@ -85,6 +104,9 @@ _jabridge_completion() {
                         ;;
                     audio-protection)
                         mapfile -t COMPREPLY < <(compgen -W 'basic-peakstop level-1 level-2 level-3 level-4 g616' -- "$current")
+                        ;;
+                    equalizer-60hz|equalizer-250hz|equalizer-1khz|equalizer-4khz|equalizer-7.6khz)
+                        _jabridge_equalizer_completion "$current"
                         ;;
                     noise-cycle)
                         mapfile -t COMPREPLY < <(compgen -W 'off hearthrough anc off,hearthrough off,anc hearthrough,anc off,hearthrough,anc' -- "$current")
@@ -127,7 +149,7 @@ _jabridge_completion() {
                 return
             fi
             if [[ "${COMP_WORDS[2]}" == "set" && $COMP_CWORD -eq 3 ]]; then
-                mapfile -t COMPREPLY < <(compgen -W 'dongle.auto-pairing dongle.prioritize-computer-audio dongle.dedicated-call dongle.bluetooth-radio dongle.softphone-integration headset.noise-control headset.noise-cycle headset.hearthrough-level headset.answer-on-undock headset.wind-noise-reduction headset.spatial-call-audio headset.spatial-media-audio headset.sidetone headset.in-call-busylight headset.on-head-detection headset.music-mode headset.auto-answer-on-head headset.auto-pause-music headset.reverse-stereo headset.smart-ringer headset.boom-arm-answer headset.auto-reject-call headset.button-sounds headset.firmware-upgrade-lock headset.prioritize-computer-audio headset.headset-ringer headset.headset-name headset.device-name headset.controller-name headset.bluetooth-name headset.speed-dial headset.speed-dial-2 headset.softphone-integration headset.intellitone-level headset.sidetone-level headset.voice-prompts headset.controller-ringer-volume headset.controller-ringtone headset.boom-arm-action headset.boom-arm-guidance headset.audio-protection headset.auto-sleep headset.power-saving headset.mute-reminder headset.sound-mode headset.call-button headset.mute-button headset.three-dot-button headset.four-dot-button' -- "$current")
+                mapfile -t COMPREPLY < <(compgen -W 'dongle.auto-pairing dongle.prioritize-computer-audio dongle.dedicated-call dongle.bluetooth-radio dongle.softphone-integration headset.noise-control headset.noise-cycle headset.hearthrough-level headset.answer-on-undock headset.wind-noise-reduction headset.spatial-call-audio headset.spatial-media-audio headset.sidetone headset.in-call-busylight headset.on-head-detection headset.music-mode headset.auto-answer-on-head headset.auto-pause-music headset.reverse-stereo headset.smart-ringer headset.boom-arm-answer headset.auto-reject-call headset.button-sounds headset.firmware-upgrade-lock headset.prioritize-computer-audio headset.headset-ringer headset.headset-name headset.device-name headset.controller-name headset.bluetooth-name headset.speed-dial headset.speed-dial-2 headset.softphone-integration headset.intellitone-level headset.sidetone-level headset.voice-prompts headset.controller-ringer-volume headset.controller-ringtone headset.boom-arm-action headset.boom-arm-guidance headset.audio-protection headset.auto-sleep headset.power-saving headset.equalizer-60hz headset.equalizer-250hz headset.equalizer-1khz headset.equalizer-4khz headset.equalizer-7.6khz headset.mute-reminder headset.sound-mode headset.call-button headset.mute-button headset.three-dot-button headset.four-dot-button' -- "$current")
                 mapfile -t -O "${#COMPREPLY[@]}" COMPREPLY < <(compgen -W 'controller.controller-name controller.controller-ringtone controller.controller-ringer-volume controller.smart-ringer controller.call-button controller.mute-button controller.three-dot-button controller.four-dot-button controller.speed-dial controller.speed-dial-2' -- "$current")
                 return
             fi
@@ -164,6 +186,9 @@ _jabridge_completion() {
                         ;;
                     headset.audio-protection)
                         mapfile -t COMPREPLY < <(compgen -W 'basic-peakstop level-1 level-2 level-3 level-4 g616' -- "$current")
+                        ;;
+                    headset.equalizer-60hz|headset.equalizer-250hz|headset.equalizer-1khz|headset.equalizer-4khz|headset.equalizer-7.6khz)
+                        _jabridge_equalizer_completion "$current"
                         ;;
                     headset.noise-cycle)
                         mapfile -t COMPREPLY < <(compgen -W 'off hearthrough anc off,hearthrough off,anc hearthrough,anc off,hearthrough,anc' -- "$current")

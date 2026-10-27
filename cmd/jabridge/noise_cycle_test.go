@@ -24,6 +24,26 @@ func TestNoiseCycleSettingIsSeparateFromNoiseControl(t *testing.T) {
 	t.Fatal("noise control button cycle is missing")
 }
 
+func FuzzNoiseCycleReply(f *testing.F) {
+	codec, _, err := (noiseCycleCodec{}).BindProperty(noiseCyclePropertyForTest())
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add([]byte{3, 2, 1, 0})
+	f.Add([]byte{1, 0})
+	f.Add([]byte{0})
+	f.Fuzz(func(t *testing.T, payload []byte) {
+		id, _, err := codec.Decode(payload)
+		if err != nil {
+			return
+		}
+		encoded, err := codec.Encode(payload, id)
+		if err != nil || !bytes.Equal(encoded, payload) {
+			t.Fatal("valid cycle changed on a no-op", err)
+		}
+	})
+}
+
 func TestNoiseCycleBashCompletion(t *testing.T) {
 	values := []string{"off", "hearthrough", "anc", "off,hearthrough", "off,anc", "hearthrough,anc", "off,hearthrough,anc"}
 	for _, test := range []struct {

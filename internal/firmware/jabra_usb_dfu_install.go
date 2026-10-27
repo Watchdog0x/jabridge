@@ -415,6 +415,17 @@ func AcquireDeviceAccess() (*os.File, error) {
 }
 
 func acquireDeviceLease(mode int) (*os.File, error) {
+	return acquireNamedDeviceLease(mode, ".lock", "device access is busy in another Jabridge process; wait for the current operation to finish")
+}
+
+// AcquireSettingsWriteLease serializes read-modify-write settings transactions
+// across the service and command-line processes. Callers hold a shared device
+// lease first, then close this lease before releasing that shared access.
+func AcquireSettingsWriteLease() (*os.File, error) {
+	return acquireNamedDeviceLease(unix.LOCK_EX, ".settings.lock", "another Jabridge change is in progress; try again")
+}
+
+func acquireNamedDeviceLease(mode int, suffix, busyMessage string) (*os.File, error) {
 	path, err := firmwareRecoveryStatePath()
 	if err != nil {
 		return nil, err
@@ -422,14 +433,14 @@ func acquireDeviceLease(mode int) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	fd, err := unix.Open(strings.TrimSuffix(path, ".json")+".lock", unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+	fd, err := unix.Open(strings.TrimSuffix(path, ".json")+suffix, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	file := os.NewFile(uintptr(fd), path+".lock")
+	file := os.NewFile(uintptr(fd), path+suffix)
 	if err := unix.Flock(fd, mode|unix.LOCK_NB); err != nil {
 		_ = file.Close()
-		return nil, errors.New("device access is busy in another Jabridge process; wait for the current operation to finish")
+		return nil, errors.New(busyMessage)
 	}
 	return file, nil
 }

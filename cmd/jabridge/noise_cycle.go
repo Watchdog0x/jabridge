@@ -9,16 +9,6 @@ import (
 	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
-// Structured settings still appear as ordinary choices to CLI, IPC and TUI.
-// Their IDs describe choices, not bytes to send. Encode always receives a
-// fresh device reply, and Verify checks the complete resulting setting.
-type choicePayloadCodec interface {
-	BindProperty(modelcatalog.Property) (choicePayloadCodec, []settingChoice, error)
-	Decode([]byte) (byte, string, error)
-	Encode(current []byte, choice byte) ([]byte, error)
-	Verify(written, read []byte) error
-}
-
 type noiseCycleCodec struct{ modes byte }
 
 func (noiseCycleCodec) BindProperty(property modelcatalog.Property) (choicePayloadCodec, []settingChoice, error) {
@@ -121,9 +111,18 @@ func (codec noiseCycleCodec) Verify(written, read []byte) error {
 		return err
 	}
 	if !bytes.Equal(written, read) {
-		return errors.New("headset returned a different noise button cycle")
+		var actual []string
+		labels := []string{"Off", "HearThrough", "ANC"}
+		for _, mode := range read[1:] {
+			actual = append(actual, labels[mode])
+		}
+		return fmt.Errorf("headset returned %s; the requested noise button order was not confirmed", strings.Join(actual, ", "))
 	}
 	return nil
+}
+
+func (noiseCycleCodec) ParseChoice(value string) (byte, error) {
+	return noiseCycleSelection(value)
 }
 
 func noiseCycleSelection(value string) (byte, error) {

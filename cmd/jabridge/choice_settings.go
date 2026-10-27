@@ -34,6 +34,7 @@ type choiceSettingDefinition struct {
 	PreservePayload     bool
 	ProbeWithoutCatalog bool
 	Codec               choicePayloadCodec
+	ExpectedFirmware    string
 }
 
 type choiceSettingValue struct {
@@ -267,7 +268,7 @@ func ringtoneChoices() []settingChoice {
 
 func choiceSettingDefinitions(scope settingScope) []choiceSettingDefinition {
 	if scope == settingScopeHeadset {
-		return headsetChoiceSettingDefinitions
+		return append(append([]choiceSettingDefinition(nil), headsetChoiceSettingDefinitions...), equalizerDefinitions()...)
 	}
 	return nil
 }
@@ -339,13 +340,23 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 	if !setting.Editable || choiceIndex < 0 || choiceIndex >= len(definition.Choices) {
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
 	}
+	if definition.Codec != nil && definition.ExpectedFirmware == "" {
+		return errors.New("headset firmware profile is unavailable; reopen Settings")
+	}
+	if definition.Codec != nil || definition.PreservePayload {
+		release, err := beginSettingTransaction()
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	payload := append(append([]byte(nil), definition.WritePrefix...), definition.Choices[choiceIndex].Raw)
 	if definition.Codec != nil {
 		current, err := readChoiceSettingPayload(device, definition)
 		if err != nil {
 			return fmt.Errorf("read %s before write: %w", definition.Key, err)
 		}
-		payload, err = definition.Codec.Encode(current, definition.Choices[choiceIndex].Raw)
+		payload, err = encodeStructuredChoice(setting, definition.Choices[choiceIndex].Raw, current)
 		if err != nil {
 			return fmt.Errorf("setting %s: %w", definition.Key, err)
 		}
@@ -361,8 +372,17 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 		}
 	}
 	op := startSettingWriteEvidence(device, definition.Key)
-	if err := writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
-		return fmt.Errorf("write %s: %w", definition.Key, err)
+	var writeErr error
+	if definition.Codec != nil {
+		if definition.NeedsConfigMode {
+			return errors.New("structured setting needs an unsupported configuration mode")
+		}
+		writeErr = writeProfiledSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.ExpectedFirmware)
+	} else {
+		writeErr = writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode)
+	}
+	if writeErr != nil {
+		return fmt.Errorf("write %s: %w", definition.Key, writeErr)
 	}
 	readBack, err := readChoiceSettingWithRetry(device, definition)
 	if err == nil {
@@ -370,6 +390,9 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 	}
 	if err == nil && definition.Codec != nil {
 		err = definition.Codec.Verify(payload, []byte(readBack.Payload))
+	}
+	if err == nil && definition.Codec != nil {
+		err = verifyProfiledSettingReadback(device, definition.Key, definition.Destination, definition.ExpectedFirmware)
 	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
@@ -409,7 +432,13 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 	values := make([]choiceSettingValue, 0, len(definitions))
 	capabilities, catalogErr := lookupDeviceModel(device)
 	seen := make(map[string]struct{})
+	reads := make(choiceSnapshotReads)
 	for _, definition := range definitions {
+		if isEqualizerBand(definition.Key) {
+			if _, unavailable := seen["equalizer"]; unavailable {
+				continue
+			}
+		}
 		if _, exists := seen[definition.Key]; exists {
 			continue
 		}
@@ -418,10 +447,14 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 			if !supported {
 				continue
 			}
-			definition, supported = choiceSettingForCatalog(definition, property, capabilities.ExactFirmwareProfile)
+			bound, supported := choiceSettingForCatalog(definition, property, capabilities.ExactFirmwareProfile)
 			if !supported {
+				if definition.Codec != nil {
+					values = appendUnavailableChoice(values, seen, definition, "Not supported on this firmware")
+				}
 				continue
 			}
+			definition = bound
 			definition = presentVoiceGuidance(device, definition)
 		} else if definition.ProbeWithoutCatalog {
 			// A current device-model profile is needed before Jabridge can
@@ -431,10 +464,17 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 		} else {
 			continue
 		}
-		value, err := readChoiceSetting(device, definition)
+		value, err := readChoiceSettingFromSnapshot(definition, reads, func() ([]byte, error) {
+			return readChoiceSettingPayload(device, definition)
+		})
 		if err == nil {
+			if definition.Codec != nil && capabilities != nil && capabilities.ExactFirmwareProfile {
+				value.Definition.ExpectedFirmware = capabilities.Firmware
+			}
 			seen[definition.Key] = struct{}{}
 			values = append(values, value)
+		} else if definition.Codec != nil {
+			values = appendUnavailableChoice(values, seen, definition, "Unavailable")
 		}
 	}
 	return values
@@ -501,13 +541,13 @@ func nextChoiceIndex(setting choiceSettingValue) (int, error) {
 }
 
 func findChoiceIndex(definition choiceSettingDefinition, name string) (int, bool) {
-	if _, ok := definition.Codec.(noiseCycleCodec); ok {
-		mask, err := noiseCycleSelection(name)
+	if definition.Codec != nil {
+		id, err := definition.Codec.ParseChoice(name)
 		if err != nil {
 			return 0, false
 		}
 		for index, choice := range definition.Choices {
-			if choice.Raw == mask {
+			if choice.Raw == id {
 				return index, true
 			}
 		}

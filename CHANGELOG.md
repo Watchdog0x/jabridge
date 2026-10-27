@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Add five equalizer band controls for matching headset profiles. The menu,
+commands and Bash completion support half-dB values within the headset's limits.
+The menu shows the current level and supports 1 dB arrow steps or 0.5 dB with
+Shift. Changing one band preserves the other bands and checks the full readback.
+Unsupported layouts stay read-only. Overlapping changes to structured or masked
+settings are blocked while another change is in progress.
+
 Add a Noise control button cycle setting for supported headset profiles.
 Choose which modes the button cycles through, with one or more modes enabled.
 The menu, commands and Bash suggestions use the same choices. Changes keep
