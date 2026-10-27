@@ -18,16 +18,17 @@ type csrStageIO interface {
 }
 
 type csrExtendedStage struct {
-	Partition  byte
-	Image      []byte
-	Version    [3]byte
-	Address    byte
-	ReportSize int
-	ChunkBytes int // explicit negotiated limit, not inferred from HID size
-	Preload    uint16
-	Timeout    time.Duration
-	Protocol7  bool // monolithic Link 390: 16-bit count, 52 bytes, final batch ACK
-	Language   uint16
+	Partition     byte
+	Image         []byte
+	Version       [3]byte
+	Address       byte
+	ReportSize    int
+	ChunkBytes    int // explicit negotiated limit, not inferred from HID size
+	Preload       uint16
+	Timeout       time.Duration
+	Protocol7     bool // monolithic Link 390: 16-bit count, 52 bytes, final batch ACK
+	SplitLanguage bool // new protocol-17 tunes policy; legacy 16/17 stays unchanged
+	Language      uint16
 }
 
 type csrStageTransfer struct {
@@ -57,9 +58,15 @@ func (session *csrStageTransfer) transfer(ctx context.Context, stage csrExtended
 	if stage.Protocol7 && (stage.Address != 1 || stage.ChunkBytes != 52 || stage.Language == 0) {
 		return errors.New("invalid monolithic protocol-7 stage")
 	}
+	if stage.SplitLanguage && (stage.Protocol7 || stage.ChunkBytes != 52 || stage.Language == 0) {
+		return errors.New("invalid protocol-17 language stage")
+	}
 	count, err := otaChunkCountForPayload(len(stage.Image), stage.ChunkBytes, !stage.Protocol7)
 	if err != nil {
 		return err
+	}
+	if stage.SplitLanguage && count > 65535 {
+		return errors.New("voice pack exceeds the qualified block-index range")
 	}
 	header, err := otaCRCHeader(csrImageCRC(stage.Image), count, stage.Preload, !stage.Protocol7)
 	if err != nil {
@@ -90,7 +97,7 @@ func (session *csrStageTransfer) transfer(ctx context.Context, stage csrExtended
 			return fmt.Errorf("CSR block %d: %w", logical, err)
 		}
 		session.sent++
-		if logical%uint32(stage.Preload) == 0 || stage.Protocol7 && logical+1 == count {
+		if logical%uint32(stage.Preload) == 0 || (stage.Protocol7 || stage.SplitLanguage) && logical+1 == count {
 			match := func(body []byte) bool {
 				got, bits, err := decodeOTAPreload(body)
 				return err == nil && (bits == 32 && got == logical || bits == 16 && got == uint32(uint16(logical)))
@@ -107,7 +114,7 @@ func (session *csrStageTransfer) transfer(ctx context.Context, stage csrExtended
 		return err
 	}
 	version := append([]byte(nil), stage.Version[:]...)
-	if stage.Protocol7 {
+	if stage.Protocol7 || stage.SplitLanguage {
 		version = append(version, byte(stage.Language), byte(stage.Language>>8))
 	}
 	return session.command(ctx, OtaOpWriteFwVersion, version)
@@ -247,7 +254,7 @@ func (s *csrStageTransfer) query(ctx context.Context, class, opcode byte) ([]byt
 
 func (s *csrStageTransfer) waitEvent(ctx context.Context, opcode byte, matches func([]byte) bool) error {
 	timeout := s.stage.Timeout
-	if s.stage.Protocol7 {
+	if s.stage.Protocol7 || s.stage.SplitLanguage {
 		// Vendor ProtocolConfiguration defaults for this new path. Existing
 		// extended paths retain their previous timeout policy.
 		switch opcode {

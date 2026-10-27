@@ -23,6 +23,11 @@ var uiResultContext = context.Background() // captured by workers before startin
 func currentUIResultContext() context.Context { return uiResultContext }
 
 func sendUIResult(ctx context.Context, results chan<- actionResult, result actionResult) {
+	if ctx.Err() != nil {
+		endUIActivity(result.activityID)
+		return
+	}
+	result.originContext = ctx
 	select {
 	case results <- result:
 	case <-ctx.Done():

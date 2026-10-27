@@ -717,7 +717,7 @@ func isKnownDonglePID(pid uint16) bool {
 func supportsValidatedPairingReads(pid uint16) bool {
 	switch pid {
 	case 0x24c7, 0x24c8, // Link 380
-		0x2e57: // Link 390
+		0x2e56, 0x2e57: // Link 390; 2e56 is a read-only preview.
 		return true
 	}
 	return false

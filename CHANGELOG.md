@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Prepare 1.5.0 preview builds with read-only pairing-list and classic/LE search
+for Link 390 USB ID 0b0e:2e56. Pairing writes and reset remain blocked while
+the read-only preview is tested. The menu shows only available actions.
+
 Add five equalizer band controls for matching headset profiles. The menu,
 commands and Bash completion support half-dB values within the headset's limits.
 The menu shows the current level and supports 1 dB arrow steps or 0.5 dB with
@@ -13,6 +17,13 @@ Add a Noise control button cycle setting for supported headset profiles.
 Choose which modes the button cycles through, with one or more modes enabled.
 The menu, commands and Bash suggestions use the same choices. Changes keep
 the existing mode order and are checked by reading the setting back.
+
+Add a read-only Voice prompt language setting and a USB voice-language update
+path for the matching Evolve3 65 profile. The Firmware menu offers the languages
+in the verified official package and asks for confirmation before updating.
+Only the selected voice pack is transferred; the main firmware stays unchanged.
+Interrupted commits keep a recovery record and can only be checked by reading
+the headset. This path is experimental and needs an explicit preview opt-in.
 
 Add a Power saving switch when the exact headset profile supports it, with
 device readback after a change.

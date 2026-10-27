@@ -19,6 +19,7 @@ type PreparedInstall struct {
 	attachment string
 	archiveSHA string
 	wireless   *WirelessFirmwareSelection
+	language   uint16
 }
 
 func PrepareInteractiveInstall(path string, pid uint16, attachment string) (*PreparedInstall, error) {
@@ -119,7 +120,11 @@ func (p *PreparedInstall) Install() (err error) {
 	if p == nil {
 		return errors.New("no firmware target prepared")
 	}
-	cmdInstallForSelection([]string{p.path}, p.validate, p.archiveSHA, p.pid, p.wireless)
+	args := []string{p.path}
+	if p.language != 0 {
+		args = append(args, "--language", fmt.Sprintf("0x%04x", p.language))
+	}
+	cmdInstallForSelection(args, p.validate, p.archiveSHA, p.pid, p.wireless)
 	return nil
 }
 

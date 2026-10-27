@@ -156,6 +156,10 @@ func identifyExtendedCSRConnection(ctx context.Context, transport csrStageIO, de
 }
 
 func identifyCSRConnection(ctx context.Context, transport csrStageIO, device USBDevice, reportSize int, closeConnection func() error, protocol7 bool) (csrExtendedConnection, error) {
+	return identifyCSRConnectionForLanguage(ctx, transport, device, reportSize, closeConnection, protocol7, 8)
+}
+
+func identifyCSRConnectionForLanguage(ctx context.Context, transport csrStageIO, device USBDevice, reportSize int, closeConnection func() error, protocol7 bool, languageOpcode byte) (csrExtendedConnection, error) {
 	if device.attachment == nil || device.ViaDongle || device.VendorID != JabraVendorID {
 		return csrExtendedConnection{}, errors.New("extended CSR requires a bound direct USB device")
 	}
@@ -209,7 +213,7 @@ func identifyCSRConnection(ctx context.Context, transport csrStageIO, device USB
 			fail("firmware version", err)
 			continue
 		}
-		language, languageErr := session.query(ctx, 0x13, 8)
+		language, languageErr := session.query(ctx, 0x13, languageOpcode)
 		var languageID uint16
 		if languageErr == nil && len(language) == 2 {
 			languageID = binary.LittleEndian.Uint16(language)

@@ -225,6 +225,28 @@ The optional choice payload codec binds to an exact firmware profile before
 editing, encodes from a fresh read, and verifies the full readback. Ordinary
 single-byte choices retain their existing encoder and readback rules.
 
+`voice_language.go` reads the complete 16-bit voice-language ID as a read-only
+setting and links to the Firmware menu. It never sends a direct language write.
+`tui_firmware_language.go` loads the current language and verified package
+choices asynchronously, binds the file and USB attachment, and hands the
+chosen language to the existing typed-confirmation installer. Cancel, an
+unchanged selection and a stale target never prepare a hardware write.
+
+`csr_language_plan.go` selects tunes content independently from main firmware;
+both can use partition zero with different versions. `csr_language_update.go`
+owns the new protocol-17 language-only policy: per-file version and LCID,
+every batch acknowledgement, commit, serial/permission/configuration exit,
+then fresh main-version, tunes-version, language and USB-generation checks.
+The old protocol-16/17 transfer policy remains unchanged. The new language path
+is limited to direct USB Evolve3 65 PID 2549/variant 01-A3 and an exact model
+profile with matching main firmware. It has a separate default-off preview opt-in.
+
+Recovery saves the source attachment and target language/pack before transfer
+and before commit. Once a commit may have started, retry only reads and verifies;
+it never erases, transfers or commits again. Normal firmware installation refuses
+a pending language update. The sealed archive, official release checksum,
+exclusive device lease and target binding remain required.
+
 The power-saving boolean uses the vendor's off sentinel: every byte except
 255 means on, while writes use 1 or 255. It requires an exact firmware profile
 with both boolean choices before editing, and reuses the bound headset-part
@@ -245,6 +267,11 @@ dongle setting. Only auto-pairing is writable on the tested Link 390; its
 other settings remain read-only as described in the [test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 
 ### Factory reset
+
+Link 390 PID 2e56 has candidate-only pairing-list reads and classic/LE search.
+Its pairing, remembered-device and auto-pairing writes remain blocked until a
+volunteer confirms the reads. The preview UI hides those actions. Other
+Link 390 IDs and the Link 380 flow keep their existing gates.
 
 `supportsValidatedFactoryReset` is separate and remains Link 380-only.
 Both the menu and the IPC reset route reach this check before opening the

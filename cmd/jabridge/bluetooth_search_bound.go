@@ -11,7 +11,7 @@ import (
 )
 
 func usesDualModeSearch(device *jabra_DeviceInfo) bool {
-	return device != nil && device.isDongle && device.productID == 0x2e57
+	return device != nil && device.isDongle && (device.productID == 0x2e56 || device.productID == 0x2e57)
 }
 
 func typedSearchName(device btsearch.Device) string {

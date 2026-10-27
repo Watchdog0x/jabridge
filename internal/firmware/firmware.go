@@ -1239,6 +1239,17 @@ func Run(args []string) (err error) {
 		cmdDetect(args[1:])
 	case "manifest":
 		cmdManifest(args[1:])
+	case "languages":
+		if len(args) != 2 {
+			die("usage: jabridge firmware languages FILE")
+		}
+		languages, err := VoiceLanguages(args[1])
+		if err != nil {
+			die("voice languages: %v", err)
+		}
+		for _, language := range languages {
+			fmt.Printf("%s (0x%04x)\n", language.Name, language.ID)
+		}
 	case "-h", "--help", "help":
 		usage()
 
@@ -1437,10 +1448,12 @@ Usage:
   jabridge firmware download         download for the attached device
   jabridge firmware verify FILE      check a file against the device
   jabridge firmware install FILE     run the experimental native installer
+  jabridge firmware install FILE --language German
 
 More:
   jabridge firmware download --pid HEX
   jabridge firmware manifest FILE    inspect image metadata without a device
+  jabridge firmware languages FILE   list voice languages without a device
 
 Install verifies the file's target and asks the user to type INSTALL. If an
 earlier transfer did not finish, running the same command with the exact same
@@ -1717,12 +1730,29 @@ func cmdInstallForTarget(args []string, validateTarget func() error, expectedDig
 }
 
 func cmdInstallForSelection(args []string, validateTarget func() error, expectedDigest string, preferredPID uint16, wireless *WirelessFirmwareSelection) {
+	remaining, language, languageErr := extractCSRLanguageOption(args)
+	if languageErr != nil {
+		die("voice language: %v", languageErr)
+	}
+	args = remaining
 	path, accepted, err := parseInstallArgs(args)
 	if err != nil {
 		die("firmware install: %v", err)
 	}
 	if !accepted && !term.IsTerminal(int(os.Stdin.Fd())) {
 		die("firmware install needs interactive confirmation; run it in a terminal or use %s for deliberate automation", HardwareWriteFlag)
+	}
+	if language != 0 {
+		if wireless != nil {
+			die("connect the headset directly by USB to change its voice language")
+		}
+		if err := installCSRLanguageChecked(path, language, accepted, validateTarget, expectedDigest, preferredPID); err != nil {
+			die("voice language: %v", err)
+		}
+		return
+	}
+	if previous, err := loadFirmwareRecoveryState(); err == nil && previous.CSRLanguage != nil {
+		die("unfinished voice language update found; run the original --language command with the same archive to recover")
 	}
 	lock, err := acquireFirmwareInstallLock()
 	if err != nil {

@@ -238,18 +238,22 @@ _jabridge_completion() {
             ;;
         firmware|fw)
             if (( COMP_CWORD == 2 )); then
-                mapfile -t COMPREPLY < <(compgen -W 'status download verify install manifest --help' -- "$current")
+                mapfile -t COMPREPLY < <(compgen -W 'status download verify install manifest languages --help' -- "$current")
                 return
             fi
             case "${COMP_WORDS[2]}" in
                 download)
                     mapfile -t COMPREPLY < <(compgen -W '--pid --version --out' -- "$current")
                     ;;
-                verify|manifest)
+                verify|manifest|languages)
                     mapfile -t COMPREPLY < <(compgen -f -- "$current")
                     ;;
                 install)
-                    mapfile -t COMPREPLY < <(compgen -W '--i-accept-risk' -- "$current"; compgen -f -- "$current")
+                    if [[ "${COMP_WORDS[COMP_CWORD-1]}" == "--language" ]]; then
+                        mapfile -t COMPREPLY < <(compgen -W 'English German French Japanese Korean Chinese' -- "$current")
+                    else
+                        mapfile -t COMPREPLY < <(compgen -W '--i-accept-risk --language' -- "$current"; compgen -f -- "$current")
+                    fi
                     ;;
             esac
             ;;

@@ -241,6 +241,8 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 		annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 	}
 	if !device.isDongle {
+		run("voice-language", 0, []string{"currentVoiceLanguage"}, false, func() (string, error) { value, err := readVoiceLanguageSetting(device); return value.valueName(), err })
+		annotateSettingQuery(checks, "voice-language", device, 0, gnpClassConfig, 0x74)
 		for _, definition := range headsetTextSettingDefinitions {
 			run(definition.Key, definition.Destination, definition.CatalogProperties, false, func() (string, error) {
 				_, err := readTextSetting(device, definition)

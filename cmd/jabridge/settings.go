@@ -73,6 +73,7 @@ type textSettingDefinition struct {
 	MaxBytes          int
 	LengthPrefixed    bool
 	AllowEmpty        bool
+	Help              string
 }
 
 type textSettingValue struct {
@@ -145,6 +146,9 @@ func (setting deviceSettingValue) valueName() string {
 }
 
 func (setting deviceSettingValue) help() string {
+	if setting.Text != nil {
+		return setting.Text.Definition.Help
+	}
 	if setting.Choice != nil {
 		return setting.Choice.Definition.Help
 	}
@@ -863,6 +867,9 @@ func readSupportedDeviceSettings(device *jabra_DeviceInfo, scope settingScope) [
 		settings = append(settings, deviceSettingValue{Choice: &copy})
 	}
 	if scope == settingScopeHeadset {
+		if value, err := readVoiceLanguageSetting(device); err == nil {
+			settings = append(settings, value)
+		}
 		for _, value := range readSupportedTextSettings(device) {
 			copy := value
 			settings = append(settings, deviceSettingValue{Text: &copy})

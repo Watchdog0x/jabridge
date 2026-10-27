@@ -1,5 +1,18 @@
 # Testing your device
 
+## Evolve3 65 controls preview
+
+The 1.5.0 preview adds power saving, noise-button cycle, five equalizer bands
+and a USB voice-language update path for the exact Evolve3 65 profile.
+Software checks and recovery simulations do not qualify spoken language,
+audible EQ or settings persistence. See TEST_EVOLVE3_CONTROLS.md and
+TEST_VOICE_LANGUAGE.md for optional device tests.
+
+Link 390 PID 2e56 firmware 3.2.0 has a read-only pairing-list/search preview.
+Pairing writes and every Link 390 reset remain disabled. Its earlier firmware
+install/readback, sound, microphone and reconnect test passed according to
+the tester; that does not qualify fresh pairing or the new controls.
+
 ## Tested devices
 
 Testing a device does not mean every feature or firmware update has been tested.
