@@ -47,15 +47,34 @@ type Capabilities struct {
 }
 
 type Property struct {
-	Name            string
-	SettingID       string
-	Kind            string
-	Group           string
-	Help            string
-	Access          string
-	RequiresRestart bool
-	RestartKnown    bool
-	PossibleValues  []string
+	Name              string
+	SettingID         string
+	Kind              string
+	Group             string
+	Help              string
+	Access            string
+	RequiresRestart   bool
+	RestartKnown      bool
+	PossibleValues    []string
+	SpecialHandling   string
+	CompositeSettings []CompositeSetting
+}
+
+// CompositeSetting retains one member of a model-specific structured setting.
+// A missing IsStatic value remains unknown; callers must not treat it as an
+// editable member. Choices retain their keys as well as their device values.
+type CompositeSetting struct {
+	ID       string
+	Kind     string
+	GetPath  string
+	SetPath  string
+	IsStatic *bool
+	Choices  []PropertyChoice
+}
+
+type PropertyChoice struct {
+	Key   string
+	Value string
 }
 
 type catalogDocument struct {
@@ -567,6 +586,12 @@ func collectPropertiesWithGroup(value any, output map[string]Property, group str
 			if help, ok := typed["helpText"].(string); ok {
 				property.Help = help
 			}
+			if handling, ok := typed["specialHandling"].(string); ok {
+				property.SpecialHandling = handling
+			}
+			if compositeName, ok := typed["sdkProperty"].(string); ok && compositeName == name {
+				property.CompositeSettings = parseCompositeSettings(typed["settings"])
+			}
 			if access, ok := typed["settingAccess"].(string); ok {
 				property.Access = access
 			}
@@ -587,6 +612,40 @@ func collectPropertiesWithGroup(value any, output map[string]Property, group str
 			collectPropertiesWithGroup(child, output, group)
 		}
 	}
+}
+
+func parseCompositeSettings(value any) []CompositeSetting {
+	settings, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]CompositeSetting, 0, len(settings))
+	for _, raw := range settings {
+		member := CompositeSetting{}
+		if object, ok := raw.(map[string]any); ok {
+			member.ID, _ = object["settingId"].(string)
+			member.Kind, _ = object["type"].(string)
+			member.GetPath, _ = object["getPath"].(string)
+			member.SetPath, _ = object["setPath"].(string)
+			if fixed, ok := object["isStatic"].(bool); ok {
+				member.IsStatic = &fixed
+			}
+			if choices, ok := object["possibleValues"].([]any); ok {
+				for _, rawChoice := range choices {
+					choice := PropertyChoice{Value: "<invalid>"}
+					if object, ok := rawChoice.(map[string]any); ok {
+						choice.Key, _ = object["key"].(string)
+						choice.Value = fmt.Sprint(object["value"])
+					}
+					member.Choices = append(member.Choices, choice)
+				}
+			}
+		}
+		// Preserve malformed members too so a strict consumer sees an
+		// incomplete profile instead of silently accepting a smaller one.
+		result = append(result, member)
+	}
+	return result
 }
 
 func propertyNames(object map[string]any) []string {

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Keep the model's individual setting limits and language-pack requirements
+when reading the available controls.
+
 Fix doubled auto-sleep times in the menu and command line (#56). The choices
 now run from 15 minutes to 8 hours, matching Jabra Plus. Bash completion uses
 the same names. For example, `auto-sleep 30-min` now selects raw value 6 for

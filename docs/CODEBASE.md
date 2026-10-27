@@ -194,6 +194,11 @@ enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
 
 ### Setting validation
 
+`modelcatalog.Property` retains composite member paths, fixed values and
+editable members, plus special handling such as a required voice-language
+pack. Existing flat values stay unchanged. Missing static/editable metadata
+remains unknown so a structured control can refuse incomplete profiles.
+
 `choice_settings.go` shares choice names between the menu, command line and
 IPC. Auto-sleep labels match Jabra Plus's 15-minute to 8-hour choices; catalog
 values still filter the supported raw bytes for each model. Bash completion
