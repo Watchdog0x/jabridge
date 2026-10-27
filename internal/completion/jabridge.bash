@@ -109,7 +109,7 @@ _jabridge_completion() {
                         _jabridge_equalizer_completion "$current"
                         ;;
                     noise-cycle)
-                        mapfile -t COMPREPLY < <(compgen -W 'off hearthrough anc off,hearthrough off,anc hearthrough,anc off,hearthrough,anc' -- "$current")
+                        mapfile -t COMPREPLY < <(compgen -W 'off,hearthrough,anc' -- "$current")
                         ;;
                     auto-sleep)
                         mapfile -t COMPREPLY < <(compgen -W 'never 15-min 30-min 1-hour 2-hours 4-hours 6-hours 8-hours' -- "$current")
@@ -191,7 +191,7 @@ _jabridge_completion() {
                         _jabridge_equalizer_completion "$current"
                         ;;
                     headset.noise-cycle)
-                        mapfile -t COMPREPLY < <(compgen -W 'off hearthrough anc off,hearthrough off,anc hearthrough,anc off,hearthrough,anc' -- "$current")
+                        mapfile -t COMPREPLY < <(compgen -W 'off,hearthrough,anc' -- "$current")
                         ;;
                     headset.auto-sleep)
                         mapfile -t COMPREPLY < <(compgen -W 'never 15-min 30-min 1-hour 2-hours 4-hours 6-hours 8-hours' -- "$current")

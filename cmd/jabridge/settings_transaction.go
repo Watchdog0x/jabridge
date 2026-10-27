@@ -89,3 +89,28 @@ func encodeStructuredChoice(setting choiceSettingValue, wanted byte, current []b
 	}
 	return setting.Definition.Codec.Encode(current, wanted)
 }
+
+// Only route-qualified choices use this path. Existing scalar, EQ and power
+// saving writes retain their helpers. The callback runs on the held transport
+// after fresh headset firmware and attachment checks, before the command.
+func writeProfiledChoicePacket(device *jabra_DeviceInfo, definition choiceSettingDefinition, operation uint64, payload []byte, guard func(*hidrawConn) error) error {
+	return withProfiledSettingTransport(device, definition.Key, definition.Destination, definition.ExpectedFirmware, func(h *hidrawConn, destination byte) error {
+		return sendProfiledChoicePacket(device, definition, operation, payload, h, destination, guard)
+	})
+}
+
+func sendProfiledChoicePacket(device *jabra_DeviceInfo, definition choiceSettingDefinition, operation uint64, payload []byte, h *hidrawConn, destination byte, guard func(*hidrawConn) error) error {
+	if err := guard(h); err != nil {
+		return err
+	}
+	err := gnpCommand(h, destination, nextSeq(), definition.Class, definition.Op, payload)
+	recordSettingEvidence(device, definition.Key, operation, "setting-ack", err)
+	return err
+}
+
+func verifyChoiceRouteReadback(h *hidrawConn, guard func(*hidrawConn) error) error {
+	if err := guard(h); err != nil {
+		return errors.New("headset route changed during verification; reopen Settings")
+	}
+	return nil
+}

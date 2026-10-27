@@ -13,6 +13,15 @@ Pairing writes and every Link 390 reset remain disabled. Its earlier firmware
 install/readback, sound, microphone and reconnect test passed according to
 the tester; that does not qualify fresh pairing or the new controls.
 
+On 2026-10-27 [@ggzengel reported](https://github.com/Watchdog0x/jabridge/pull/55#issuecomment-6436666392)
+correct sleep-timer labels on Evolve3 65 (PID 2549, firmware 1.0.1) through Link
+390 (PID 2e56, firmware 3.2.0). The working noise-button cycles were
+HearThrough, ANC and Off; HearThrough and ANC; and HearThrough and Off. Other choices showed
+errors; the report does not identify whether those were device errors or
+readback differences, or qualify every ordering. Preview choices are narrowed
+only for this exact setup. Other profiles offer the full catalogued cycle and
+the current value, with the missing combination information explained.
+
 ## Tested devices
 
 Testing a device does not mean every feature or firmware update has been tested.

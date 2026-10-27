@@ -187,3 +187,14 @@ The profile registry includes the four original 1.11.0 USB layouts for 0e36,
 0e37, 0e38 and 0e39. Each layout has its own channel count and output-terminal
 type. Dongle connections require a separately verified headset command; a
 dongle's own USB audio controls do not authorize this direct headset route.
+
+### Setting support evidence
+
+`settings.list` may include an optional `support` object with `state`, `sources`
+and `reason`. The state is `available`, `read-only` or `unavailable`. Available
+means the existing write checks allow editing; it does not promise physical
+validation of every choice. Sources distinguish `model-catalog`,
+`exact-firmware-profile`, `device-read` and `hardware-report`. Older clients can
+ignore this additive field. A successful current-value read is not proof that
+all values or combinations work. The same constrained choices apply to
+`settings.set`, the command line and the menu.

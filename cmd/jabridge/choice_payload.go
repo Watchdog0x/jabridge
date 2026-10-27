@@ -50,7 +50,7 @@ func readChoiceSettingFromSnapshot(definition choiceSettingDefinition, reads cho
 func unavailableChoiceSetting(definition choiceSettingDefinition, value string) choiceSettingValue {
 	definition.Writable = false
 	definition.Help = "This control is unavailable. Reopen Settings or run jabridge debug for details."
-	return choiceSettingValue{Definition: definition, ChoiceIndex: -1, FallbackName: value, Editable: false}
+	return choiceSettingValue{Definition: definition, ChoiceIndex: -1, FallbackName: value, Editable: false, Provenance: settingProvenance{Reason: definition.Help}}
 }
 
 func appendUnavailableChoice(values []choiceSettingValue, seen map[string]struct{}, definition choiceSettingDefinition, value string) []choiceSettingValue {

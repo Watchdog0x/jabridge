@@ -38,6 +38,7 @@ type choiceSettingDefinition struct {
 }
 
 type choiceSettingValue struct {
+	Provenance   settingProvenance
 	Definition   choiceSettingDefinition
 	ChoiceIndex  int
 	Raw          byte
@@ -303,6 +304,15 @@ func decodeChoiceSettingPayload(definition choiceSettingDefinition, payload []by
 			raw &= definition.BitMask
 		}
 	}
+	if codec, ok := definition.Codec.(noiseCycleCodec); ok {
+		codec.observed = raw
+		definition.Codec = codec
+		if fallback != "" {
+			choice := noiseCycleChoice(raw)
+			choice.Name = fallback
+			definition.Choices = append(append([]settingChoice(nil), definition.Choices...), choice)
+		}
+	}
 	index := -1
 	for choiceIndex, choice := range definition.Choices {
 		if choice.Raw == raw {
@@ -339,6 +349,17 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 	definition := setting.Definition
 	if !setting.Editable || choiceIndex < 0 || choiceIndex >= len(definition.Choices) {
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
+	}
+	if definition.Codec != nil && definition.Choices[choiceIndex].Raw == setting.Raw {
+		return nil
+	}
+	if codec, ok := definition.Codec.(noiseCycleCodec); ok && codec.selections&(1<<definition.Choices[choiceIndex].Raw) == 0 {
+		return errors.New("not among the combinations confirmed for this headset firmware")
+	}
+	if codec, ok := definition.Codec.(noiseCycleCodec); ok {
+		if err := noiseCycleRouteCurrent(device, codec); err != nil {
+			return err
+		}
 	}
 	if definition.Codec != nil && definition.ExpectedFirmware == "" {
 		return errors.New("headset firmware profile is unavailable; reopen Settings")
@@ -377,7 +398,11 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 		if definition.NeedsConfigMode {
 			return errors.New("structured setting needs an unsupported configuration mode")
 		}
-		writeErr = writeProfiledSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.ExpectedFirmware)
+		if guard := choiceSettingRouteGuard(device, definition); guard != nil {
+			writeErr = writeProfiledChoicePacket(device, definition, op, payload, guard)
+		} else {
+			writeErr = writeProfiledSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.ExpectedFirmware)
+		}
 	} else {
 		writeErr = writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode)
 	}
@@ -392,7 +417,13 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 		err = definition.Codec.Verify(payload, []byte(readBack.Payload))
 	}
 	if err == nil && definition.Codec != nil {
-		err = verifyProfiledSettingReadback(device, definition.Key, definition.Destination, definition.ExpectedFirmware)
+		if guard := choiceSettingRouteGuard(device, definition); guard != nil {
+			err = withProfiledSettingTransport(device, definition.Key, definition.Destination, definition.ExpectedFirmware, func(h *hidrawConn, _ byte) error {
+				return verifyChoiceRouteReadback(h, guard)
+			})
+		} else {
+			err = verifyProfiledSettingReadback(device, definition.Key, definition.Destination, definition.ExpectedFirmware)
+		}
 	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
@@ -442,6 +473,7 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 		if _, exists := seen[definition.Key]; exists {
 			continue
 		}
+		qualified := false
 		if catalogErr == nil {
 			property, supported := firstCatalogProperty(capabilities, definition.CatalogProperties)
 			if !supported {
@@ -454,7 +486,7 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 				}
 				continue
 			}
-			definition = bound
+			definition, qualified = constrainNoiseCycle(device, capabilities, bound)
 			definition = presentVoiceGuidance(device, definition)
 		} else if definition.ProbeWithoutCatalog {
 			// A current device-model profile is needed before Jabridge can
@@ -471,6 +503,13 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 			if definition.Codec != nil && capabilities != nil && capabilities.ExactFirmwareProfile {
 				value.Definition.ExpectedFirmware = capabilities.Firmware
 			}
+			reason := ""
+			if catalogErr != nil {
+				reason = "Model data is unavailable; this control is read-only."
+			} else if definition.Key == "noise-cycle" {
+				reason = definition.Help
+			}
+			value.Provenance = observedSetting(catalogErr == nil, capabilities != nil && capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", qualified, reason)
 			seen[definition.Key] = struct{}{}
 			values = append(values, value)
 		} else if definition.Codec != nil {

@@ -9,7 +9,11 @@ import (
 	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
-type noiseCycleCodec struct{ modes byte }
+type noiseCycleCodec struct {
+	modes, selections, observed byte
+	route                       noiseCycleRoute
+	routeBound                  bool
+}
 
 func (noiseCycleCodec) BindProperty(property modelcatalog.Property) (choicePayloadCodec, []settingChoice, error) {
 	var allowed byte
@@ -44,21 +48,20 @@ func (noiseCycleCodec) BindProperty(property modelcatalog.Property) (choicePaylo
 		}
 		allowed |= mode.bit
 	}
-	var choices []settingChoice
-	for mask := byte(1); mask < 8; mask++ {
-		if mask&allowed != mask {
-			continue
+	// Independent boolean members do not describe valid combinations. Without
+	// further evidence, offer the complete catalogued cycle only.
+	return noiseCycleCodec{modes: allowed, selections: 1 << allowed}, []settingChoice{noiseCycleChoice(allowed)}, nil
+}
+
+func noiseCycleChoice(mask byte) settingChoice {
+	var labels, values []string
+	for index, label := range []string{"Off", "HearThrough", "ANC"} {
+		if mask&(1<<index) != 0 {
+			labels = append(labels, label)
+			values = append(values, strings.ToLower(label))
 		}
-		var labels, values []string
-		for index, label := range []string{"Off", "HearThrough", "ANC"} {
-			if mask&(1<<index) != 0 {
-				labels = append(labels, label)
-				values = append(values, strings.ToLower(label))
-			}
-		}
-		choices = append(choices, settingChoice{Name: strings.Join(labels, ", "), Raw: mask, CatalogValue: strings.Join(values, ",")})
 	}
-	return noiseCycleCodec{modes: allowed}, choices, nil
+	return settingChoice{Name: strings.Join(labels, ", "), Raw: mask, CatalogValue: strings.Join(values, ",")}
 }
 
 func (codec noiseCycleCodec) Decode(payload []byte) (byte, string, error) {
@@ -76,15 +79,22 @@ func (codec noiseCycleCodec) Decode(payload []byte) (byte, string, error) {
 		}
 		mask |= bit
 	}
+	if codec.selections&(1<<mask) == 0 {
+		return mask, noiseCycleChoice(mask).Name + " (current; not confirmed)", nil
+	}
 	return mask, "", nil
 }
 
 func (codec noiseCycleCodec) Encode(current []byte, wanted byte) ([]byte, error) {
-	if _, _, err := codec.Decode(current); err != nil {
+	actual, _, err := codec.Decode(current)
+	if err != nil {
 		return nil, err
 	}
-	if wanted == 0 || wanted&codec.modes != wanted {
-		return nil, errors.New("choose at least one supported noise button mode")
+	if wanted == actual {
+		return append([]byte(nil), current...), nil
+	}
+	if wanted == 0 || codec.selections&(1<<wanted) == 0 {
+		return nil, errors.New("not among the combinations confirmed for this headset firmware")
 	}
 	result := []byte{0}
 	var kept byte
@@ -121,8 +131,15 @@ func (codec noiseCycleCodec) Verify(written, read []byte) error {
 	return nil
 }
 
-func (noiseCycleCodec) ParseChoice(value string) (byte, error) {
-	return noiseCycleSelection(value)
+func (codec noiseCycleCodec) ParseChoice(value string) (byte, error) {
+	mask, err := noiseCycleSelection(strings.TrimSuffix(value, " (current; not confirmed)"))
+	if err != nil {
+		return 0, err
+	}
+	if codec.selections&(1<<mask) == 0 && mask != codec.observed {
+		return 0, errors.New("not among the combinations confirmed for this headset firmware")
+	}
+	return mask, nil
 }
 
 func noiseCycleSelection(value string) (byte, error) {

@@ -14,9 +14,18 @@ Unsupported layouts stay read-only. Overlapping changes to structured or masked
 settings are blocked while another change is in progress.
 
 Add a Noise control button cycle setting for supported headset profiles.
-Choose which modes the button cycles through, with one or more modes enabled.
-The menu, commands and Bash suggestions use the same choices. Changes keep
-the existing mode order and are checked by reading the setting back.
+Use model data and the current device reply rather than guessing every mode
+combination. The tested Evolve3 65 firmware 1.0.1 through Link 390 PID 2e56
+firmware 3.2.0 offers the three cycles reported to work. Other setups offer the
+full catalogued cycle and the current value. Unconfirmed new combinations are
+blocked before writing; selecting the current value makes no change. Reopen
+Settings if the dongle changes. Changes
+keep the existing mode order and are checked by reading the setting back.
+Bash suggests the full cycle; commands validate choices for the selected device.
+
+Settings now carry separate evidence for model data, current reads and hardware
+test reports through the menu and IPC. Discovery uses existing safe reads and
+adds no background polling or guessed device commands.
 
 Add a read-only Voice prompt language setting and a USB voice-language update
 path for the matching Evolve3 65 profile. The Firmware menu offers the languages

@@ -45,7 +45,7 @@ func FuzzNoiseCycleReply(f *testing.F) {
 }
 
 func TestNoiseCycleBashCompletion(t *testing.T) {
-	values := []string{"off", "hearthrough", "anc", "off,hearthrough", "off,anc", "hearthrough,anc", "off,hearthrough,anc"}
+	values := []string{"off,hearthrough,anc"}
 	for _, test := range []struct {
 		words string
 		index string
@@ -83,7 +83,7 @@ func noiseCyclePropertyForTest() modelcatalog.Property {
 
 func TestNoiseCyclePayloadKeepsOrderAndRequiresExactReadback(t *testing.T) {
 	codec, choices, err := (noiseCycleCodec{}).BindProperty(noiseCyclePropertyForTest())
-	if err != nil || len(choices) != 7 {
+	if err != nil || len(choices) != 1 {
 		t.Fatal(err, choices)
 	}
 	for _, invalid := range [][]byte{nil, {0}, {1}, {2, 0}, {1, 3}, {2, 0, 0}, {4, 0, 1, 2, 0}} {
@@ -97,8 +97,7 @@ func TestNoiseCyclePayloadKeepsOrderAndRequiresExactReadback(t *testing.T) {
 		payload []byte
 	}{
 		{[]byte{2, 2, 1}, 7, []byte{3, 2, 1, 0}},
-		{[]byte{3, 2, 1, 0}, 5, []byte{2, 2, 0}},
-		{[]byte{3, 2, 1, 0}, 2, []byte{1, 1}},
+		{[]byte{3, 2, 1, 0}, 7, []byte{3, 2, 1, 0}},
 		{[]byte{1, 2}, 7, []byte{3, 2, 0, 1}},
 	} {
 		got, err := codec.Encode(test.current, test.wanted)
@@ -130,7 +129,7 @@ func TestNoiseCycleCatalogAndClientGuard(t *testing.T) {
 	}
 	property := noiseCyclePropertyForTest()
 	bound, supported := choiceSettingForCatalog(original, property, true)
-	if !supported || !bound.Writable || len(bound.Choices) != 7 {
+	if !supported || !bound.Writable || len(bound.Choices) != 1 {
 		t.Fatal("exact complete profile did not bind", supported, bound)
 	}
 	for _, input := range []string{"anc,hearthrough,off", "Off, ANC, HearThrough"} {
@@ -149,7 +148,7 @@ func TestNoiseCycleCatalogAndClientGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := ipcSettingInfo("headset", deviceSettingValue{Choice: &read})
-	if info.Kind != "choice" || info.Key != "noise-cycle" || len(info.Choices) != 7 || info.Value != "Off, HearThrough, ANC" || !info.Editable {
+	if info.Kind != "choice" || info.Key != "noise-cycle" || len(info.Choices) != 1 || info.Value != "Off, HearThrough, ANC" || !info.Editable {
 		t.Fatal("incorrect TUI/IPC control", info)
 	}
 	readonly, supported := choiceSettingForCatalog(original, property, false)
@@ -164,7 +163,7 @@ func TestNoiseCycleCatalogAndClientGuard(t *testing.T) {
 	property = noiseCyclePropertyForTest()
 	property.CompositeSettings = property.CompositeSettings[:2]
 	subset, supported := choiceSettingForCatalog(original, property, true)
-	if !supported || len(subset.Choices) != 3 {
+	if !supported || len(subset.Choices) != 1 {
 		t.Fatal("supported mode subset was lost")
 	}
 	if _, ok := findChoiceIndex(subset, "anc"); ok {
@@ -190,5 +189,15 @@ func TestNoiseCycleCatalogAndClientGuard(t *testing.T) {
 		if _, supported := choiceSettingForCatalog(original, broken, true); supported {
 			t.Fatal("accepted incomplete or ambiguous cycle metadata")
 		}
+	}
+}
+
+func TestNoiseCycleDoesNotInventCombinations(t *testing.T) {
+	_, choices, err := (noiseCycleCodec{}).BindProperty(noiseCyclePropertyForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(choices) != 1 || choices[0].Raw != 7 {
+		t.Fatalf("catalog booleans do not prove combinations: got %v", choices)
 	}
 }

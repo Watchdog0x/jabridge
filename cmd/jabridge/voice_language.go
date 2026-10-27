@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/internal/firmware"
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
 func readVoiceLanguageSetting(device *jabra_DeviceInfo) (deviceSettingValue, error) {
@@ -28,7 +29,15 @@ func readVoiceLanguageSetting(device *jabra_DeviceInfo) (deviceSettingValue, err
 	if err != nil {
 		return deviceSettingValue{}, err
 	}
-	return voiceLanguageSettingFromPayload(device.productID, payload)
+	return voiceLanguageSettingFromProfile(device.productID, payload, capabilities)
+}
+
+func voiceLanguageSettingFromProfile(pid uint16, payload []byte, capabilities *modelcatalog.Capabilities) (deviceSettingValue, error) {
+	value, err := voiceLanguageSettingFromPayload(pid, payload)
+	if err == nil {
+		value.Text.Provenance = observedSetting(true, capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", false, "")
+	}
+	return value, err
 }
 
 func voiceLanguageSettingFromPayload(pid uint16, payload []byte) (deviceSettingValue, error) {

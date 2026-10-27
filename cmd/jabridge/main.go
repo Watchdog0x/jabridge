@@ -530,6 +530,7 @@ func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingIn
 		Device: deviceName, Key: setting.key(), Label: setting.label(),
 		Value: setting.valueName(), Editable: setting.editable(),
 		Help:       setting.help(),
+		Support:    setting.support(),
 		MayRestart: setting.needsConfigMode(),
 	}
 	if setting.Boolean != nil {

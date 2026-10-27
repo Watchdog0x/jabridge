@@ -50,6 +50,7 @@ type boolSettingDefinition struct {
 }
 
 type boolSettingValue struct {
+	Provenance settingProvenance
 	Definition boolSettingDefinition
 	Value      bool
 	Editable   bool
@@ -77,12 +78,14 @@ type textSettingDefinition struct {
 }
 
 type textSettingValue struct {
+	Provenance settingProvenance
 	Definition textSettingDefinition
 	Value      string
 	Editable   bool
 }
 
 type remoteSettingValue struct {
+	Support    *ipc.SettingSupport
 	Device     string
 	Key        string
 	Label      string
@@ -146,16 +149,21 @@ func (setting deviceSettingValue) valueName() string {
 }
 
 func (setting deviceSettingValue) help() string {
+	help := ""
 	if setting.Text != nil {
-		return setting.Text.Definition.Help
+		help = setting.Text.Definition.Help
+	} else if setting.Choice != nil {
+		help = setting.Choice.Definition.Help
+	} else if setting.Remote != nil {
+		help = setting.Remote.Help
 	}
-	if setting.Choice != nil {
-		return setting.Choice.Definition.Help
+	if support := setting.support(); support != nil && support.Reason != "" && !strings.Contains(help, support.Reason) {
+		if help != "" {
+			help += " "
+		}
+		help += support.Reason
 	}
-	if setting.Remote != nil {
-		return setting.Remote.Help
-	}
-	return ""
+	return help
 }
 
 func (setting deviceSettingValue) editable() bool {
@@ -799,7 +807,12 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 		if definition.RequireExactProfile && capabilities != nil && capabilities.ExactFirmwareProfile {
 			definition.ExpectedFirmware = capabilities.Firmware
 		}
+		reason := ""
+		if scope == settingScopeHeadset && catalogErr != nil {
+			reason = "Model data is unavailable; this control is read-only."
+		}
 		values = append(values, boolSettingValue{
+			Provenance: observedSetting(capabilities != nil && catalogMatched, capabilities != nil && capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", device != nil && device.isDongle && definition.validatedForDongle(device.productID), reason),
 			Definition: definition,
 			Value:      value,
 			Editable:   canEditBoolSetting(device, definition) && (scope != settingScopeHeadset || catalogErr == nil),
@@ -894,7 +907,8 @@ func readSupportedTextSettings(device *jabra_DeviceInfo) []textSettingValue {
 		if readErr != nil {
 			continue
 		}
-		values = append(values, textSettingValue{Definition: definition, Value: value, Editable: definition.Writable})
+		values = append(values, textSettingValue{Definition: definition, Value: value, Editable: definition.Writable,
+			Provenance: observedSetting(true, capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", false, "")})
 	}
 	return values
 }

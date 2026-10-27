@@ -11,8 +11,11 @@ app. Check its version first:
 On Evolve3 65 firmware 1.0.1, please try these in the headset Settings menu:
 
 1. Turn Power saving on, off, then on. Check Jabra Plus shows the same state.
-2. Change Noise control button cycle. Try one mode, then all three. Check
-   Jabra Plus and the headset button follow the chosen cycle.
+2. Check Noise control button cycle offers only the confirmed choices for
+   Evolve3 65 firmware 1.0.1 through Link 390 PID 2e56 firmware 3.2.0:
+   HearThrough + ANC + Off, HearThrough + ANC, and HearThrough + Off.
+   Check Jabra Plus and the headset button follow each chosen cycle.
+   Other setups show the full cycle and the current value only.
 3. Change one equalizer band to +3 dB, then -6 dB, then 0 dB. Check Jabra Plus
    shows the same values and sound changes. Other bands should stay put.
    Arrows move 1 dB; Shift+arrows move 0.5 dB. Enter saves, Esc cancels.

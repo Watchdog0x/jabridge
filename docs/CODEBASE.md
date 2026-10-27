@@ -219,8 +219,28 @@ on their held transport, because a headset behind a dongle can update without
 changing the dongle's USB attachment. No new check is added to old scalar writes.
 
 `noise_cycle.go` validates the model's button-cycle members and encodes its
-length-prefixed list. It keeps existing mode order and appends newly selected
-modes in the vendor's order. Empty, duplicate and unknown modes are refused.
+length-prefixed list. Separate boolean members do not establish valid mode
+combinations. The default offers the full catalogued cycle and the current
+read value; selecting the current value is a no-op before device access or
+transaction locking. `setting_qualifications.go` narrows choices to reported
+working combinations for an exact headset, firmware and dongle route. It does
+not alias other models or firmware. Qualified choices bind the parent dongle's
+attachment, PID, firmware and HID path. They are checked before the settings
+lease, on the held transport just before the command, and after readback.
+Dongle firmware comes from registry metadata; no extra dongle query is added.
+An unobserved firmware change is not detected until that metadata or the USB
+attachment changes. The codec also rejects unconfirmed new combinations before
+a write and preserves the freshly read order.
+
+`setting_capability.go` records model, exact-firmware, current-read and hardware
+report evidence separately. Bool, choice and text resolvers reuse their existing
+reads; they do not scan unknown commands or probe writes. IPC's optional
+`support` object carries the same evidence into the menu and clients. A current
+read proves that a control answered, not that every write works. Offline model
+data leaves existing safe read probes read-only. Existing dongle write gates,
+firmware guards, target identity and full readback remain required. There is no
+known universal device command that lists every setting and allowed value.
+
 The optional choice payload codec binds to an exact firmware profile before
 editing, encodes from a fresh read, and verifies the full readback. Ordinary
 single-byte choices retain their existing encoder and readback rules.
