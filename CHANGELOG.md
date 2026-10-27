@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Add a Noise control button cycle setting for supported headset profiles.
+Choose which modes the button cycles through, with one or more modes enabled.
+The menu, commands and Bash suggestions use the same choices. Changes keep
+the existing mode order and are checked by reading the setting back.
+
 Add a Power saving switch when the exact headset profile supports it, with
 device readback after a change.
 

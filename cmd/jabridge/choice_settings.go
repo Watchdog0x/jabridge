@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
 
 type settingChoice struct {
@@ -31,13 +33,16 @@ type choiceSettingDefinition struct {
 	BitMask             byte
 	PreservePayload     bool
 	ProbeWithoutCatalog bool
+	Codec               choicePayloadCodec
 }
 
 type choiceSettingValue struct {
-	Definition  choiceSettingDefinition
-	ChoiceIndex int
-	Raw         byte
-	Editable    bool
+	Definition   choiceSettingDefinition
+	ChoiceIndex  int
+	Raw          byte
+	Editable     bool
+	Payload      string
+	FallbackName string
 }
 
 var commonButtonFunctions = []settingChoice{
@@ -53,6 +58,12 @@ var commonButtonFunctions = []settingChoice{
 }
 
 var headsetChoiceSettingDefinitions = []choiceSettingDefinition{
+	{
+		Key: "noise-cycle", Label: "Noise control button cycle", Scope: settingScopeHeadset,
+		Help:  "Choose which modes the noise control button cycles through.",
+		Class: gnpClassConfig, Op: 0xbf, Writable: true,
+		CatalogProperties: []string{"ancSoundModeLoop"}, Codec: noiseCycleCodec{},
+	},
 	{
 		Key: "call-button", Label: "Call button action", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x27, Request: []byte{0, 0}, WritePrefix: []byte{0, 0}, ResponseIndex: 2,
@@ -266,15 +277,30 @@ func readChoiceSetting(device *jabra_DeviceInfo, definition choiceSettingDefinit
 	if err != nil {
 		return choiceSettingValue{}, err
 	}
-	if definition.ResponseIndex < 0 || definition.ResponseIndex >= len(payload) {
+	return decodeChoiceSettingPayload(definition, payload)
+}
+
+func decodeChoiceSettingPayload(definition choiceSettingDefinition, payload []byte) (choiceSettingValue, error) {
+	if definition.Codec == nil && (definition.ResponseIndex < 0 || definition.ResponseIndex >= len(payload)) {
 		return choiceSettingValue{}, fmt.Errorf("setting %s returned %d bytes", definition.Key, len(payload))
 	}
 	if definition.Op == 0x27 && definition.Class == gnpClassConfig && (len(payload) != 3 || payload[0] != 0 || payload[1] != 0) {
 		return choiceSettingValue{}, fmt.Errorf("invalid button/action reply")
 	}
-	raw := payload[definition.ResponseIndex]
-	if definition.BitMask != 0 {
-		raw &= definition.BitMask
+	var raw byte
+	var fallback, encoded string
+	if definition.Codec != nil {
+		var err error
+		raw, fallback, err = definition.Codec.Decode(payload)
+		if err != nil {
+			return choiceSettingValue{}, err
+		}
+		encoded = string(payload)
+	} else {
+		raw = payload[definition.ResponseIndex]
+		if definition.BitMask != 0 {
+			raw &= definition.BitMask
+		}
 	}
 	index := -1
 	for choiceIndex, choice := range definition.Choices {
@@ -284,10 +310,12 @@ func readChoiceSetting(device *jabra_DeviceInfo, definition choiceSettingDefinit
 		}
 	}
 	return choiceSettingValue{
-		Definition:  definition,
-		ChoiceIndex: index,
-		Raw:         raw,
-		Editable:    definition.Writable,
+		Definition:   definition,
+		ChoiceIndex:  index,
+		Raw:          raw,
+		Editable:     definition.Writable,
+		Payload:      encoded,
+		FallbackName: fallback,
 	}, nil
 }
 
@@ -312,7 +340,16 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
 	}
 	payload := append(append([]byte(nil), definition.WritePrefix...), definition.Choices[choiceIndex].Raw)
-	if definition.PreservePayload {
+	if definition.Codec != nil {
+		current, err := readChoiceSettingPayload(device, definition)
+		if err != nil {
+			return fmt.Errorf("read %s before write: %w", definition.Key, err)
+		}
+		payload, err = definition.Codec.Encode(current, definition.Choices[choiceIndex].Raw)
+		if err != nil {
+			return fmt.Errorf("setting %s: %w", definition.Key, err)
+		}
+	} else if definition.PreservePayload {
 		current, err := readChoiceSettingPayload(device, definition)
 		if err != nil {
 			return fmt.Errorf("read %s before write: %w", definition.Key, err)
@@ -330,6 +367,9 @@ func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, ch
 	readBack, err := readChoiceSettingWithRetry(device, definition)
 	if err == nil {
 		err = verifySettingReadbackPart(device, definition.Key, definition.Destination)
+	}
+	if err == nil && definition.Codec != nil {
+		err = definition.Codec.Verify(payload, []byte(readBack.Payload))
 	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
@@ -378,13 +418,11 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 			if !supported {
 				continue
 			}
-			choices := choicesAllowedByCatalog(definition.Choices, property.PossibleValues)
-			if len(choices) == 0 {
+			definition, supported = choiceSettingForCatalog(definition, property, capabilities.ExactFirmwareProfile)
+			if !supported {
 				continue
 			}
-			definition.Choices = choices
 			definition = presentVoiceGuidance(device, definition)
-			definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
 		} else if definition.ProbeWithoutCatalog {
 			// A current device-model profile is needed before Jabridge can
 			// promise that every write choice is valid for this exact model.
@@ -400,6 +438,25 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 		}
 	}
 	return values
+}
+
+func choiceSettingForCatalog(definition choiceSettingDefinition, property modelcatalog.Property, exactProfile bool) (choiceSettingDefinition, bool) {
+	if definition.Codec != nil {
+		codec, choices, err := definition.Codec.BindProperty(property)
+		if err != nil || len(choices) == 0 {
+			return choiceSettingDefinition{}, false
+		}
+		definition.Codec, definition.Choices = codec, choices
+		definition.Writable = definition.Writable && exactProfile
+	} else {
+		choices := choicesAllowedByCatalog(definition.Choices, property.PossibleValues)
+		if len(choices) == 0 {
+			return choiceSettingDefinition{}, false
+		}
+		definition.Choices = choices
+	}
+	definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
+	return definition, true
 }
 
 func choicesAllowedByCatalog(choices []settingChoice, possibleValues []string) []settingChoice {
@@ -427,6 +484,9 @@ func choiceSettingName(setting choiceSettingValue) string {
 	if setting.ChoiceIndex >= 0 && setting.ChoiceIndex < len(setting.Definition.Choices) {
 		return setting.Definition.Choices[setting.ChoiceIndex].Name
 	}
+	if setting.FallbackName != "" {
+		return setting.FallbackName
+	}
 	return fmt.Sprintf("Unknown (%d)", setting.Raw)
 }
 
@@ -441,6 +501,18 @@ func nextChoiceIndex(setting choiceSettingValue) (int, error) {
 }
 
 func findChoiceIndex(definition choiceSettingDefinition, name string) (int, bool) {
+	if _, ok := definition.Codec.(noiseCycleCodec); ok {
+		mask, err := noiseCycleSelection(name)
+		if err != nil {
+			return 0, false
+		}
+		for index, choice := range definition.Choices {
+			if choice.Raw == mask {
+				return index, true
+			}
+		}
+		return 0, false
+	}
 	wanted := strings.ToLower(strings.TrimSpace(name))
 	wantedToken := choiceValueToken(name)
 	for index, choice := range definition.Choices {

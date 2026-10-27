@@ -194,6 +194,13 @@ enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
 
 ### Setting validation
 
+`noise_cycle.go` validates the model's button-cycle members and encodes its
+length-prefixed list. It keeps existing mode order and appends newly selected
+modes in the vendor's order. Empty, duplicate and unknown modes are refused.
+The optional choice payload codec binds to an exact firmware profile before
+editing, encodes from a fresh read, and verifies the full readback. Ordinary
+single-byte choices retain their existing encoder and readback rules.
+
 The power-saving boolean uses the vendor's off sentinel: every byte except
 255 means on, while writes use 1 or 255. It requires an exact firmware profile
 with both boolean choices before editing, and reuses the bound headset-part

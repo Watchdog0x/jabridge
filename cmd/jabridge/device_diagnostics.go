@@ -217,11 +217,15 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 	for _, definition := range choiceSettingDefinitions(scope) {
 		run(definition.Key, definition.Destination, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) {
 			if property, ok := firstCatalogProperty(capabilities, definition.CatalogProperties); ok {
-				definition.Choices = choicesAllowedByCatalog(definition.Choices, property.PossibleValues)
+				var supported bool
+				definition, supported = choiceSettingForCatalog(definition, property, capabilities.ExactFirmwareProfile)
+				if !supported {
+					return "", errors.New("model setting profile is incomplete")
+				}
 			}
 			definition = presentVoiceGuidance(device, definition)
 			value, err := readChoiceSetting(device, definition)
-			if err == nil && value.ChoiceIndex < 0 {
+			if err == nil && value.ChoiceIndex < 0 && value.FallbackName == "" {
 				return "", fmt.Errorf("invalid choice value")
 			}
 			name := choiceSettingName(value)
