@@ -194,6 +194,11 @@ enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
 
 ### Setting validation
 
+The power-saving boolean uses the vendor's off sentinel: every byte except
+255 means on, while writes use 1 or 255. It requires an exact firmware profile
+with both boolean choices before editing, and reuses the bound headset-part
+transport and readback checks. Existing strict booleans keep their old decoder.
+
 `modelcatalog.Property` retains composite member paths, fixed values and
 editable members, plus special handling such as a required voice-language
 pack. Existing flat values stay unchanged. Missing static/editable metadata

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Add a Power saving switch when the exact headset profile supports it, with
+device readback after a change.
+
 Keep the model's individual setting limits and language-pack requirements
 when reading the available controls.
 

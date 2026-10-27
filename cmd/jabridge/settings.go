@@ -21,28 +21,31 @@ const (
 )
 
 type boolSettingDefinition struct {
-	Key                 string
-	Label               string
-	Scope               settingScope
-	Class               byte
-	Op                  byte
-	Destination         byte
-	Request             []byte
-	ResponseIndex       int
-	WritePrefix         []byte
-	Invert              bool
-	Writable            bool
-	NeedsConfigMode     bool
-	ValidatedLink380    bool
-	ValidatedLink390    bool
-	CatalogProperties   []string
-	HasRawValues        bool
-	FalseRaw            byte
-	TrueRaw             byte
-	BitMask             byte
-	PreservePayload     bool
-	ProbeWithoutCatalog bool
-	ResponseBytes       int
+	Key                   string
+	Label                 string
+	Scope                 settingScope
+	Class                 byte
+	Op                    byte
+	Destination           byte
+	Request               []byte
+	ResponseIndex         int
+	WritePrefix           []byte
+	Invert                bool
+	Writable              bool
+	NeedsConfigMode       bool
+	ValidatedLink380      bool
+	ValidatedLink390      bool
+	CatalogProperties     []string
+	HasRawValues          bool
+	FalseRaw              byte
+	TrueRaw               byte
+	TrueUnlessFalse       bool
+	RequireExactProfile   bool
+	RequireBooleanChoices bool
+	BitMask               byte
+	PreservePayload       bool
+	ProbeWithoutCatalog   bool
+	ResponseBytes         int
 }
 
 type boolSettingValue struct {
@@ -244,6 +247,13 @@ var dongleBoolSettingDefinitions = []boolSettingDefinition{
 }
 
 var headsetBoolSettingDefinitions = []boolSettingDefinition{
+	{
+		Key: "power-saving", Label: "Power saving", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x1b, Writable: true,
+		CatalogProperties: []string{"powerSaveEnabled"},
+		HasRawValues:      true, FalseRaw: 0xff, TrueRaw: 1, TrueUnlessFalse: true,
+		ResponseBytes: 1, RequireExactProfile: true, RequireBooleanChoices: true,
+	},
 	{
 		Key: "answer-on-undock", Label: "Answer call when undocked", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x45, Writable: true, CatalogProperties: []string{"acceptCallOnUndock"},
@@ -482,10 +492,13 @@ func decodeBoolSettingPayload(definition boolSettingDefinition, payload []byte) 
 		if definition.HasRawValues {
 			falseRaw, trueRaw = definition.FalseRaw, definition.TrueRaw
 		}
-		if raw != falseRaw && raw != trueRaw {
+		if definition.TrueUnlessFalse {
+			value = raw != falseRaw
+		} else if raw != falseRaw && raw != trueRaw {
 			return false, fmt.Errorf("setting %s returned invalid boolean %d", definition.Key, raw)
+		} else {
+			value = raw == trueRaw
 		}
-		value = raw == trueRaw
 	}
 	if definition.Invert {
 		value = !value
@@ -744,7 +757,7 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 		if scope == settingScopeHeadset && catalogErr == nil {
 			property, matched := firstCatalogProperty(capabilities, definition.CatalogProperties)
 			catalogMatched = matched
-			definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
+			definition.Writable = definition.Writable && catalogAllowsBoolSettingWrite(definition, capabilities, property)
 		} else if scope == settingScopeHeadset && catalogErr != nil {
 			catalogMatched = definition.ProbeWithoutCatalog
 		}
@@ -763,6 +776,33 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 		})
 	}
 	return values
+}
+
+func catalogAllowsBoolSettingWrite(definition boolSettingDefinition, capabilities *modelcatalog.Capabilities, property modelcatalog.Property) bool {
+	if !catalogAllowsSettingWrite(property) {
+		return false
+	}
+	if definition.RequireExactProfile && (capabilities == nil || !capabilities.ExactFirmwareProfile) {
+		return false
+	}
+	if !definition.RequireBooleanChoices {
+		return true
+	}
+	if !strings.EqualFold(property.Kind, "Enum") || len(property.PossibleValues) != 2 {
+		return false
+	}
+	on, off := false, false
+	for _, value := range property.PossibleValues {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true":
+			on = true
+		case "false":
+			off = true
+		default:
+			return false
+		}
+	}
+	return on && off
 }
 
 func firstCatalogProperty(capabilities *modelcatalog.Capabilities, names []string) (modelcatalog.Property, bool) {
