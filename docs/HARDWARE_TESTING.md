@@ -1,5 +1,38 @@
 # Testing your device
 
+## Evolve3 65 controls preview
+
+The 1.5.0 preview adds power saving, noise-button cycle, five equalizer bands
+and a USB voice-language update path for the exact Evolve3 65 profile.
+Software checks and recovery simulations do not qualify spoken language,
+audible EQ or settings persistence. See TEST_EVOLVE3_CONTROLS.md and
+TEST_VOICE_LANGUAGE.md for optional device tests.
+
+Link 390 PID 2e56 firmware 3.2.0 has a read-only pairing-list/search preview.
+Pairing writes and every Link 390 reset remain disabled. Its earlier firmware
+install/readback, sound, microphone and reconnect test passed according to
+the tester; that does not qualify fresh pairing or the new controls.
+
+On 2026-10-27 [@ggzengel reported](https://github.com/Watchdog0x/jabridge/pull/55#issuecomment-6436666392)
+correct sleep-timer labels on Evolve3 65 (PID 2549, firmware 1.0.1) through Link
+390 (PID 2e56, firmware 3.2.0). The working noise-button cycles were
+HearThrough, ANC and Off; HearThrough and ANC; and HearThrough and Off. Other choices showed
+errors; the report does not identify whether those were device errors or
+readback differences, or qualify every ordering. Preview choices are narrowed
+only for this exact setup. Other profiles offer the full catalogued cycle and
+the current value, with the missing combination information explained.
+
+## Link 380c 24c9 preview
+
+Issue [#58](https://github.com/Watchdog0x/jabridge/issues/58) reports Link 380c
+24c9, variant 04-0C, firmware 1.16.0 on openSUSE Leap 16. The service and
+five dongle setting reads passed. Pairing-list reads and discovery were blocked
+by Jabridge's own allowlist, so the old build did not test those operations.
+The preview adds reads and Classic search, with fresh pairing behind a separate
+opt-in. Its pairing and power-cycle reconnect have not been tested on hardware.
+Other dongle writes and factory reset remain disabled. See
+[optional test steps](TEST_LINK380C.md).
+
 ## Tested devices
 
 Testing a device does not mean every feature or firmware update has been tested.
@@ -56,11 +89,76 @@ reset is therefore not verified as a clean reset on this dongle; a physical
 reconnect was needed before it would pair again, and factory reset keeps its
 Link 380-only allowlist.
 
+On 2026-10-26 the same tester compared Jabra Direct and Jabridge without
+updating the dongle's 1.3.0 firmware. In two Jabra Direct tests, settings returned
+to defaults and an address-only disconnected pairing record remained. Connecting
+that record did not finish, but fresh search and Pair worked without a replug.
+Jabridge left the same after-reset state; its fresh-search pairing timed out
+until a physical reconnect. The leftover record alone is therefore not evidence
+of a faulty Jabridge reset. The observed difference is recovery through pairing.
+[The comparison](https://github.com/Watchdog0x/jabridge/pull/53#issuecomment-6423659083)
+does not establish which command or timing difference caused it.
+
+The candidate pairing flow scans and stops both classic Bluetooth and Bluetooth
+LE, preserves the selected type, and binds connection checks to the same USB
+attachment. Software tests cover the documented command masks, stale records,
+timeouts, cancellation, missing events and device changes.
+
+On 2026-10-27 [@shimonkohn confirmed the pairing fix](https://github.com/Watchdog0x/jabridge/pull/55#issuecomment-6446270226)
+on the same Link 390 (2e57, variant 04-10, firmware 1.3.0) and Evolve2 55
+(24f5, variant 01-76, firmware 1.2.13), using 1.5.0-preview.4. After a reset
+with Jabra Direct, Classic search found the headset and pairing replaced the
+address-only entry with a named connected entry, without unplugging USB.
+The first search returned no results; the next search succeeded. That single
+miss is unexplained and does not identify a device or software fault.
+This qualifies the reported pairing recovery on that setup. Jabridge's own
+factory reset remains disabled and unqualified; this test did not run it.
+Use the [separate review-build instructions](TEST_LINK390.md) for optional
+hardware checks.
+
 Not verified: Bluetooth radio, softphone integration, prioritize-computer-audio
 and dedicated-call writes, and firmware updates. Bluetooth radio and softphone
 integration stay read-only on Link 390 until their writes are tested. The other
-Link 390 USB IDs (`0b0e:2e50`, `0b0e:2e51`, `0b0e:2e56`) are not allowlisted;
-report a test to add them.
+Link 390 USB IDs `0b0e:2e50` and `0b0e:2e51` remain outside the pairing
+allowlist. ID `0b0e:2e56` has a separate read-only list/search preview; its
+pairing and remembered-device writes remain disabled.
+
+### Experimental Link 390 firmware package
+
+Issue [#54](https://github.com/Watchdog0x/jabridge/issues/54) reports a Link 390
+`0b0e:2e56`, variant `04-10`, on firmware `3.0.13`. The official `3.2.0`
+package contains one binary image, which the 1.4.0 installer rejects before
+writing firmware. Its checksum and USB access checks passed in the report.
+
+The candidate adds this monolithic protocol-7 format. The actual package has
+passed a stateful software transfer test, along with fault and abrupt-process
+interruption tests. [@ggzengel reported](https://github.com/Watchdog0x/jabridge/pull/55#issuecomment-6429435541)
+a successful 3.2.0 installation and readback on PID 2e56. This establishes that
+reported successful update, not physical interruption or recovery testing.
+The candidate firmware path is off by default and requires this variable in
+the installing process:
+
+```sh
+JABRIDGE_ENABLE_LINK390_CSR7_FIRMWARE=I_ACCEPT_UNTESTED_FIRMWARE
+```
+
+This does not enable settings, reset, pairing support for other USB variants,
+or any other experimental control. Keep stable binaries separate and save a
+debug report before hardware testing. Do not edit the archive or rename its
+payload. Official release matching and live device protocol checks still apply.
+
+Transfer-started recovery may restart only through an explicit recovery request
+for the same archive and device. Once a commit may have begun, recovery only
+checks the reported active version. An unknown result keeps the recovery record
+and never repeats erase or commit. Jabridge's verification window is two minutes;
+it is an observation limit, not a vendor-required delay. Unsuccessful runtime
+checks have at least a one-second quiet interval before the next attempt.
+
+Tests on a physical Link 390 must confirm the endpoint and language behavior,
+complete installation, version readback, reconnect and interrupted-update
+recovery before this path can be treated as supported.
+The [review-build instructions](TEST_LINK390.md#firmware-package-issue-54)
+describe the opt-in and its recovery risk.
 
 ## Speak2 75 USB test
 

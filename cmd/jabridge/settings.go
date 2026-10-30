@@ -21,31 +21,36 @@ const (
 )
 
 type boolSettingDefinition struct {
-	Key                 string
-	Label               string
-	Scope               settingScope
-	Class               byte
-	Op                  byte
-	Destination         byte
-	Request             []byte
-	ResponseIndex       int
-	WritePrefix         []byte
-	Invert              bool
-	Writable            bool
-	NeedsConfigMode     bool
-	ValidatedLink380    bool
-	ValidatedLink390    bool
-	CatalogProperties   []string
-	HasRawValues        bool
-	FalseRaw            byte
-	TrueRaw             byte
-	BitMask             byte
-	PreservePayload     bool
-	ProbeWithoutCatalog bool
-	ResponseBytes       int
+	Key                   string
+	Label                 string
+	Scope                 settingScope
+	Class                 byte
+	Op                    byte
+	Destination           byte
+	Request               []byte
+	ResponseIndex         int
+	WritePrefix           []byte
+	Invert                bool
+	Writable              bool
+	NeedsConfigMode       bool
+	ValidatedLink380      bool
+	ValidatedLink390      bool
+	CatalogProperties     []string
+	HasRawValues          bool
+	FalseRaw              byte
+	TrueRaw               byte
+	TrueUnlessFalse       bool
+	RequireExactProfile   bool
+	ExpectedFirmware      string
+	RequireBooleanChoices bool
+	BitMask               byte
+	PreservePayload       bool
+	ProbeWithoutCatalog   bool
+	ResponseBytes         int
 }
 
 type boolSettingValue struct {
+	Provenance settingProvenance
 	Definition boolSettingDefinition
 	Value      bool
 	Editable   bool
@@ -69,15 +74,18 @@ type textSettingDefinition struct {
 	MaxBytes          int
 	LengthPrefixed    bool
 	AllowEmpty        bool
+	Help              string
 }
 
 type textSettingValue struct {
+	Provenance settingProvenance
 	Definition textSettingDefinition
 	Value      string
 	Editable   bool
 }
 
 type remoteSettingValue struct {
+	Support    *ipc.SettingSupport
 	Device     string
 	Key        string
 	Label      string
@@ -141,13 +149,21 @@ func (setting deviceSettingValue) valueName() string {
 }
 
 func (setting deviceSettingValue) help() string {
-	if setting.Choice != nil {
-		return setting.Choice.Definition.Help
+	help := ""
+	if setting.Text != nil {
+		help = setting.Text.Definition.Help
+	} else if setting.Choice != nil {
+		help = setting.Choice.Definition.Help
+	} else if setting.Remote != nil {
+		help = setting.Remote.Help
 	}
-	if setting.Remote != nil {
-		return setting.Remote.Help
+	if support := setting.support(); support != nil && support.Reason != "" && !strings.Contains(help, support.Reason) {
+		if help != "" {
+			help += " "
+		}
+		help += support.Reason
 	}
-	return ""
+	return help
 }
 
 func (setting deviceSettingValue) editable() bool {
@@ -244,6 +260,13 @@ var dongleBoolSettingDefinitions = []boolSettingDefinition{
 }
 
 var headsetBoolSettingDefinitions = []boolSettingDefinition{
+	{
+		Key: "power-saving", Label: "Power saving", Scope: settingScopeHeadset,
+		Class: gnpClassConfig, Op: 0x1b, Writable: true,
+		CatalogProperties: []string{"powerSaveEnabled"},
+		HasRawValues:      true, FalseRaw: 0xff, TrueRaw: 1, TrueUnlessFalse: true,
+		ResponseBytes: 1, RequireExactProfile: true, RequireBooleanChoices: true,
+	},
 	{
 		Key: "answer-on-undock", Label: "Answer call when undocked", Scope: settingScopeHeadset,
 		Class: gnpClassConfig, Op: 0x45, Writable: true, CatalogProperties: []string{"acceptCallOnUndock"},
@@ -482,10 +505,13 @@ func decodeBoolSettingPayload(definition boolSettingDefinition, payload []byte) 
 		if definition.HasRawValues {
 			falseRaw, trueRaw = definition.FalseRaw, definition.TrueRaw
 		}
-		if raw != falseRaw && raw != trueRaw {
+		if definition.TrueUnlessFalse {
+			value = raw != falseRaw
+		} else if raw != falseRaw && raw != trueRaw {
 			return false, fmt.Errorf("setting %s returned invalid boolean %d", definition.Key, raw)
+		} else {
+			value = raw == trueRaw
 		}
-		value = raw == trueRaw
 	}
 	if definition.Invert {
 		value = !value
@@ -546,6 +572,16 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 	if !canEditBoolSetting(device, definition) {
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
 	}
+	if definition.RequireExactProfile && definition.ExpectedFirmware == "" {
+		return errors.New("headset firmware profile is unavailable; reopen Settings")
+	}
+	if definition.PreservePayload {
+		release, err := beginSettingTransaction()
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	payload := encodeBoolSettingPayload(definition, value)
 	if definition.PreservePayload {
 		current, err := readBoolSettingPayload(device, definition)
@@ -562,13 +598,25 @@ func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition
 		}
 	}
 	op := startSettingWriteEvidence(device, definition.Key)
-	if err := writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode); err != nil {
-		return fmt.Errorf("write %s: %w", definition.Key, err)
+	var writeErr error
+	if definition.RequireExactProfile {
+		if definition.NeedsConfigMode {
+			return errors.New("this firmware profile needs an unsupported configuration mode")
+		}
+		writeErr = writeProfiledSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.ExpectedFirmware)
+	} else {
+		writeErr = writeSettingPacket(device, definition.Key, op, definition.Destination, definition.Class, definition.Op, payload, definition.NeedsConfigMode)
+	}
+	if writeErr != nil {
+		return fmt.Errorf("write %s: %w", definition.Key, writeErr)
 	}
 
 	readBack, err := readBoolSettingWithRetry(device, definition)
 	if err == nil {
 		err = verifySettingReadbackPart(device, definition.Key, definition.Destination)
+	}
+	if err == nil && definition.RequireExactProfile {
+		err = verifyProfiledSettingReadback(device, definition.Key, definition.Destination, definition.ExpectedFirmware)
 	}
 	if err != nil {
 		recordSettingEvidence(device, definition.Key, op, "setting-readback", err)
@@ -744,7 +792,7 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 		if scope == settingScopeHeadset && catalogErr == nil {
 			property, matched := firstCatalogProperty(capabilities, definition.CatalogProperties)
 			catalogMatched = matched
-			definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
+			definition.Writable = definition.Writable && catalogAllowsBoolSettingWrite(definition, capabilities, property)
 		} else if scope == settingScopeHeadset && catalogErr != nil {
 			catalogMatched = definition.ProbeWithoutCatalog
 		}
@@ -756,13 +804,48 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 			continue
 		}
 		seen[definition.Key] = struct{}{}
+		if definition.RequireExactProfile && capabilities != nil && capabilities.ExactFirmwareProfile {
+			definition.ExpectedFirmware = capabilities.Firmware
+		}
+		reason := ""
+		if scope == settingScopeHeadset && catalogErr != nil {
+			reason = "Model data is unavailable; this control is read-only."
+		}
 		values = append(values, boolSettingValue{
+			Provenance: observedSetting(capabilities != nil && catalogMatched, capabilities != nil && capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", device != nil && device.isDongle && definition.validatedForDongle(device.productID), reason),
 			Definition: definition,
 			Value:      value,
 			Editable:   canEditBoolSetting(device, definition) && (scope != settingScopeHeadset || catalogErr == nil),
 		})
 	}
 	return values
+}
+
+func catalogAllowsBoolSettingWrite(definition boolSettingDefinition, capabilities *modelcatalog.Capabilities, property modelcatalog.Property) bool {
+	if !catalogAllowsSettingWrite(property) {
+		return false
+	}
+	if definition.RequireExactProfile && (capabilities == nil || !capabilities.ExactFirmwareProfile) {
+		return false
+	}
+	if !definition.RequireBooleanChoices {
+		return true
+	}
+	if !strings.EqualFold(property.Kind, "Enum") || len(property.PossibleValues) != 2 {
+		return false
+	}
+	on, off := false, false
+	for _, value := range property.PossibleValues {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true":
+			on = true
+		case "false":
+			off = true
+		default:
+			return false
+		}
+	}
+	return on && off
 }
 
 func firstCatalogProperty(capabilities *modelcatalog.Capabilities, names []string) (modelcatalog.Property, bool) {
@@ -797,6 +880,9 @@ func readSupportedDeviceSettings(device *jabra_DeviceInfo, scope settingScope) [
 		settings = append(settings, deviceSettingValue{Choice: &copy})
 	}
 	if scope == settingScopeHeadset {
+		if value, err := readVoiceLanguageSetting(device); err == nil {
+			settings = append(settings, value)
+		}
 		for _, value := range readSupportedTextSettings(device) {
 			copy := value
 			settings = append(settings, deviceSettingValue{Text: &copy})
@@ -821,7 +907,8 @@ func readSupportedTextSettings(device *jabra_DeviceInfo) []textSettingValue {
 		if readErr != nil {
 			continue
 		}
-		values = append(values, textSettingValue{Definition: definition, Value: value, Editable: definition.Writable})
+		values = append(values, textSettingValue{Definition: definition, Value: value, Editable: definition.Writable,
+			Provenance: observedSetting(true, capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", false, "")})
 	}
 	return values
 }

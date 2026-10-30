@@ -402,7 +402,7 @@ func DiagnoseFirmware(ctx context.Context, pid uint16, cacheDir string) (Firmwar
 			break
 		}
 		if protocol == 7 {
-			result.NativeLayout = validateNativeCSRArchive(path) == nil
+			result.NativeLayout = validateCSRInstallArchive(path, protocol) == nil
 			break
 		}
 		if protocol == 16 || protocol == 17 {
@@ -1239,6 +1239,17 @@ func Run(args []string) (err error) {
 		cmdDetect(args[1:])
 	case "manifest":
 		cmdManifest(args[1:])
+	case "languages":
+		if len(args) != 2 {
+			die("usage: jabridge firmware languages FILE")
+		}
+		languages, err := VoiceLanguages(args[1])
+		if err != nil {
+			die("voice languages: %v", err)
+		}
+		for _, language := range languages {
+			fmt.Printf("%s (0x%04x)\n", language.Name, language.ID)
+		}
 	case "-h", "--help", "help":
 		usage()
 
@@ -1343,6 +1354,15 @@ func cmdManifest(args []string) {
 		fmt.Println("Image checks passed. Native UC Voice installation is available. Real-device installation and recovery still need testing. No device was changed.")
 		return
 	}
+	if isLink390BinaryManifest(bv) {
+		image, err := loadLink390CSR7Archive(args[0])
+		if err != nil {
+			die("Link 390 image validation: %v", err)
+		}
+		fmt.Printf("Link 390 package: %d bytes; protocol 7 archive layout checked.\n", len(image.Data))
+		fmt.Println("Installation is experimental and off by default. Official release and device checks are still required. No device was changed.")
+		return
+	}
 	if isExtendedCSRManifest(bv) {
 		if err := validateExtendedCSRArchive(args[0]); err != nil {
 			die("extended image validation: %v", err)
@@ -1355,7 +1375,7 @@ func cmdManifest(args []string) {
 			}
 			fmt.Printf("  partition %d: %s; language %s; %d bytes; %d blocks of at most 52 bytes; computed CRC %08x\n", file.Partition, file.Name, file.Language.ID, len(data), chunks, csrImageCRC(data))
 		}
-		fmt.Println("Extended image checks passed. Install still requires matching official metadata and device-reported protocol. No device was changed.")
+		fmt.Println("Archive layout checked. Installation support still depends on official release metadata and the device protocol. No device was changed.")
 		return
 	}
 
@@ -1428,10 +1448,12 @@ Usage:
   jabridge firmware download         download for the attached device
   jabridge firmware verify FILE      check a file against the device
   jabridge firmware install FILE     run the experimental native installer
+  jabridge firmware install FILE --language German
 
 More:
   jabridge firmware download --pid HEX
   jabridge firmware manifest FILE    inspect image metadata without a device
+  jabridge firmware languages FILE   list voice languages without a device
 
 Install verifies the file's target and asks the user to type INSTALL. If an
 earlier transfer did not finish, running the same command with the exact same
@@ -1708,12 +1730,29 @@ func cmdInstallForTarget(args []string, validateTarget func() error, expectedDig
 }
 
 func cmdInstallForSelection(args []string, validateTarget func() error, expectedDigest string, preferredPID uint16, wireless *WirelessFirmwareSelection) {
+	remaining, language, languageErr := extractCSRLanguageOption(args)
+	if languageErr != nil {
+		die("voice language: %v", languageErr)
+	}
+	args = remaining
 	path, accepted, err := parseInstallArgs(args)
 	if err != nil {
 		die("firmware install: %v", err)
 	}
 	if !accepted && !term.IsTerminal(int(os.Stdin.Fd())) {
 		die("firmware install needs interactive confirmation; run it in a terminal or use %s for deliberate automation", HardwareWriteFlag)
+	}
+	if language != 0 {
+		if wireless != nil {
+			die("connect the headset directly by USB to change its voice language")
+		}
+		if err := installCSRLanguageChecked(path, language, accepted, validateTarget, expectedDigest, preferredPID); err != nil {
+			die("voice language: %v", err)
+		}
+		return
+	}
+	if previous, err := loadFirmwareRecoveryState(); err == nil && previous.CSRLanguage != nil {
+		die("unfinished voice language update found; run the original --language command with the same archive to recover")
 	}
 	lock, err := acquireFirmwareInstallLock()
 	if err != nil {
@@ -1807,11 +1846,10 @@ func cmdInstallForSelection(args []string, validateTarget func() error, expected
 	if err != nil {
 		die("firmware target: %v", err)
 	}
-	if protocol == 7 {
-		err = validateNativeCSRArchive(path)
-	} else {
-		err = validateExtendedCSRArchive(path)
+	if err := checkLink390FirmwareOptIn(protocol, manifest, device.ProductID); err != nil {
+		die("firmware support: %v", err)
 	}
+	err = validateCSRInstallArchive(path, protocol)
 	if err != nil {
 		die("firmware image checks: %v", err)
 	}
@@ -1833,7 +1871,11 @@ func cmdInstallForSelection(args []string, validateTarget func() error, expected
 		fmt.Fprintf(os.Stderr, "Firmware: %s %s\n", manifest.ProductName, manifest.Version)
 		fmt.Fprintf(os.Stderr, "Target PID: %s\n", strings.Join(manifest.TargetUSBPIDs, ", "))
 		if transfer.Recovery {
-			fmt.Fprintln(os.Stderr, "Unfinished transfer found. Recovery will replay the same archive.")
+			if isLink390CSR7Recovery(previous) && previous.Phase == csr7Committing {
+				fmt.Fprintln(os.Stderr, "An earlier firmware commit is unconfirmed. Recovery will only read and check the installed version.")
+			} else {
+				fmt.Fprintln(os.Stderr, "Unfinished transfer found. Recovery will replay the same archive.")
+			}
 		}
 		if !confirmFirmwareAction(os.Stdin, os.Stderr, confirmation) {
 			die("firmware install cancelled")
@@ -1848,7 +1890,9 @@ func cmdInstallForSelection(args []string, validateTarget func() error, expected
 	commandLineRiskAccepted.Store(true)
 	defer commandLineRiskAccepted.Store(false)
 	begin := func() error { return saveFirmwareRecoveryState(transfer.State) }
-	if protocol == 7 {
+	if protocol == 7 && isLink390BinaryManifest(manifest) {
+		err = flashBoundLink390CSR7(snapshot, device, transfer, previous)
+	} else if protocol == 7 {
 		err = flashBoundCSR(snapshot, device, begin)
 	} else {
 		err = flashBoundExtendedCSR(snapshot, device, protocol, func(identity csrExtendedIdentity) error {

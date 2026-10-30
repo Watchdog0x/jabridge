@@ -8,6 +8,11 @@ import (
 // running service. Device matching, release authenticity and confirmation are
 // still checked by the installer; this function never authorizes a write.
 func ValidateInstallInput(args []string) error {
+	remaining, language, err := extractCSRLanguageOption(args)
+	if err != nil {
+		return err
+	}
+	args = remaining
 	path, _, err := parseInstallArgs(args)
 	if err != nil {
 		return err
@@ -18,6 +23,17 @@ func ValidateInstallInput(args []string) error {
 	}
 	defer func() { _ = snapshot.Close() }()
 	path = snapshot.path
+	if language != 0 {
+		if err := checkCSRLanguageOptIn(); err != nil {
+			return err
+		}
+		manifest, contents, err := parseGnVArchive(path)
+		if err != nil {
+			return err
+		}
+		_, err = prepareCSRLanguagePlan(manifest, contents, 17, language)
+		return err
+	}
 	format, err := detectFormat(path)
 	if err != nil {
 		return err

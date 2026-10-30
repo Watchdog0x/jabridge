@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -18,6 +20,9 @@ type settingEditor struct {
 	text            string
 	limit           int
 	textMode        bool
+	gainMode        bool
+	gainOffStep     bool
+	choiceMoved     bool
 	replaceText     bool
 	save            func(string) error
 }
@@ -77,11 +82,21 @@ func openSettingEditor(scope settingScope, setting deviceSettingValue, device *j
 		if len(editor.choices) == 0 {
 			return errors.New("no allowed values were supplied")
 		}
+		editor.gainMode = isEqualizerBand(setting.key())
+		if editor.gainMode {
+			for left, right := 0, len(editor.choices)-1; left < right; left, right = left+1, right-1 {
+				editor.choices[left], editor.choices[right] = editor.choices[right], editor.choices[left]
+			}
+			editor.choice = closestEqualizerChoice(editor.choices, setting.valueName())
+		}
 		for index, value := range editor.choices {
 			if value == setting.valueName() {
 				editor.choice = index
 				break
 			}
+		}
+		if editor.gainMode {
+			editor.gainOffStep = editor.choices[editor.choice] != setting.valueName()
 		}
 	}
 	activeSettingEditor = editor
@@ -145,13 +160,21 @@ func handleSettingEditorKey(event keyEvent, results chan<- actionResult) {
 			saveSettingEditor(results)
 		}
 	} else {
+		previous := editor.choice
+		step := 1
+		if editor.gainMode && event != keyFineUp && event != keyFineDown {
+			step = 2
+		}
 		switch navigationKey(event) {
 		case keyUp:
-			editor.choice = max(0, editor.choice-1)
+			editor.choice = max(0, editor.choice-step)
 		case keyDown:
-			editor.choice = min(len(editor.choices)-1, editor.choice+1)
+			editor.choice = min(len(editor.choices)-1, editor.choice+step)
 		case keyEnter:
 			saveSettingEditor(results)
+		}
+		if editor.choice != previous {
+			editor.choiceMoved = true
 		}
 	}
 	requestUIRedraw()
@@ -171,6 +194,11 @@ func saveSettingEditor(results chan<- actionResult) {
 		return
 	}
 	editor := *activeSettingEditor
+	if editor.gainMode && editor.gainOffStep && !editor.choiceMoved {
+		closeSettingEditor()
+		setStatus("No change made.", false)
+		return
+	}
 	wanted := editor.text
 	if !editor.textMode {
 		wanted = editor.choices[editor.choice]
@@ -222,6 +250,11 @@ func renderSettingEditor() {
 		return
 	}
 	top, end := 10, bottom-1
+	if editor.gainMode {
+		drawListItem(9, left+4, trimToWidth("Current: "+editor.setting.valueName(), max(1, right-left-8)), false)
+		drawListItem(10, left+4, "↑↓ 1dB  Shift .5dB", false)
+		top = 12
+	}
 	if editor.setting.needsConfigMode() {
 		top++
 	}
@@ -240,5 +273,34 @@ func renderSettingEditor() {
 		help = "Choose a value. Nothing changes until you press Enter."
 	}
 	drawListItem(bottom-1, left+4, trimToWidth(strings.TrimSpace(help), max(1, right-left-6)), false)
-	drawSplitActionBar([]string{"Esc/Q Cancel"}, []string{hintMove, hintSave})
+	if editor.gainMode {
+		drawSplitActionBar([]string{"Esc Cancel"}, []string{hintSave})
+	} else {
+		drawSplitActionBar([]string{"Esc/Q Cancel"}, []string{hintMove, hintSave})
+	}
+}
+
+func closestEqualizerChoice(choices []string, current string) int {
+	zero := 0
+	for index, choice := range choices {
+		if value, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(choice, "dB")), 64); err == nil && value == 0 {
+			zero = index
+			break
+		}
+	}
+	value, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(current, "dB")), 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return zero
+	}
+	closest, distance := zero, math.Inf(1)
+	for index, choice := range choices {
+		gain, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(choice, "dB")), 64)
+		if err != nil || math.IsNaN(gain) || math.IsInf(gain, 0) {
+			continue
+		}
+		if delta := math.Abs(gain - value); delta < distance {
+			closest, distance = index, delta
+		}
+	}
+	return closest
 }

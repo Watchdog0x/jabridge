@@ -281,7 +281,7 @@ func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceIn
 		device := &jabra_DeviceInfo{
 			deviceID: info.ID, deviceName: info.Name, productID: info.PID,
 			instance: info.Instance, controlTopology: info.Topology,
-			vendorID: jabraVendorID, isDongle: info.IsDongle,
+			vendorID: jabraVendorID, isDongle: info.IsDongle, searchConnect: info.SearchConnect,
 			variantType: info.Variant, firmwareVersion: info.Firmware,
 			firmwareIdentity: info.FirmwareIdentity,
 			deviceConnection: connection, parentDeviceID: info.ParentID,
@@ -420,6 +420,7 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 			Value: setting.Value, Editable: editable,
 			Choices: append([]string(nil), setting.Choices...),
 			Help:    setting.Help,
+			Support: setting.Support,
 			Kind:    setting.Kind, MaxBytes: setting.MaxBytes, Target: setting.Target,
 			MayRestart: setting.MayRestart,
 			Component:  setting.Component,

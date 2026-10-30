@@ -55,7 +55,7 @@ func TestKnownDonglePIDs(t *testing.T) {
 }
 
 // unqualifiedDonglePIDs are known dongle IDs without a hardware report for
-// pairing reads or writes: historical IDs, a headset, the Link 380 USB-C
+// pairing writes: historical IDs, a headset, the Link 380 USB-C
 // variants, the untested Link 390 variants and Link 360, 370 and 400.
 var unqualifiedDonglePIDs = []uint16{
 	0x0a17, 0x2483, 0x2484, 0x24b9,
@@ -65,12 +65,15 @@ var unqualifiedDonglePIDs = []uint16{
 }
 
 func TestValidatedPairingReadsAreNarrowlyAllowlisted(t *testing.T) {
-	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e57} {
+	for _, pid := range []uint16{0x24c7, 0x24c8, 0x24c9, 0x2e56, 0x2e57} {
 		if !supportsValidatedPairingReads(pid) {
 			t.Errorf("Link 380/390 PID 0x%04x should allow read-only pairing-list queries", pid)
 		}
 	}
 	for _, pid := range unqualifiedDonglePIDs {
+		if pid == 0x2e56 || pid == 0x24c9 {
+			continue
+		} // Separate read-only preview; writes stay blocked.
 		if supportsValidatedPairingReads(pid) {
 			t.Errorf("unvalidated PID 0x%04x was allowlisted for pairing reads", pid)
 		}

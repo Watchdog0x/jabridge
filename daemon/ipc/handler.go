@@ -23,6 +23,7 @@ import (
 
 // DeviceInfo is the JSON-serializable device representation for IPC.
 type DeviceInfo struct {
+	SearchConnect    bool              `json:"searchConnect,omitempty"`
 	ID               uint16            `json:"id"`
 	Instance         string            `json:"instance,omitempty"`
 	Topology         string            `json:"topology,omitempty"`
@@ -79,19 +80,28 @@ type PairedDeviceInfo struct {
 	Connected bool   `json:"connected"`
 }
 
+// SettingSupport records why a control is shown. "available" means its
+// existing write gates allow editing, not physical qualification of all values.
+type SettingSupport struct {
+	State   string   `json:"state"`
+	Sources []string `json:"sources,omitempty"`
+	Reason  string   `json:"reason,omitempty"`
+}
+
 type SettingInfo struct {
-	Device     string         `json:"device"`
-	Key        string         `json:"key"`
-	Label      string         `json:"label"`
-	Value      string         `json:"value"`
-	Editable   bool           `json:"editable"`
-	Choices    []string       `json:"choices,omitempty"`
-	Help       string         `json:"help,omitempty"`
-	Kind       string         `json:"kind,omitempty"`
-	MaxBytes   int            `json:"maxBytes,omitempty"`
-	Target     *SettingTarget `json:"target,omitempty"`
-	MayRestart bool           `json:"mayRestart,omitempty"`
-	Component  string         `json:"component,omitempty"`
+	Support    *SettingSupport `json:"support,omitempty"`
+	Device     string          `json:"device"`
+	Key        string          `json:"key"`
+	Label      string          `json:"label"`
+	Value      string          `json:"value"`
+	Editable   bool            `json:"editable"`
+	Choices    []string        `json:"choices,omitempty"`
+	Help       string          `json:"help,omitempty"`
+	Kind       string          `json:"kind,omitempty"`
+	MaxBytes   int             `json:"maxBytes,omitempty"`
+	Target     *SettingTarget  `json:"target,omitempty"`
+	MayRestart bool            `json:"mayRestart,omitempty"`
+	Component  string          `json:"component,omitempty"`
 }
 
 type SettingTarget struct {

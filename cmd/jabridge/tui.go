@@ -36,6 +36,9 @@ const (
 	keyEscape
 	keyBackspace
 	keyClearText
+	keyFineUp
+	keyFineDown
+	keyLanguage
 )
 
 const keyRuneBase keyEvent = 0x110000
@@ -44,6 +47,8 @@ const keyPasteBase keyEvent = 0x220000
 const tuiFrameInterval = time.Second / 30
 
 type actionResult struct {
+	originContext           context.Context
+	languageOptions         *firmwareLanguagePicker
 	installPlan             *firmware.PreparedInstall
 	activityID              uint64
 	message                 string
@@ -271,9 +276,17 @@ func (d *keyDecoder) feed(input []byte) []keyEvent {
 			parameters := string(d.pending[2:end])
 			switch d.pending[end] {
 			case 'A':
-				events = append(events, keyUp)
+				if parameters == "1;2" {
+					events = append(events, keyFineUp)
+				} else {
+					events = append(events, keyUp)
+				}
 			case 'B':
-				events = append(events, keyDown)
+				if parameters == "1;2" {
+					events = append(events, keyFineDown)
+				} else {
+					events = append(events, keyDown)
+				}
 			case '~':
 				if parameters == "200" {
 					d.pasting = true
@@ -344,6 +357,12 @@ func (d *keyDecoder) flushEscape(now time.Time) keyEvent {
 }
 
 func navigationKey(event keyEvent) keyEvent {
+	if event == keyFineUp {
+		return keyUp
+	}
+	if event == keyFineDown {
+		return keyDown
+	}
 	if event >= keyPasteBase {
 		return keyNone
 	}
@@ -383,6 +402,8 @@ func basicKeyEvent(b byte) keyEvent {
 		return keyAction3
 	case '4':
 		return keyAction4
+	case 'l', 'L':
+		return keyLanguage
 	}
 	return keyNone
 }
@@ -406,6 +427,10 @@ func handleKeyEvent(event keyEvent, results chan<- actionResult) bool {
 	}
 	if activeSettingEditor != nil {
 		handleSettingEditorKey(event, results)
+		return false
+	}
+	if activeFirmwareLanguagePicker != nil {
+		handleFirmwareLanguageKey(event, results)
 		return false
 	}
 
@@ -491,6 +516,10 @@ func handleEnterKey(results chan<- actionResult) bool {
 		if len(searchDeviceList.pairedDevices) == 0 && searchViewState.State != "searching" && searchViewState.State != "starting" {
 			return activateStartMenuItem(menuItem{id: 0}, results)
 		}
+		if searchPreviewIsReadOnly() {
+			setStatus("This preview can search but cannot pair this dongle yet.", false)
+			return false
+		}
 		handleActionKey(keyAction1, results)
 	case screenPairedDevices:
 		handleRememberedDeviceAction(keyAction1, results)
@@ -573,6 +602,10 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 }
 
 func handleActionKey(event keyEvent, results chan<- actionResult) {
+	if menuState == screenSearch && event == keyAction1 && searchPreviewIsReadOnly() {
+		setStatus("This preview can search but cannot pair this dongle yet.", false)
+		return
+	}
 	switch menuState {
 	case screenSearch:
 		if event != keyAction1 {
@@ -605,6 +638,10 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 }
 
 func handleRememberedDeviceAction(event keyEvent, results chan<- actionResult) {
+	if rememberedPreviewIsReadOnly() {
+		setStatus("This pairing list is read-only in the preview.", false)
+		return
+	}
 	device, err := rememberedDeviceAt(currentSelection)
 	if err != nil {
 		setStatus(err.Error(), true)
@@ -937,6 +974,10 @@ func advanceFirmwareTarget() bool {
 }
 
 func applyActionResult(result actionResult, results chan<- actionResult) {
+	if result.originContext != nil && result.originContext.Err() != nil {
+		endUIActivity(result.activityID)
+		return
+	}
 	if result.searchLoad != nil {
 		applySearchLoad(result.searchLoad)
 		return
@@ -963,6 +1004,16 @@ func applyActionResult(result actionResult, results chan<- actionResult) {
 		if !matches {
 			return
 		}
+	}
+	if result.languageOptions != nil && result.err == nil && menuState == screenFirmware {
+		target, exists := selectedFirmwareTarget()
+		if !exists || firmwareTargetBinding(target) != result.languageOptions.targetKey {
+			setStatus("Device changed; choose the headset again", true)
+			return
+		}
+		activeFirmwareLanguagePicker = result.languageOptions
+		requestUIRedraw()
+		return
 	}
 	if result.installPlan != nil && result.err == nil && menuState == screenFirmware {
 		target, exists := selectedFirmwareTarget()
@@ -1442,7 +1493,11 @@ func clearSearchResults() {
 
 func menuSearchForNewDevices() {
 	drawingBox()
-	drawListHeading("Find headset", currentSelection, len(searchDeviceList.pairedDevices))
+	title := "Find headset"
+	if searchPreviewIsReadOnly() {
+		title += " (read only)"
+	}
+	drawListHeading(title, currentSelection, len(searchDeviceList.pairedDevices))
 	_, _, bottom := panelBounds()
 	messageRow := max(7, (bottom+4)/2)
 	hintRow := min(messageRow+2, bottom-1)
@@ -1471,7 +1526,11 @@ func menuSearchForNewDevices() {
 		}
 		drawSplitActionBar([]string{hintBack}, right)
 	} else {
-		drawSplitActionBar(menuItemsSearchForNewDevices[:1], menuItemsSearchForNewDevices[1:])
+		if searchPreviewIsReadOnly() {
+			drawSplitActionBar([]string{hintBack}, []string{hintMove})
+		} else {
+			drawSplitActionBar(menuItemsSearchForNewDevices[:1], menuItemsSearchForNewDevices[1:])
+		}
 	}
 }
 
@@ -1484,12 +1543,20 @@ func menuPairedDevices() {
 		drawSplitActionBar([]string{hintBack}, nil)
 		return
 	}
-	drawListHeading("Remembered headsets", currentSelection, len(dongle.pairingList.pairedDevices))
+	title := "Remembered headsets"
+	if rememberedPreviewIsReadOnly() {
+		title += " (read only)"
+	}
+	drawListHeading(title, currentSelection, len(dongle.pairingList.pairedDevices))
 
 	if len(dongle.pairingList.pairedDevices) == 0 {
 		drawCentered(8, "No paired devices remembered", false)
 	} else {
 		drawPairingRows(dongle.pairingList.pairedDevices)
+	}
+	if rememberedPreviewIsReadOnly() {
+		drawSplitActionBar([]string{hintBack}, []string{hintMove})
+		return
 	}
 
 	primaryAction := "Enter Connect"
@@ -1623,6 +1690,10 @@ func selectedDeviceSettingForValues(values []deviceSettingValue) (deviceSettingV
 }
 
 func renderFirmware() {
+	if activeFirmwareLanguagePicker != nil {
+		renderFirmwareLanguagePicker()
+		return
+	}
 	drawingBox()
 	drawCenteredStyled(6, "Firmware", styleTitle)
 	target, exists := selectedFirmwareTarget()
@@ -1636,6 +1707,9 @@ func renderFirmware() {
 	firmwareViewMu.RUnlock()
 	row := drawFirmwareTargets()
 	actions := []string{"1-9 Device", "↑/↓ Select", "Enter Update"}
+	if target.Device.productID == 0x2549 {
+		actions = append(actions, "L Voice language")
+	}
 	if len(firmwareTargetItems) >= 10 {
 		actions[0] = "1-9 / 0 Device"
 	}

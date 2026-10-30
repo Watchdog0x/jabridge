@@ -1,0 +1,396 @@
+{
+  "acceptCallOnUndock": {
+    "Name": "acceptCallOnUndock",
+    "SettingID": "ANSWER_CALL_WHEN_UNDOCKING_THE_HEADSET",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "ancAmbienceMode": {
+    "Name": "ancAmbienceMode",
+    "SettingID": "ANC_AMBIENCE_MODE",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "anc",
+      "hearThrough",
+      "off"
+    ]
+  },
+  "ancHearThroughLevel": {
+    "Name": "ancHearThroughLevel",
+    "SettingID": "HEARTHROUGH_LEVEL",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "0",
+      "1",
+      "2"
+    ]
+  },
+  "ancSoundModeLoop": {
+    "Name": "ancSoundModeLoop",
+    "SettingID": "",
+    "Kind": "",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": null
+  },
+  "autoPauseMusicOnHeadEnabled": {
+    "Name": "autoPauseMusicOnHeadEnabled",
+    "SettingID": "AUTO_PAUSE_RESUME_MUSIC",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "autoRejectBgWaitingEnabled": {
+    "Name": "autoRejectBgWaitingEnabled",
+    "SettingID": "AUTO_REJECT_CALL",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "bluetoothName": {
+    "Name": "bluetoothName",
+    "SettingID": "DEVICE_NAME",
+    "Kind": "String",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": null
+  },
+  "boomArmRotateAcceptCall": {
+    "Name": "boomArmRotateAcceptCall",
+    "SettingID": "ANSWER_CALL_BY_ROTATING_BOOM_ARM",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "boomArmRotateInCallAction": {
+    "Name": "boomArmRotateInCallAction",
+    "SettingID": "BOOM_ARM_MUTE",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "disabled",
+      "mute"
+    ]
+  },
+  "buttonSoundsEnabled": {
+    "Name": "buttonSoundsEnabled",
+    "SettingID": "BUTTON_SOUNDS",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "callAcceptedSound": {
+    "Name": "callAcceptedSound",
+    "SettingID": "BOOM_ARM_GUIDANCE",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "off",
+      "prompts",
+      "soundEffects"
+    ]
+  },
+  "currentVoiceLanguage": {
+    "Name": "currentVoiceLanguage",
+    "SettingID": "VOICE_ANNOUNCEMENTS_LANGUAGE",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "1033",
+      "2052",
+      "1031",
+      "1036",
+      "1041",
+      "1042"
+    ]
+  },
+  "equalizerConfig": {
+    "Name": "equalizerConfig",
+    "SettingID": "",
+    "Kind": "",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": null
+  },
+  "firmwareUpgradeLock": {
+    "Name": "firmwareUpgradeLock",
+    "SettingID": "FWU_LOCK",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "inCallBusyLightEnabled": {
+    "Name": "inCallBusyLightEnabled",
+    "SettingID": "BUSYLIGHT_ENABLED",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "inactivityDelay": {
+    "Name": "inactivityDelay",
+    "SettingID": "AUTO_SLEEP",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "3",
+      "6",
+      "12",
+      "24",
+      "48",
+      "72",
+      "96",
+      "0"
+    ]
+  },
+  "intellitoneLevel": {
+    "Name": "intellitoneLevel",
+    "SettingID": "AUDIO_PROTECTION",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "g616",
+      "level3",
+      "peakStopOnly"
+    ]
+  },
+  "muteReminderInterval": {
+    "Name": "muteReminderInterval",
+    "SettingID": "MUTE_REMINDER",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "10",
+      "20",
+      "30",
+      "40",
+      "50",
+      "60",
+      "0"
+    ]
+  },
+  "powerSaveEnabled": {
+    "Name": "powerSaveEnabled",
+    "SettingID": "POWER_SAVING_MODE",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "ringer": {
+    "Name": "ringer",
+    "SettingID": "RINGTONE_IN_HEADSET",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "sidetoneEnabledDsp": {
+    "Name": "sidetoneEnabledDsp",
+    "SettingID": "SIDETONE",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "sidetoneLevelDsp": {
+    "Name": "sidetoneLevelDsp",
+    "SettingID": "SIDETONE_LEVEL",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "_0dB",
+      "minus3dB",
+      "minus6dB",
+      "minus9dB",
+      "plus3dB",
+      "plus6dB"
+    ]
+  },
+  "soundMode": {
+    "Name": "soundMode",
+    "SettingID": "SOUND_MODE",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "normal",
+      "treble",
+      "bass"
+    ]
+  },
+  "spatialSoundForCallEnabled": {
+    "Name": "spatialSoundForCallEnabled",
+    "SettingID": "SPATIAL_SOUND_FOR_CALL_ENABLED",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "spatialSoundForMediaEnabled": {
+    "Name": "spatialSoundForMediaEnabled",
+    "SettingID": "SPATIAL_SOUND_FOR_MEDIA_ENABLED",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  },
+  "voicePrompts": {
+    "Name": "voicePrompts",
+    "SettingID": "AUDIO_ANNOUNCEMENTS",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "off",
+      "tones",
+      "voice"
+    ]
+  },
+  "windNoiseReductionEnabled": {
+    "Name": "windNoiseReductionEnabled",
+    "SettingID": "WIND_NOISE_REDUCTION",
+    "Kind": "Enum",
+    "Group": "",
+    "Help": "",
+    "Access": "",
+    "RequiresRestart": false,
+    "RestartKnown": false,
+    "PossibleValues": [
+      "true",
+      "false"
+    ]
+  }
+}

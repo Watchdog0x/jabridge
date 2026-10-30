@@ -1,0 +1,165 @@
+package main
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
+)
+
+type noiseCycleCodec struct {
+	modes, selections, observed byte
+	route                       noiseCycleRoute
+	routeBound                  bool
+}
+
+func (noiseCycleCodec) BindProperty(property modelcatalog.Property) (choicePayloadCodec, []settingChoice, error) {
+	var allowed byte
+	modes := map[string]struct {
+		name string
+		bit  byte
+	}{
+		"ANC_SOUND_MODE_LOOP_OFF":         {"off", 1},
+		"ANC_SOUND_MODE_LOOP_HEARTHROUGH": {"hearThrough", 2},
+		"ANC_SOUND_MODE_LOOP_ANC":         {"anc", 4},
+	}
+	if len(property.CompositeSettings) < 1 || len(property.CompositeSettings) > 3 {
+		return nil, nil, errors.New("noise button cycle has no complete model profile")
+	}
+	for _, member := range property.CompositeSettings {
+		mode, known := modes[member.ID]
+		if !known || allowed&mode.bit != 0 || member.Kind != "Enum" || member.IsStatic == nil || *member.IsStatic || member.GetPath != "/-" || member.SetPath != "/-" || len(member.Choices) != 2 {
+			return nil, nil, errors.New("unsupported noise button cycle profile")
+		}
+		on, off := false, false
+		for _, choice := range member.Choices {
+			if strings.EqualFold(choice.Key, "True") && choice.Value == mode.name {
+				on = true
+			} else if strings.EqualFold(choice.Key, "False") && choice.Value == "" {
+				off = true
+			} else {
+				return nil, nil, errors.New("unsupported noise cycle mode value")
+			}
+		}
+		if !on || !off {
+			return nil, nil, errors.New("noise cycle mode is missing an on/off choice")
+		}
+		allowed |= mode.bit
+	}
+	// Independent boolean members do not describe valid combinations. Without
+	// further evidence, offer the complete catalogued cycle only.
+	return noiseCycleCodec{modes: allowed, selections: 1 << allowed}, []settingChoice{noiseCycleChoice(allowed)}, nil
+}
+
+func noiseCycleChoice(mask byte) settingChoice {
+	var labels, values []string
+	for index, label := range []string{"Off", "HearThrough", "ANC"} {
+		if mask&(1<<index) != 0 {
+			labels = append(labels, label)
+			values = append(values, strings.ToLower(label))
+		}
+	}
+	return settingChoice{Name: strings.Join(labels, ", "), Raw: mask, CatalogValue: strings.Join(values, ",")}
+}
+
+func (codec noiseCycleCodec) Decode(payload []byte) (byte, string, error) {
+	if codec.modes == 0 || len(payload) < 2 || len(payload) > 4 || int(payload[0]) != len(payload)-1 {
+		return 0, "", errors.New("invalid noise button cycle length or model profile")
+	}
+	var mask byte
+	for _, mode := range payload[1:] {
+		if mode > 2 {
+			return 0, "", errors.New("unknown noise button mode")
+		}
+		bit := byte(1 << mode)
+		if bit&codec.modes == 0 || mask&bit != 0 {
+			return 0, "", errors.New("unsupported or repeated noise button mode")
+		}
+		mask |= bit
+	}
+	if codec.selections&(1<<mask) == 0 {
+		return mask, noiseCycleChoice(mask).Name + " (current; not confirmed)", nil
+	}
+	return mask, "", nil
+}
+
+func (codec noiseCycleCodec) Encode(current []byte, wanted byte) ([]byte, error) {
+	actual, _, err := codec.Decode(current)
+	if err != nil {
+		return nil, err
+	}
+	if wanted == actual {
+		return append([]byte(nil), current...), nil
+	}
+	if wanted == 0 || codec.selections&(1<<wanted) == 0 {
+		return nil, errors.New("not among the combinations confirmed for this headset firmware")
+	}
+	result := []byte{0}
+	var kept byte
+	for _, mode := range current[1:] {
+		bit := byte(1 << mode)
+		if wanted&bit != 0 {
+			result = append(result, mode)
+			kept |= bit
+		}
+	}
+	// Existing order stays intact; new modes follow the vendor enum order.
+	for mode := byte(0); mode <= 2; mode++ {
+		bit := byte(1 << mode)
+		if wanted&bit != 0 && kept&bit == 0 {
+			result = append(result, mode)
+		}
+	}
+	result[0] = byte(len(result) - 1)
+	return result, nil
+}
+
+func (codec noiseCycleCodec) Verify(written, read []byte) error {
+	if _, _, err := codec.Decode(read); err != nil {
+		return err
+	}
+	if !bytes.Equal(written, read) {
+		var actual []string
+		labels := []string{"Off", "HearThrough", "ANC"}
+		for _, mode := range read[1:] {
+			actual = append(actual, labels[mode])
+		}
+		return fmt.Errorf("headset returned %s; the requested noise button order was not confirmed", strings.Join(actual, ", "))
+	}
+	return nil
+}
+
+func (codec noiseCycleCodec) ParseChoice(value string) (byte, error) {
+	mask, err := noiseCycleSelection(strings.TrimSuffix(value, " (current; not confirmed)"))
+	if err != nil {
+		return 0, err
+	}
+	if codec.selections&(1<<mask) == 0 && mask != codec.observed {
+		return 0, errors.New("not among the combinations confirmed for this headset firmware")
+	}
+	return mask, nil
+}
+
+func noiseCycleSelection(value string) (byte, error) {
+	var mask byte
+	for _, name := range strings.Split(value, ",") {
+		var bit byte
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "off":
+			bit = 1
+		case "hearthrough":
+			bit = 2
+		case "anc":
+			bit = 4
+		default:
+			return 0, fmt.Errorf("unknown noise button mode %q", name)
+		}
+		if mask&bit != 0 {
+			return 0, errors.New("choose each noise button mode only once")
+		}
+		mask |= bit
+	}
+	return mask, nil
+}

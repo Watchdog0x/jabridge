@@ -1,5 +1,75 @@
 # Changelog
 
+## Unreleased
+
+Add a Link 380c preview for USB ID 0b0e:24c9 (#58), which was recognized but
+could not use Find headset. Reads and Classic search are enabled. Fresh pairing
+requires its own daemon-start opt-in and stays tied to the original USB device.
+Remembered-device changes, dongle settings writes and reset stay blocked.
+This variant still needs a physical test; 24ca and 24e9 are unchanged.
+
+Prepare 1.5.0 preview builds with read-only pairing-list and classic/LE search
+for Link 390 USB ID 0b0e:2e56. Pairing writes and reset remain blocked while
+the read-only preview is tested. The menu shows only available actions.
+
+Add five equalizer band controls for matching headset profiles. The menu,
+commands and Bash completion support half-dB values within the headset's limits.
+The menu shows the current level and supports 1 dB arrow steps or 0.5 dB with
+Shift. Changing one band preserves the other bands and checks the full readback.
+Unsupported layouts stay read-only. Overlapping changes to structured or masked
+settings are blocked while another change is in progress.
+
+Add a Noise control button cycle setting for supported headset profiles.
+Use model data and the current device reply rather than guessing every mode
+combination. The tested Evolve3 65 firmware 1.0.1 through Link 390 PID 2e56
+firmware 3.2.0 offers the three cycles reported to work. Other setups offer the
+full catalogued cycle and the current value. Unconfirmed new combinations are
+blocked before writing; selecting the current value makes no change. Reopen
+Settings if the dongle changes. Changes
+keep the existing mode order and are checked by reading the setting back.
+Bash suggests the full cycle; commands validate choices for the selected device.
+
+Settings now carry separate evidence for model data, current reads and hardware
+test reports through the menu and IPC. Discovery uses existing safe reads and
+adds no background polling or guessed device commands.
+
+Add a read-only Voice prompt language setting and a USB voice-language update
+path for the matching Evolve3 65 profile. The Firmware menu offers the languages
+in the verified official package and asks for confirmation before updating.
+Only the selected voice pack is transferred; the main firmware stays unchanged.
+Interrupted commits keep a recovery record and can only be checked by reading
+the headset. This path is experimental and needs an explicit preview opt-in.
+
+Add a Power saving switch when the exact headset profile supports it, with
+device readback after a change.
+
+Keep the model's individual setting limits and language-pack requirements
+when reading the available controls.
+
+Fix doubled auto-sleep times in the menu and command line (#56). The choices
+now run from 15 minutes to 8 hours, matching Jabra Plus. Bash completion uses
+the same names. For example, `auto-sleep 30-min` now selects raw value 6 for
+30 minutes; it previously selected raw value 3 for 15 minutes. The device
+commands and catalog values are unchanged.
+
+Prepare a Link 390 pairing fix for USB ID 0b0e:2e57. Search includes classic
+Bluetooth and Bluetooth LE, keeps both choices visible, stops both searches
+before pairing, and uses the connection type the user selected. Connection
+checks stay bound to the original USB device. The Link 380 flow is unchanged.
+A tester confirmed search and pairing without a USB replug after a reset with
+Jabra Direct, on Link 390 2e57 firmware 1.3.0 and Evolve2 55 firmware 1.2.13.
+The first empty search is unexplained. Jabridge's own reset stays disabled.
+
+Add an experimental installer for the Link 390 single-file firmware format
+reported in #54. It keeps the official checksum, device and protocol checks,
+and stays off by default behind its own process-start opt-in. An interrupted
+commit is checked by reading the installed version; it is never repeated
+automatically. The real 3.2.0 package passed software simulation, including
+transfer faults and process interruption. A tester reported a successful
+3.2.0 installation and readback on Link 390 2e56; physical recovery remains
+untested. File inspection now clearly distinguishes layout checks from
+installation support. Link 390 factory reset remains disabled.
+
 ## 1.4.0 — 2026-10-25
 
 Allow the Link 390 dongle with USB ID 0b0e:2e57 to use the pairing-list read,

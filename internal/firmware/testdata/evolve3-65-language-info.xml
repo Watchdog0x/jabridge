@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<buildVector version="1.0.1" productName="Jabra Evolve3 65" releaseDate="2026-07-03">
+  <partialUploadAllowed>FALSE</partialUploadAllowed>
+  <maxPreloadCount>10</maxPreloadCount>
+  <maxBlePreloadCount>10</maxBlePreloadCount>
+  <targetUsbPids>
+    <usbPid>0x2549</usbPid>
+  </targetUsbPids>
+  <minFirmwareUpdaterAppVersion>5.0.0.0</minFirmwareUpdaterAppVersion>
+  <files>
+    <!-- German -->
+    <file name="update_language_package_0_2_1_de_de.bin">
+      <content>tunepack</content>
+      <version>0.2.1</version>
+      <target>headset</target>
+      <language id="0x0407">Deutsch</language>
+      <partition>0</partition>
+    </file>
+    <!-- Korean -->
+    <file name="update_language_package_0_2_1_ko_kr.bin">
+      <content>tunepack</content>
+      <version>0.2.1</version>
+      <target>headset</target>
+      <language id="0x0412">한국말</language>
+      <partition>0</partition>
+    </file>
+    <!-- Simplified Chinese -->
+    <file name="update_language_package_0_2_1_zh_cn.bin">
+      <content>tunepack</content>
+      <version>0.2.1</version>
+      <target>headset</target>
+      <language id="0x0804">中文</language>
+      <partition>0</partition>
+    </file>
+    <!-- US English -->
+    <file name="update_language_package_0_2_1_us_en.bin">
+      <content>tunepack</content>
+      <version>0.2.1</version>
+      <target>headset</target>
+      <language id="0x0409">English</language>
+      <partition>0</partition>
+    </file>
+    <!-- French -->
+    <file name="update_language_package_0_2_1_fr_fr.bin">
+      <content>tunepack</content>
+      <version>0.2.1</version>
+      <target>headset</target>
+      <language id="0x040c">Français</language>
+      <partition>0</partition>
+    </file>
+    <!-- Japanese -->
+    <file name="update_language_package_0_2_1_ja_jp.bin">
+      <content>tunepack</content>
+      <version>0.2.1</version>
+      <target>headset</target>
+      <language id="0x0411">日本語</language>
+      <partition>0</partition>
+    </file>
+    <!-- Firmware -->
+    <file name="update_firmware_package_1_0_1.bin">
+      <content>firmware</content>
+      <version>1.0.1</version>
+      <target>headset</target>
+      <partition>0</partition>
+    </file>
+  </files>
+</buildVector>
+

@@ -6,6 +6,7 @@ BUILD_DIR ?= dist/bin
 PREFIX ?= /usr/local
 MODULE_PATH := github.com/Watchdog0x/jabridge
 LDFLAGS := -s -w -X $(MODULE_PATH)/internal/buildinfo.Version=$(VERSION)
+EXTRA_LDFLAGS ?=
 
 .PHONY: all build check clean completion-check fmt install lint test test-static uninstall version vet
 
@@ -16,7 +17,7 @@ version:
 
 build:
 	mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/jabridge
+	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="$(LDFLAGS) $(EXTRA_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/jabridge
 
 fmt:
 	@unformatted="$$(gofmt -l .)"; \
