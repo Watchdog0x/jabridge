@@ -91,17 +91,26 @@ does not establish which command or timing difference caused it.
 The candidate pairing flow scans and stops both classic Bluetooth and Bluetooth
 LE, preserves the selected type, and binds connection checks to the same USB
 attachment. Software tests cover the documented command masks, stale records,
-timeouts, cancellation, missing events and device changes. Recovery after reset
-still needs confirmation on the affected Link 390 and Evolve2 55. Factory reset
-remains disabled; software tests do not qualify it.
+timeouts, cancellation, missing events and device changes.
+
+On 2026-10-27 [@shimonkohn confirmed the pairing fix](https://github.com/Watchdog0x/jabridge/pull/55#issuecomment-6446270226)
+on the same Link 390 (2e57, variant 04-10, firmware 1.3.0) and Evolve2 55
+(24f5, variant 01-76, firmware 1.2.13), using 1.5.0-preview.4. After a reset
+with Jabra Direct, Classic search found the headset and pairing replaced the
+address-only entry with a named connected entry, without unplugging USB.
+The first search returned no results; the next search succeeded. That single
+miss is unexplained and does not identify a device or software fault.
+This qualifies the reported pairing recovery on that setup. Jabridge's own
+factory reset remains disabled and unqualified; this test did not run it.
 Use the [separate review-build instructions](TEST_LINK390.md) for optional
 hardware checks.
 
 Not verified: Bluetooth radio, softphone integration, prioritize-computer-audio
 and dedicated-call writes, and firmware updates. Bluetooth radio and softphone
 integration stay read-only on Link 390 until their writes are tested. The other
-Link 390 USB IDs (`0b0e:2e50`, `0b0e:2e51`, `0b0e:2e56`) are not allowlisted;
-report a test to add them.
+Link 390 USB IDs `0b0e:2e50` and `0b0e:2e51` remain outside the pairing
+allowlist. ID `0b0e:2e56` has a separate read-only list/search preview; its
+pairing and remembered-device writes remain disabled.
 
 ### Experimental Link 390 firmware package
 
@@ -112,7 +121,9 @@ writing firmware. Its checksum and USB access checks passed in the report.
 
 The candidate adds this monolithic protocol-7 format. The actual package has
 passed a stateful software transfer test, along with fault and abrupt-process
-interruption tests. **Physical installation and recovery remain untested.**
+interruption tests. [@ggzengel reported](https://github.com/Watchdog0x/jabridge/pull/55#issuecomment-6429435541)
+a successful 3.2.0 installation and readback on PID 2e56. This establishes that
+reported successful update, not physical interruption or recovery testing.
 The candidate firmware path is off by default and requires this variable in
 the installing process:
 

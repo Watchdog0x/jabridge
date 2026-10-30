@@ -56,8 +56,9 @@ jabridge service start
 
 ## Firmware package: issue #54
 
-**This firmware path has never run on physical hardware. It could leave the
-dongle needing recovery with Jabra's updater.** Testing is optional; skip it if
+A tester reported a successful 3.2.0 update on Link 390 USB ID 2e56.
+Interrupted-update recovery has not been tested on hardware. **An interrupted
+update could leave the dongle needing recovery with Jabra's updater.** Testing is optional; skip it if
 you are not prepared for that. Your current firmware can keep being used.
 
 Use the original ZIP already downloaded from Jabra. Keep it unchanged. Run the
