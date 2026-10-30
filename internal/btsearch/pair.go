@@ -46,6 +46,37 @@ func PairDualMode(ctx context.Context, transport PairIO, device Device) error {
 	if err := transport.Command(ctx, command[0], command[1:]); err != nil {
 		return fmt.Errorf("pair selected headset: %w", err)
 	}
+	return confirmPair(ctx, transport, device)
+}
+
+// LegacyPairCommand consumes the legacy discovery flags, where 1 means
+// Classic. They are not the normalized namespace used by PairCommand.
+func LegacyPairCommand(device Device) ([]byte, error) {
+	if device.BluetoothType != 1 {
+		return nil, fmt.Errorf("classic discovery flags 0x%02x are not supported by this preview", device.BluetoothType)
+	}
+	device.BluetoothType = 0
+	return PairCommand(device)
+}
+
+// PairLegacyBound pairs one Classic result after the discovery session has
+// stopped. It does not repeat Stop or Pair and confirms on the captured device.
+func PairLegacyBound(ctx context.Context, transport PairIO, device Device) error {
+	command, err := LegacyPairCommand(device)
+	if err != nil {
+		return err
+	}
+	if err := pairValid(ctx, transport); err != nil {
+		return err
+	}
+	if err := transport.Command(ctx, command[0], command[1:]); err != nil {
+		return fmt.Errorf("pair selected headset: %w", err)
+	}
+	device.BluetoothType = 0
+	return confirmPair(ctx, transport, device)
+}
+
+func confirmPair(ctx context.Context, transport PairIO, device Device) error {
 	attached, named := false, false
 	nextCheck := time.Now().Add(time.Second)
 	for {

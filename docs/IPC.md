@@ -106,8 +106,15 @@ and that same `session` to `bt.search.connect`. A previous search's token is
 rejected. Connecting is a user-requested device write; merely listing results
 does not pair anything. A timed-out scan is not reported as a successful empty
 search. Search support on other dongle models is not implied. Link 390 support
-covers USB ID `0b0e:2e57`; its other USB IDs are added with a hardware report
-(see [hardware testing](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)).
+covers USB ID `0b0e:2e57`; `0b0e:2e56` has a separate list/search preview.
+Link 380c `0b0e:24c9` has Classic discovery with fresh search-connect behind
+a separate daemon-start opt-in. `devices.list` includes the optional boolean
+`searchConnect` for the effective service permission. Older clients can ignore
+it; missing permission never enables pairing on the new variant. This field
+is a policy result, not a hardware-test claim. The service still checks every
+connect request, regardless of client flags. The preview does not enable
+remembered-device changes, dongle settings writes or reset for 24c9.
+See [hardware testing](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 
 Events include `device.attached`, `device.detached`, `device.battery.update`,
 `device.pairing.update`, `device.button`, `device.signal` and `sound.changed`.

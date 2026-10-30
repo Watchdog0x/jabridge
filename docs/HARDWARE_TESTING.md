@@ -22,6 +22,17 @@ readback differences, or qualify every ordering. Preview choices are narrowed
 only for this exact setup. Other profiles offer the full catalogued cycle and
 the current value, with the missing combination information explained.
 
+## Link 380c 24c9 preview
+
+Issue [#58](https://github.com/Watchdog0x/jabridge/issues/58) reports Link 380c
+24c9, variant 04-0C, firmware 1.16.0 on openSUSE Leap 16. The service and
+five dongle setting reads passed. Pairing-list reads and discovery were blocked
+by Jabridge's own allowlist, so the old build did not test those operations.
+The preview adds reads and Classic search, with fresh pairing behind a separate
+opt-in. Its pairing and power-cycle reconnect have not been tested on hardware.
+Other dongle writes and factory reset remain disabled. See
+[optional test steps](TEST_LINK380C.md).
+
 ## Tested devices
 
 Testing a device does not mean every feature or firmware update has been tested.

@@ -129,7 +129,8 @@ func connectSearchDeviceBound(index int, token string) error {
 	if selected.instance != target.instance || !supportsValidatedPairingReads(selected.productID) || !searchMatchesCurrent(target) {
 		return errors.New("selected dongle changed; search again")
 	}
-	if !supportsExperimentalDongleWrites(selected.productID) {
+	policy := pairingPolicyFor(selected)
+	if !policy.SearchConnect {
 		return fmt.Errorf("connecting search results is not enabled for dongle PID 0x%04x: %w", selected.productID, ErrNotSupported)
 	}
 	state := session.Snapshot()
@@ -140,13 +141,18 @@ func connectSearchDeviceBound(index int, token string) error {
 		return errors.New("search result no longer exists")
 	}
 	device := state.Devices[index]
+	if policy.BoundSearch && policy.Wire == searchWireLegacy {
+		if _, err := btsearch.LegacyPairCommand(device); err != nil {
+			return err
+		}
+	}
 	if err := session.Stop(); err != nil {
 		return fmt.Errorf("stop discovery before connecting: %w", err)
 	}
 	if !searchMatchesCurrent(target) {
 		return errors.New("dongle disconnected before pairing")
 	}
-	if usesDualModeSearch(target) {
+	if policy.BoundSearch {
 		if binding == nil || parent == nil {
 			return errors.New("search has no captured USB attachment; search again")
 		}
@@ -158,7 +164,11 @@ func connectSearchDeviceBound(index int, token string) error {
 		link.pairing = true
 		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		defer cancel()
-		if err := btsearch.PairDualMode(ctx, link, device); err != nil {
+		pair := btsearch.PairDualMode
+		if policy.Wire == searchWireLegacy {
+			pair = btsearch.PairLegacyBound
+		}
+		if err := pair(ctx, link, device); err != nil {
 			return err
 		}
 		requestUIRedraw()
@@ -202,7 +212,7 @@ type searchLink struct {
 }
 
 func openSearchLink(device *jabra_DeviceInfo) (*searchLink, error) {
-	if usesDualModeSearch(device) {
+	if pairingPolicyFor(device).BoundSearch {
 		binding, err := firmware.BindControlDevice(firmware.USBDevice{SysPath: device.usbDevicePath, VendorID: device.vendorID, ProductID: device.productID})
 		if err != nil {
 			return nil, err
@@ -221,18 +231,25 @@ func openSearchLink(device *jabra_DeviceInfo) (*searchLink, error) {
 }
 
 func (s *searchLink) Close() error { return s.file.Close() }
-func (s *searchLink) Start(ctx context.Context) error {
-	command := btsearch.StartCommand()
-	if s.binding != nil {
-		command = btsearch.DualModeStartCommand()
+func (s *searchLink) discoveryCommand(start bool) []byte {
+	if usesDualModeSearch(s.device) {
+		if start {
+			return btsearch.DualModeStartCommand()
+		}
+		return btsearch.DualModeStopCommand()
 	}
+	if start {
+		return btsearch.StartCommand()
+	}
+	return btsearch.StopCommand()
+}
+
+func (s *searchLink) Start(ctx context.Context) error {
+	command := s.discoveryCommand(true)
 	return s.command(ctx, command[0], command[1:])
 }
 func (s *searchLink) Stop(ctx context.Context) error {
-	command := btsearch.StopCommand()
-	if s.binding != nil {
-		command = btsearch.DualModeStopCommand()
-	}
+	command := s.discoveryCommand(false)
 	return s.command(ctx, command[0], command[1:])
 }
 

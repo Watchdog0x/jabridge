@@ -281,7 +281,7 @@ func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceIn
 		device := &jabra_DeviceInfo{
 			deviceID: info.ID, deviceName: info.Name, productID: info.PID,
 			instance: info.Instance, controlTopology: info.Topology,
-			vendorID: jabraVendorID, isDongle: info.IsDongle,
+			vendorID: jabraVendorID, isDongle: info.IsDongle, searchConnect: info.SearchConnect,
 			variantType: info.Variant, firmwareVersion: info.Firmware,
 			firmwareIdentity: info.FirmwareIdentity,
 			deviceConnection: connection, parentDeviceID: info.ParentID,

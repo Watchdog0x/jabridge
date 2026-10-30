@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Add a Link 380c preview for USB ID 0b0e:24c9 (#58), which was recognized but
+could not use Find headset. Reads and Classic search are enabled. Fresh pairing
+requires its own daemon-start opt-in and stays tied to the original USB device.
+Remembered-device changes, dongle settings writes and reset stay blocked.
+This variant still needs a physical test; 24ca and 24e9 are unchanged.
+
 Prepare 1.5.0 preview builds with read-only pairing-list and classic/LE search
 for Link 390 USB ID 0b0e:2e56. Pairing writes and reset remain blocked while
 the read-only preview is tested. The menu shows only available actions.

@@ -139,17 +139,19 @@ and output backpressure through a real pseudo-terminal.
 
 ### Reads and discovery
 
-`supportsValidatedPairingReads` in `jabraApi.go` checks the dongle's USB ID.
+`supportsValidatedPairingReads` in `pairing_policy.go` checks the dongle's USB ID.
 `bluetooth_search.go` uses that policy for discovery. Headset models are not
 hardcoded into this gate. See the [Link 390 test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
 for the tested dongle and headset.
 
 ### Pairing writes
 
-`supportsExperimentalDongleWrites` keeps an independent USB ID list.
-`paired_devices.go` uses it for connect, disconnect and forget. Search-connect
-requires both read and write support before stopping discovery or opening the
-management interface. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
+`supportsExperimentalDongleWrites` keeps remembered-device writes separate
+from discovery and fresh pairing. `paired_devices.go` uses it for connect,
+disconnect and forget. Search-connect checks `pairingPolicy.SearchConnect`
+before stopping discovery or opening the management interface. A daemon opt-in
+can grant fresh search-connect for the 24c9 preview without granting remembered
+or settings writes. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
 lists the operations checked on Link 390.
 
 For the candidate `2e57` search flow, `internal/btsearch` has a separate
@@ -166,6 +168,30 @@ An independent passive reader is opened before Stop/Pair. Attach/name events
 accelerate a fresh connected-entry check; missing events fall back to reads no
 faster than once a second. Each complete confirmation has a one-second deadline
 inside the unchanged 30-second pairing budget. Writes are never replayed.
+
+`internal/history/history.go` includes fresh search-connect requests in the
+bounded local history. Frequent search-status polling stays excluded. History
+keeps the method, phase and classified error, not request parameters, addresses
+or search tokens.
+
+### Link 380c pairing preview
+
+`pairing_policy.go` separates pairing-list/search access, fresh search-connect,
+remembered-device writes and bound transport from the search wire format.
+Link 380c 24c9 gets reads and Classic discovery. Its separate pairing option is
+captured only when the daemon starts. `devices.list.searchConnect` advertises
+the effective permission to the terminal client; client environment variables
+never authorize service writes. The service checks the policy before stopping
+search or opening the pairing path. Remembered-device, settings and reset
+gates stay separate and unchanged.
+
+This preview uses the existing captured USB control binding with the legacy
+Classic start/stop masks. `PairLegacyBound` translates discovery flag 1 into
+Classic pairing namespace 0, sends one pair request after the session stops,
+and reuses the bounded confirmation loop. Binding a device never changes its
+wire masks. Acknowledgement alone is not success, writes are never replayed,
+and confirmation stays on the captured dongle and selected address. The tested
+24c7/24c8 path and Link 390 dual-mode flow retain their wire behavior.
 
 ### Experimental Link 390 firmware
 

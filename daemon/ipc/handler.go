@@ -23,6 +23,7 @@ import (
 
 // DeviceInfo is the JSON-serializable device representation for IPC.
 type DeviceInfo struct {
+	SearchConnect    bool              `json:"searchConnect,omitempty"`
 	ID               uint16            `json:"id"`
 	Instance         string            `json:"instance,omitempty"`
 	Topology         string            `json:"topology,omitempty"`

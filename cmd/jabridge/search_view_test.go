@@ -11,7 +11,16 @@ func TestFindHeadsetMenuUsesSupportedDongle(t *testing.T) {
 	old := currentTUIBackend()
 	setTUIBackend(&tuiIPCBackend{})
 	defer setTUIBackend(old)
-	for _, pid := range []uint16{0x24c7, 0x24c8, 0x2e50, 0xffff} {
+	preservePairingOption(t)
+	link380CSearchConnectEnabled.Store(false)
+	for _, test := range []struct {
+		pid  uint16
+		want bool
+	}{
+		{0x24c7, true}, {0x24c8, true}, {0x24c9, true}, {0x24ca, false},
+		{0x24e9, false}, {0x2e50, false}, {0x2e51, false}, {0x2e56, true}, {0x2e57, true}, {0xffff, false},
+	} {
+		pid := test.pid
 		t.Run(string(rune(pid)), func(t *testing.T) {
 			d := metadataTestDongle()
 			d.productID = pid
@@ -21,7 +30,7 @@ func TestFindHeadsetMenuUsesSupportedDongle(t *testing.T) {
 			for _, item := range startMenu {
 				found = found || item.id == 0 && item.label == "Find headset"
 			}
-			if found != supportsValidatedPairingReads(pid) {
+			if found != test.want {
 				t.Fatal(pid, found)
 			}
 		})

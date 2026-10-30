@@ -516,7 +516,7 @@ func handleEnterKey(results chan<- actionResult) bool {
 		if len(searchDeviceList.pairedDevices) == 0 && searchViewState.State != "searching" && searchViewState.State != "starting" {
 			return activateStartMenuItem(menuItem{id: 0}, results)
 		}
-		if pairingPreviewIsReadOnly() {
+		if searchPreviewIsReadOnly() {
 			setStatus("This preview can search but cannot pair this dongle yet.", false)
 			return false
 		}
@@ -602,7 +602,7 @@ func activateStartMenuItem(item menuItem, results chan<- actionResult) bool {
 }
 
 func handleActionKey(event keyEvent, results chan<- actionResult) {
-	if menuState == screenSearch && event == keyAction1 && pairingPreviewIsReadOnly() {
+	if menuState == screenSearch && event == keyAction1 && searchPreviewIsReadOnly() {
 		setStatus("This preview can search but cannot pair this dongle yet.", false)
 		return
 	}
@@ -638,7 +638,7 @@ func handleActionKey(event keyEvent, results chan<- actionResult) {
 }
 
 func handleRememberedDeviceAction(event keyEvent, results chan<- actionResult) {
-	if pairingPreviewIsReadOnly() {
+	if rememberedPreviewIsReadOnly() {
 		setStatus("This pairing list is read-only in the preview.", false)
 		return
 	}
@@ -1494,7 +1494,7 @@ func clearSearchResults() {
 func menuSearchForNewDevices() {
 	drawingBox()
 	title := "Find headset"
-	if pairingPreviewIsReadOnly() {
+	if searchPreviewIsReadOnly() {
 		title += " (read only)"
 	}
 	drawListHeading(title, currentSelection, len(searchDeviceList.pairedDevices))
@@ -1526,7 +1526,7 @@ func menuSearchForNewDevices() {
 		}
 		drawSplitActionBar([]string{hintBack}, right)
 	} else {
-		if pairingPreviewIsReadOnly() {
+		if searchPreviewIsReadOnly() {
 			drawSplitActionBar([]string{hintBack}, []string{hintMove})
 		} else {
 			drawSplitActionBar(menuItemsSearchForNewDevices[:1], menuItemsSearchForNewDevices[1:])
@@ -1544,7 +1544,7 @@ func menuPairedDevices() {
 		return
 	}
 	title := "Remembered headsets"
-	if pairingPreviewIsReadOnly() {
+	if rememberedPreviewIsReadOnly() {
 		title += " (read only)"
 	}
 	drawListHeading(title, currentSelection, len(dongle.pairingList.pairedDevices))
@@ -1554,7 +1554,7 @@ func menuPairedDevices() {
 	} else {
 		drawPairingRows(dongle.pairingList.pairedDevices)
 	}
-	if pairingPreviewIsReadOnly() {
+	if rememberedPreviewIsReadOnly() {
 		drawSplitActionBar([]string{hintBack}, []string{hintMove})
 		return
 	}

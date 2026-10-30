@@ -11,7 +11,7 @@ import (
 )
 
 func usesDualModeSearch(device *jabra_DeviceInfo) bool {
-	return device != nil && device.isDongle && (device.productID == 0x2e56 || device.productID == 0x2e57)
+	return pairingPolicyFor(device).Wire == searchWireDualMode
 }
 
 func typedSearchName(device btsearch.Device) string {
@@ -38,11 +38,18 @@ func (s *searchLink) Valid() error {
 	if current == nil || current.usbDevicePath != s.device.usbDevicePath || current.vendorID != s.device.vendorID {
 		return errors.New("selected USB attachment changed; search again")
 	}
+	policy := pairingPolicyFor(s.device)
+	if policy.BoundSearch && policy.Wire == searchWireLegacy && current.serialNumber != s.device.serialNumber {
+		return errors.New("selected USB identity changed; search again")
+	}
 	if s.pairing {
 		selected, err := selectedDongleDevice()
-		if err != nil || selected.instance != s.device.instance || selected.usbDevicePath != s.device.usbDevicePath {
+		if err != nil || selected.instance != s.device.instance || selected.usbDevicePath != s.device.usbDevicePath || !pairingPolicyFor(selected).SearchConnect {
 			return errors.New("selected dongle changed while pairing")
 		}
+	}
+	if s.binding == nil {
+		return errors.New("search has no captured USB attachment; search again")
 	}
 	return s.binding.Validate()
 }

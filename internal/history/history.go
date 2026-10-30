@@ -109,7 +109,7 @@ func TraceMethod(method string) bool {
 	switch method {
 	case "device.volume", "device.volume.get", "sound.recover", "sound.default", "sound.volume", "sound.mute", "sound.mode", "buttons.configure":
 		return true
-	case "settings.set", "settings.list", "device.select", "device.reset", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "service.shutdown":
+	case "settings.set", "settings.list", "device.select", "device.reset", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.connect", "service.shutdown":
 		return true
 	}
 	return false

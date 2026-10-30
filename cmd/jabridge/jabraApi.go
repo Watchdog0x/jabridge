@@ -41,6 +41,7 @@ type jabra_DeviceInfo struct {
 	deviceName       string
 	usbDevicePath    string
 	isDongle         bool
+	searchConnect    bool // Effective daemon permission; display only, never authorization.
 	serialNumber     string
 	variantType      string
 	firmwareVersion  string
@@ -708,42 +709,6 @@ func isKnownDonglePID(pid uint16) bool {
 		return true
 	}
 	return false
-}
-
-// supportsValidatedPairingReads lists the USB IDs enabled for pairing-list
-// queries and headset discovery. Physical test scope is recorded separately
-// in docs/HARDWARE_TESTING.md; an allowlisted variant does not imply every
-// operation was tested on it. Pairing writes require their own allowlist.
-func supportsValidatedPairingReads(pid uint16) bool {
-	switch pid {
-	case 0x24c7, 0x24c8, // Link 380
-		0x2e56, 0x2e57: // Link 390; 2e56 is a read-only preview.
-		return true
-	}
-	return false
-}
-
-// supportsExperimentalDongleWrites deliberately stays narrower than dongle
-// discovery. Pairing, remembered-device editing and the validated dongle
-// settings are enabled only for these IDs. Keep this list independent from
-// pairing reads so adding read-only support does not also permit writes.
-// Physical test scope is in docs/HARDWARE_TESTING.md. Factory reset has its
-// own, narrower allowlist.
-func supportsExperimentalDongleWrites(pid uint16) bool {
-	switch pid {
-	case 0x24c7, 0x24c8, // Link 380
-		0x2e57: // Link 390
-		return true
-	}
-	return false
-}
-
-// supportsValidatedFactoryReset preserves the existing Link 380 allowlist
-// for the Bluetooth-device factory-default operation. On Link 390
-// 0x2e57 the command completed but the dongle would not pair until it was
-// physically reconnected (docs/HARDWARE_TESTING.md), so it stays excluded.
-func supportsValidatedFactoryReset(pid uint16) bool {
-	return pid == 0x24c7 || pid == 0x24c8
 }
 
 func isAccessoryName(name string) bool {

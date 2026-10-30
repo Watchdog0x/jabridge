@@ -1,6 +1,7 @@
 package history
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -317,5 +318,42 @@ func TestHeadsetVolumeHistoryKeepsOnlyBoundedRequests(t *testing.T) {
 	}
 	if !TraceMethod("device.volume") {
 		t.Fatal("headset volume request not traced")
+	}
+}
+
+func TestFreshSearchConnectIsRecordedWithoutTracingStatusPolls(t *testing.T) {
+	if !TraceMethod("bt.search.connect") || TraceMethod("bt.search.status") {
+		t.Fatal("fresh pairing missing from history or status polling traced")
+	}
+	r, _ := testRecorder(t)
+	if err := r.Append(Event{Component: "ipc-server", Action: "request", Phase: "error", Method: "bt.search.connect", Error: "failed", Operation: 42, Input: "PRIVATE_SEARCH_TOKEN"}); err != nil {
+		t.Fatal(err)
+	}
+	// Read sanitizes again. Inspect durable bytes first so a write-side privacy
+	// regression cannot be hidden by the round trip below.
+	files, err := filepath.Glob(filepath.Join(r.Dir, "*.jsonl"))
+	if err != nil || len(files) != 1 {
+		t.Fatal("missing raw history file", files, err)
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "PRIVATE_SEARCH_TOKEN") {
+		t.Fatal("search parameters reached the raw history file")
+	}
+	var raw Event
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw.Input, "PRIVATE_SEARCH_TOKEN") {
+		t.Fatal("encoded search parameters reached the raw history file")
+	}
+	if raw.Method != "bt.search.connect" || raw.Operation != 42 || raw.Phase != "error" {
+		t.Fatal("pairing evidence lost before reading", raw)
+	}
+	events, skipped, err := r.Read(10)
+	if err != nil || skipped != 0 || len(events) != 1 || events[0].Method != "bt.search.connect" || events[0].Operation != 42 || strings.Contains(events[0].Input, "PRIVATE") {
+		t.Fatal("pairing trace lost or private parameters retained", events, skipped, err)
 	}
 }

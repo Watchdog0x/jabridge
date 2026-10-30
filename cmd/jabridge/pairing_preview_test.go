@@ -42,7 +42,7 @@ func TestReadOnlyPairingShortcutsNeverDispatchMutations(t *testing.T) {
 		{"remembered-action-connected", screenPairedDevices, keyAction1, true, false, "bt.disconnect"},
 		{"armed-forget", screenPairedDevices, keyAction2, false, true, "bt.forget"},
 	} {
-		for _, pid := range []uint16{0x2e56, 0x2e57} {
+		for _, pid := range []uint16{0x2e56, 0x24c9, 0x2e57} {
 			t.Run(fmt.Sprintf("%s/%04x", test.name, pid), func(t *testing.T) {
 				withMenuState(t)
 				withDeviceState(t, make(devices), -1, -1)
@@ -56,7 +56,7 @@ func TestReadOnlyPairingShortcutsNeverDispatchMutations(t *testing.T) {
 				currentSelection = 0
 				uiResultContext = context.Background()
 				entry := pairedDevice{deviceName: "Test headset", isConnected: test.connected}
-				addDevice(&jabra_DeviceInfo{productID: pid, isDongle: true, deviceName: "Jabra Link 390", pairingList: &pairingList{pairedDevices: []pairedDevice{entry}}})
+				addDevice(&jabra_DeviceInfo{productID: pid, isDongle: true, searchConnect: pid == 0x24c9, deviceName: "Jabra Link", pairingList: &pairingList{pairedDevices: []pairedDevice{entry}}})
 				searchDeviceList = &pairingList{pairedDevices: []pairedDevice{entry}}
 				searchViewState = ipc.SearchState{State: "complete", Session: strings.Repeat("a", 32)}
 				if test.forget {
@@ -83,7 +83,7 @@ func TestReadOnlyPairingShortcutsNeverDispatchMutations(t *testing.T) {
 				} else {
 					handleActionKey(test.event, results)
 				}
-				if pid == 0x2e56 {
+				if pid == 0x2e56 || pid == 0x24c9 && test.screen != screenSearch {
 					// Dispatch schedules a UI activity synchronously before its
 					// goroutine. No activity therefore also rules out a late send.
 					if uiBusy() || len(results) != 0 || len(requests) != 0 {
@@ -119,7 +119,7 @@ func TestReadOnlyPairingMenusDoNotOfferConnectForget(t *testing.T) {
 	withMenuState(t)
 	withDeviceState(t, make(devices), -1, -1)
 	addDevice(&jabra_DeviceInfo{productID: 0x2e56, isDongle: true, deviceName: "Jabra Link 390", pairingList: &pairingList{}})
-	if !pairingPreviewIsReadOnly() {
+	if !rememberedPreviewIsReadOnly() {
 		t.Fatal("wrong preview UI scope")
 	}
 	target := newRenderTarget(t, 100, 30)

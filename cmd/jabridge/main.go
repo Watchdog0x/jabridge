@@ -187,6 +187,7 @@ func runDaemon() error {
 		return err
 	}
 	defer func() { _ = lease.Close() }()
+	capturePairingPreviewOption()
 	cfg := daemon.DefaultConfig()
 	cfg.ButtonsMonitor = buttons.NativeMonitor
 	if socket := os.Getenv("JABRIDGE_SOCKET"); socket != "" {
@@ -293,6 +294,7 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			FirmwareIdentity: firmware.WirelessFirmwareIdentity(dev.productID, dev.serialNumber, dev.variantType),
 			Selected:         int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
 			Parts:            ipcControlParts(dev),
+			SearchConnect:    pairingPolicyFor(dev).SearchConnect,
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)
