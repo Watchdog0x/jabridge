@@ -126,7 +126,7 @@ func connectSearchDeviceBound(index int, token string) error {
 	if err != nil {
 		return err
 	}
-	if selected.instance != target.instance || !supportsValidatedPairingReads(selected.productID) || !searchMatchesCurrent(target) {
+	if selected.instance != target.instance || !searchMatchesCurrent(target) {
 		return errors.New("selected dongle changed; search again")
 	}
 	policy := pairingPolicyFor(selected)

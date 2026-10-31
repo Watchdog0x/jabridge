@@ -544,7 +544,7 @@ func encodeBoolSettingPayload(definition boolSettingDefinition, value bool) []by
 // and a definition whose write and read-back were checked on that dongle
 // (docs/HARDWARE_TESTING.md).
 func canEditBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition) bool {
-	if device == nil || !definition.Writable {
+	if device == nil || !definition.Writable || previewSettingLocked(definition.Key, false) {
 		return false
 	}
 	if device.isDongle {
@@ -808,7 +808,9 @@ func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []b
 			definition.ExpectedFirmware = capabilities.Firmware
 		}
 		reason := ""
-		if scope == settingScopeHeadset && catalogErr != nil {
+		if previewSettingLocked(definition.Key, false) {
+			reason = previewSettingReadOnlyReason
+		} else if scope == settingScopeHeadset && catalogErr != nil {
 			reason = "Model data is unavailable; this control is read-only."
 		}
 		values = append(values, boolSettingValue{

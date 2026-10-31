@@ -17,8 +17,8 @@ func TestFindHeadsetMenuUsesSupportedDongle(t *testing.T) {
 		pid  uint16
 		want bool
 	}{
-		{0x24c7, true}, {0x24c8, true}, {0x24c9, true}, {0x24ca, false},
-		{0x24e9, false}, {0x2e50, false}, {0x2e51, false}, {0x2e56, true}, {0x2e57, true}, {0xffff, false},
+		{0x24c7, true}, {0x24c8, true}, {0x24c9, false}, {0x24ca, false},
+		{0x24e9, false}, {0x2e50, false}, {0x2e51, false}, {0x2e56, false}, {0x2e57, true}, {0xffff, false},
 	} {
 		pid := test.pid
 		t.Run(string(rune(pid)), func(t *testing.T) {

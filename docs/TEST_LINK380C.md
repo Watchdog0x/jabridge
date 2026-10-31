@@ -5,8 +5,8 @@ variant yet. Pairing can change saved pairings. It cannot forget or disconnect
 remembered headsets, change dongle settings, or factory reset this dongle.
 Other Link 380 variants have not been added by this change.
 
-Download the Linux review artifact linked in PR #55 and extract it into a
-separate folder. The review build cannot install itself or update the normal app.
+Use the 1.5.0 Linux archive in a separate folder. Do not run setup from that
+folder or replace your normal installation for this optional test.
 
 ```sh
 chmod +x ./jabridge
@@ -28,7 +28,7 @@ JABRIDGE_SOCKET="$XDG_RUNTIME_DIR/jabridge-link380c.sock" ./jabridge
 ```
 
 The option belongs on the service, not just the menu command. Without it,
-search and the remembered list stay read-only. The global experimental-writes
+list, search and pairing stay disabled. The global experimental-writes
 option does not enable this pairing path.
 
 On Evolve2 85, hold the On/Off/Pairing switch in the pairing position for

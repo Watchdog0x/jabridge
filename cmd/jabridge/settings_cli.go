@@ -125,6 +125,10 @@ func setDeviceSettingFromText(device *jabra_DeviceInfo, selector string, setting
 }
 
 func applyDeviceSettingFromText(device *jabra_DeviceInfo, setting deviceSettingValue, textValue string) (result string, changed bool, actionErr error) {
+	structured := setting.Choice != nil && setting.Choice.Definition.Codec != nil
+	if previewSettingLocked(setting.key(), structured) {
+		return "", false, fmt.Errorf("%s: %s: %w", setting.key(), previewSettingReadOnlyReason, ErrNotSupported)
+	}
 	entry := historyDeviceEvent(device, "settings")
 	entry.Setting = setting.key()
 	finish := history.Begin(entry)

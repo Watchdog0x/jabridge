@@ -26,7 +26,7 @@ func TestLink380COptInNeverGrantsOtherWrites(t *testing.T) {
 			d := &jabra_DeviceInfo{isDongle: true, productID: pid}
 			p := pairingPolicyFor(d)
 			known := pid == 0x24c7 || pid == 0x24c8 || pid == 0x2e57
-			reads := known || pid == 0x24c9 || pid == 0x2e56
+			reads := known || pid == 0x24c9 && value == link380CSearchConnectAck
 			pair := known || pid == 0x24c9 && value == link380CSearchConnectAck
 			if p.Reads != reads || p.SearchConnect != pair || p.RememberedWrites != known {
 				t.Fatalf("wrong policy for %04x and option %q: %+v", pid, value, p)

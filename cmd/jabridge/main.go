@@ -188,6 +188,7 @@ func runDaemon() error {
 	}
 	defer func() { _ = lease.Close() }()
 	capturePairingPreviewOption()
+	capturePreviewSettingOption()
 	cfg := daemon.DefaultConfig()
 	cfg.ButtonsMonitor = buttons.NativeMonitor
 	if socket := os.Getenv("JABRIDGE_SOCKET"); socket != "" {
@@ -366,7 +367,7 @@ func (j *jabraAPIBridge) GetFeatures() ipc.FeatureInfo {
 
 func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
 	dongle, exists := selectedDongleSnapshot()
-	if !exists || dongle.pairingList == nil {
+	if !exists || dongle.pairingList == nil || !supportsValidatedPairingReads(dongle.productID) {
 		return nil
 	}
 	var out []ipc.PairedDeviceInfo

@@ -1,26 +1,30 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 — 2026-10-31
 
 Add a Link 380c preview for USB ID 0b0e:24c9 (#58), which was recognized but
-could not use Find headset. Reads and Classic search are enabled. Fresh pairing
-requires its own daemon-start opt-in and stays tied to the original USB device.
+could not use Find headset. Its list, Classic search and fresh pairing are off
+by default. The separate daemon-start option enables this preview, tied to the
+original USB device.
 Remembered-device changes, dongle settings writes and reset stay blocked.
 This variant still needs a physical test; 24ca and 24e9 are unchanged.
 
-Prepare 1.5.0 preview builds with read-only pairing-list and classic/LE search
-for Link 390 USB ID 0b0e:2e56. Pairing writes and reset remain blocked while
-the read-only preview is tested. The menu shows only available actions.
+Keep the unconfirmed Link 390 0b0e:2e56 list and search off in this release.
+Its firmware option is separate. Existing connected-headset status stays
+available. Pairing writes and Link 390 reset remain disabled.
 
-Add five equalizer band controls for matching headset profiles. The menu,
-commands and Bash completion support half-dB values within the headset's limits.
+Show five equalizer band values for matching headset profiles. Equalizer,
+noise button cycle and power saving are read-only by default. Their writes
+require JABRIDGE_ENABLE_PREVIEW_SETTING_WRITES=I_ACCEPT_UNTESTED_SETTINGS on
+the service. In that test mode, the menu and commands support half-dB values
+within the headset's limits.
 The menu shows the current level and supports 1 dB arrow steps or 0.5 dB with
 Shift. Changing one band preserves the other bands and checks the full readback.
 Unsupported layouts stay read-only. Overlapping changes to structured or masked
 settings are blocked while another change is in progress.
 
-Add a Noise control button cycle setting for supported headset profiles.
-Use model data and the current device reply rather than guessing every mode
+Show a read-only Noise control button cycle setting for matching profiles.
+In the explicit setting-test mode, use model data and the current device reply rather than guessing every mode
 combination. The tested Evolve3 65 firmware 1.0.1 through Link 390 PID 2e56
 firmware 3.2.0 offers the three cycles reported to work. Other setups offer the
 full catalogued cycle and the current value. Unconfirmed new combinations are
@@ -40,8 +44,8 @@ Only the selected voice pack is transferred; the main firmware stays unchanged.
 Interrupted commits keep a recovery record and can only be checked by reading
 the headset. This path is experimental and needs an explicit preview opt-in.
 
-Add a Power saving switch when the exact headset profile supports it, with
-device readback after a change.
+Read Power saving when the exact headset profile supports it. Changing it
+requires the same separate setting-test option and device readback.
 
 Keep the model's individual setting limits and language-pack requirements
 when reading the available controls.

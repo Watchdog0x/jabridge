@@ -1348,10 +1348,10 @@ func updateStartMenu() {
 		startMenu = append(startMenu,
 			menuItem{id: 2, label: "Dongle settings"},
 		)
-		if currentTUIBackend() != nil && supportsValidatedPairingReads(dongle.productID) {
+		if currentTUIBackend() != nil && pairingUIAllowed(dongle) {
 			startMenu = append(startMenu, menuItem{id: 0, label: "Find headset"})
 		}
-		if supportsValidatedPairingReads(dongle.productID) || dongle.featureFlags != nil && dongle.featureFlags.pairingList {
+		if pairingUIAllowed(dongle) {
 			count := 0
 			if dongle.pairingList != nil {
 				count = len(dongle.pairingList.pairedDevices)
@@ -1529,6 +1529,9 @@ func setDongleInBTPairing(pairing bool) error {
 	if err != nil {
 		return err
 	}
+	if !supportsExperimentalDongleWrites(dongle.productID) {
+		return fmt.Errorf("pairing mode is not enabled for dongle PID 0x%04x: %w", dongle.productID, ErrNotSupported)
+	}
 	h := openDeviceHidraw(dongle)
 	if h == nil {
 		return fmt.Errorf("open dongle GNP interface")
@@ -1552,6 +1555,9 @@ func getPairingList(deviceID uint16) (*pairingList, error) {
 	dongle := deviceForID(deviceID)
 	if dongle == nil || !dongle.isDongle || dongle.hidrawPath == "" {
 		return nil, fmt.Errorf("pairing list unavailable for device %d", deviceID)
+	}
+	if !supportsValidatedPairingReads(dongle.productID) {
+		return nil, fmt.Errorf("pairing reads are not enabled for dongle PID 0x%04x: %w", dongle.productID, ErrNotSupported)
 	}
 	h := openDeviceHidraw(dongle)
 	if h == nil {

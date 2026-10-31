@@ -38,11 +38,12 @@ func pairingPolicyFor(device *jabra_DeviceInfo) pairingPolicy {
 	case 0x24c7, 0x24c8:
 		return pairingPolicy{Reads: true, SearchConnect: true, RememberedWrites: true}
 	case 0x24c9:
-		return pairingPolicy{Reads: true, SearchConnect: link380CSearchConnectEnabled.Load(), BoundSearch: true}
+		enabled := link380CSearchConnectEnabled.Load()
+		return pairingPolicy{Reads: enabled, SearchConnect: enabled, BoundSearch: true}
 	case 0x2e57:
 		return pairingPolicy{Reads: true, SearchConnect: true, RememberedWrites: true, BoundSearch: true, Wire: searchWireDualMode}
 	case 0x2e56:
-		return pairingPolicy{Reads: true, BoundSearch: true, Wire: searchWireDualMode}
+		return pairingPolicy{BoundSearch: true, Wire: searchWireDualMode}
 	}
 	return pairingPolicy{}
 }

@@ -346,6 +346,9 @@ func readChoiceSettingPayload(device *jabra_DeviceInfo, definition choiceSetting
 }
 
 func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, choiceIndex int) error {
+	if previewSettingLocked(setting.Definition.Key, setting.Definition.Codec != nil) {
+		return fmt.Errorf("%s: %s: %w", setting.Definition.Key, previewSettingReadOnlyReason, ErrNotSupported)
+	}
 	definition := setting.Definition
 	if !setting.Editable || choiceIndex < 0 || choiceIndex >= len(definition.Choices) {
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
@@ -496,6 +499,7 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 		} else {
 			continue
 		}
+		definition = applyPreviewChoicePolicy(definition)
 		value, err := readChoiceSettingFromSnapshot(definition, reads, func() ([]byte, error) {
 			return readChoiceSettingPayload(device, definition)
 		})
@@ -504,7 +508,9 @@ func readSupportedChoiceSettings(device *jabra_DeviceInfo, scope settingScope) [
 				value.Definition.ExpectedFirmware = capabilities.Firmware
 			}
 			reason := ""
-			if catalogErr != nil {
+			if previewSettingLocked(definition.Key, definition.Codec != nil) {
+				reason = previewSettingReadOnlyReason
+			} else if catalogErr != nil {
 				reason = "Model data is unavailable; this control is read-only."
 			} else if definition.Key == "noise-cycle" {
 				reason = definition.Help

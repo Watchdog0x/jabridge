@@ -2,14 +2,16 @@
 
 ## Evolve3 65 controls preview
 
-The 1.5.0 preview adds power saving, noise-button cycle, five equalizer bands
-and a USB voice-language update path for the exact Evolve3 65 profile.
+Version 1.5.0 reads power saving, noise-button cycle and five equalizer bands
+for matching profiles. These controls are read-only by default; their writes
+require the separate setting-test service option in TEST_EVOLVE3_CONTROLS.md.
+USB voice-language updates have their own default-off option.
 Software checks and recovery simulations do not qualify spoken language,
 audible EQ or settings persistence. See TEST_EVOLVE3_CONTROLS.md and
 TEST_VOICE_LANGUAGE.md for optional device tests.
 
-Link 390 PID 2e56 firmware 3.2.0 has a read-only pairing-list/search preview.
-Pairing writes and every Link 390 reset remain disabled. Its earlier firmware
+Link 390 PID 2e56 list and search are off in 1.5.0 because their physical
+checks were not reported. Pairing writes and every Link 390 reset remain disabled. Its earlier firmware
 install/readback, sound, microphone and reconnect test passed according to
 the tester; that does not qualify fresh pairing or the new controls.
 
@@ -19,8 +21,10 @@ correct sleep-timer labels on Evolve3 65 (PID 2549, firmware 1.0.1) through Link
 HearThrough, ANC and Off; HearThrough and ANC; and HearThrough and Off. Other choices showed
 errors; the report does not identify whether those were device errors or
 readback differences, or qualify every ordering. Preview choices are narrowed
-only for this exact setup. Other profiles offer the full catalogued cycle and
-the current value, with the missing combination information explained.
+only for this exact setup when setting-test writes are enabled. Other profiles
+show the full catalogued cycle and current value. All these new cycle controls
+are read-only in the default release. Reported old mode sets do not qualify the
+new menu, EQ or power-saving writes on every model.
 
 ## Link 380c 24c9 preview
 
@@ -28,8 +32,8 @@ Issue [#58](https://github.com/Watchdog0x/jabridge/issues/58) reports Link 380c
 24c9, variant 04-0C, firmware 1.16.0 on openSUSE Leap 16. The service and
 five dongle setting reads passed. Pairing-list reads and discovery were blocked
 by Jabridge's own allowlist, so the old build did not test those operations.
-The preview adds reads and Classic search, with fresh pairing behind a separate
-opt-in. Its pairing and power-cycle reconnect have not been tested on hardware.
+The separate daemon option enables list reads, Classic search and fresh
+pairing together. All three are off by default in 1.5.0. Its pairing and power-cycle reconnect have not been tested on hardware.
 Other dongle writes and factory reset remain disabled. See
 [optional test steps](TEST_LINK380C.md).
 
@@ -120,8 +124,8 @@ Not verified: Bluetooth radio, softphone integration, prioritize-computer-audio
 and dedicated-call writes, and firmware updates. Bluetooth radio and softphone
 integration stay read-only on Link 390 until their writes are tested. The other
 Link 390 USB IDs `0b0e:2e50` and `0b0e:2e51` remain outside the pairing
-allowlist. ID `0b0e:2e56` has a separate read-only list/search preview; its
-pairing and remembered-device writes remain disabled.
+allowlist. ID `0b0e:2e56` list, search, pairing and remembered-device writes remain
+disabled in this release.
 
 ### Experimental Link 390 firmware package
 

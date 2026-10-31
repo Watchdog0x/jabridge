@@ -12,6 +12,7 @@ import (
 )
 
 func TestPowerSavingVendorBooleanAndPayload(t *testing.T) {
+	withPreviewSettingWrites(t)
 	definition, ok := findBoolSettingDefinition(settingScopeHeadset, "power-saving")
 	if !ok {
 		t.Fatal("power saving is missing")
@@ -58,6 +59,7 @@ func TestPowerSavingVendorBooleanAndPayload(t *testing.T) {
 }
 
 func TestPowerSavingClientAndCompletionValues(t *testing.T) {
+	withPreviewSettingWrites(t)
 	definition, ok := findBoolSettingDefinition(settingScopeHeadset, "power-saving")
 	if !ok {
 		t.Fatal("power saving is missing")

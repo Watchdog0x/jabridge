@@ -229,6 +229,7 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 			}
 			definition, _ = constrainNoiseCycle(device, capabilities, definition)
 			definition = presentVoiceGuidance(device, definition)
+			definition = applyPreviewChoicePolicy(definition)
 			value, err := readChoiceSetting(device, definition)
 			if err == nil && value.ChoiceIndex < 0 && value.FallbackName == "" {
 				return "", fmt.Errorf("invalid choice value")

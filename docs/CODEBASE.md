@@ -178,8 +178,8 @@ or search tokens.
 
 `pairing_policy.go` separates pairing-list/search access, fresh search-connect,
 remembered-device writes and bound transport from the search wire format.
-Link 380c 24c9 gets reads and Classic discovery. Its separate pairing option is
-captured only when the daemon starts. `devices.list.searchConnect` advertises
+Link 380c 24c9 list, Classic discovery and pairing are off by default. Its
+separate option enables all three and is captured only when the daemon starts. `devices.list.searchConnect` advertises
 the effective permission to the terminal client; client environment variables
 never authorize service writes. The service checks the policy before stopping
 search or opening the pairing path. Remembered-device, settings and reset
@@ -312,9 +312,26 @@ mirrors these names, with regression tests for both settings and IPC commands.
 dongle setting. Only auto-pairing is writable on the tested Link 390; its
 other settings remain read-only as described in the [test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 
+### Default-off setting writes
+
+`setting_preview.go` captures the separate preview-setting option only in the
+daemon. Noise-cycle, five EQ bands and power saving remain visible but read-only
+without it; future structured codecs start locked too. The normal experimental
+writes flag grants none of these permissions. Choice writers reject the locked
+operation before edit checks, leases or transport. Boolean writers use the same
+authoritative gate in `canEditBoolSetting`. Snapshots carry the read-only reason
+instead of edit advice, and local text setters also refuse unchanged values
+when locked. Known legacy controls, including sleep times, are unaffected.
+
+`pairingUIAllowed` uses the daemon's advertised 24c9 permission for client
+visibility; it never authorizes backend IO. Both low-level pairing reads and
+cached IPC lists use backend policy. Global pairing-mode commands also require
+the existing remembered-write allowlist. Link 390 2e56 list/search have no
+opt-in in this stable release; firmware testing is a separate permission.
+
 ### Factory reset
 
-Link 390 PID 2e56 has candidate-only pairing-list reads and classic/LE search.
+Link 390 PID 2e56 list and search are disabled in 1.5.0.
 Its pairing, remembered-device and auto-pairing writes remain blocked until a
 volunteer confirms the reads. The preview UI hides those actions. Other
 Link 390 IDs and the Link 380 flow keep their existing gates.

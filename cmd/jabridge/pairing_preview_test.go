@@ -12,9 +12,9 @@ import (
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 )
 
-func TestLink390ReadOnlyPreviewKeepsWriteAndResetGates(t *testing.T) {
-	if !supportsValidatedPairingReads(0x2e56) || !usesDualModeSearch(&jabra_DeviceInfo{isDongle: true, productID: 0x2e56}) {
-		t.Fatal("read-only discovery is missing")
+func TestUnconfirmedLink390PairingStaysDisabled(t *testing.T) {
+	if supportsValidatedPairingReads(0x2e56) || !usesDualModeSearch(&jabra_DeviceInfo{isDongle: true, productID: 0x2e56}) {
+		t.Fatal("untested discovery enabled or known wire mode lost")
 	}
 	if supportsExperimentalDongleWrites(0x2e56) || supportsValidatedFactoryReset(0x2e56) {
 		t.Fatal("read-only preview enabled pairing/reset writes")

@@ -106,9 +106,9 @@ and that same `session` to `bt.search.connect`. A previous search's token is
 rejected. Connecting is a user-requested device write; merely listing results
 does not pair anything. A timed-out scan is not reported as a successful empty
 search. Search support on other dongle models is not implied. Link 390 support
-covers USB ID `0b0e:2e57`; `0b0e:2e56` has a separate list/search preview.
-Link 380c `0b0e:24c9` has Classic discovery with fresh search-connect behind
-a separate daemon-start opt-in. `devices.list` includes the optional boolean
+covers USB ID `0b0e:2e57`. The unconfirmed `0b0e:2e56` list/search remain
+disabled. Link 380c `0b0e:24c9` list, Classic discovery and fresh search-connect
+all require its separate daemon-start opt-in. `devices.list` includes the optional boolean
 `searchConnect` for the effective service permission. Older clients can ignore
 it; missing permission never enables pairing on the new variant. This field
 is a policy result, not a hardware-test claim. The service still checks every
@@ -205,3 +205,9 @@ validation of every choice. Sources distinguish `model-catalog`,
 ignore this additive field. A successful current-value read is not proof that
 all values or combinations work. The same constrained choices apply to
 `settings.set`, the command line and the menu.
+
+In 1.5.0, equalizer bands, noise button cycle and power saving are read-only
+unless the service starts with the separate setting-test option. `settings.list`
+returns `editable: false` and `support.reason` for locked controls. Neither a
+client flag nor the global experimental-writes option authorizes these writes.
+An explicit setting-test option does not bypass model, firmware or readback checks.
