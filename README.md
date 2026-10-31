@@ -37,6 +37,12 @@ Open **Firmware**, choose your device and follow the steps. Keep it plugged in u
 
 Support depends on your model. Evolve2 40 still has an [unresolved firmware problem](docs/FIRMWARE.md#known-limitation-evolve2-40-firmware).
 
+## Experimental controls
+
+Equalizer, noise button cycle and power saving are read-only by default.
+Link 380c `24c9` pairing features are off by default. These options still need
+device tests. See the [optional test steps](docs/TEST_EVOLVE3_CONTROLS.md).
+
 ## Need help?
 
 Save a debug report:

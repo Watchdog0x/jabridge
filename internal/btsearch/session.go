@@ -31,9 +31,18 @@ type Session struct {
 	startErr, stopErr error
 	state             string
 	result            Results
+	decode            func([]byte, byte) (Event, bool, error)
 }
 
 func Start(parent context.Context, transport IO, timeout time.Duration) (*Session, error) {
+	return start(parent, transport, timeout, false)
+}
+
+func StartDualMode(parent context.Context, transport IO, timeout time.Duration) (*Session, error) {
+	return start(parent, transport, timeout, true)
+}
+
+func start(parent context.Context, transport IO, timeout time.Duration, dualMode bool) (*Session, error) {
 	if transport == nil || timeout <= 0 {
 		return nil, errors.New("invalid discovery session")
 	}
@@ -43,6 +52,11 @@ func Start(parent context.Context, transport IO, timeout time.Duration) (*Sessio
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	s := &Session{io: transport, ctx: ctx, cancel: cancel, started: make(chan struct{}), done: make(chan struct{}), state: "starting"}
+	s.decode = Decode
+	if dualMode {
+		s.decode = DecodeDualMode
+		s.result.SeparateTypes = true
+	}
 	go s.run()
 	err := transport.Start(ctx)
 	s.mu.Lock()
@@ -71,7 +85,7 @@ func (s *Session) run() {
 			readErr = err
 			break
 		}
-		event, relevant, err := Decode(packet, 1)
+		event, relevant, err := s.decode(packet, 1)
 		if err != nil {
 			readErr = err
 			break

@@ -106,8 +106,15 @@ and that same `session` to `bt.search.connect`. A previous search's token is
 rejected. Connecting is a user-requested device write; merely listing results
 does not pair anything. A timed-out scan is not reported as a successful empty
 search. Search support on other dongle models is not implied. Link 390 support
-covers USB ID `0b0e:2e57`; its other USB IDs are added with a hardware report
-(see [hardware testing](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)).
+covers USB ID `0b0e:2e57`. The unconfirmed `0b0e:2e56` list/search remain
+disabled. Link 380c `0b0e:24c9` list, Classic discovery and fresh search-connect
+all require its separate daemon-start opt-in. `devices.list` includes the optional boolean
+`searchConnect` for the effective service permission. Older clients can ignore
+it; missing permission never enables pairing on the new variant. This field
+is a policy result, not a hardware-test claim. The service still checks every
+connect request, regardless of client flags. The preview does not enable
+remembered-device changes, dongle settings writes or reset for 24c9.
+See [hardware testing](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 
 Events include `device.attached`, `device.detached`, `device.battery.update`,
 `device.pairing.update`, `device.button`, `device.signal` and `sound.changed`.
@@ -187,3 +194,20 @@ The profile registry includes the four original 1.11.0 USB layouts for 0e36,
 0e37, 0e38 and 0e39. Each layout has its own channel count and output-terminal
 type. Dongle connections require a separately verified headset command; a
 dongle's own USB audio controls do not authorize this direct headset route.
+
+### Setting support evidence
+
+`settings.list` may include an optional `support` object with `state`, `sources`
+and `reason`. The state is `available`, `read-only` or `unavailable`. Available
+means the existing write checks allow editing; it does not promise physical
+validation of every choice. Sources distinguish `model-catalog`,
+`exact-firmware-profile`, `device-read` and `hardware-report`. Older clients can
+ignore this additive field. A successful current-value read is not proof that
+all values or combinations work. The same constrained choices apply to
+`settings.set`, the command line and the menu.
+
+In 1.5.0, equalizer bands, noise button cycle and power saving are read-only
+unless the service starts with the separate setting-test option. `settings.list`
+returns `editable: false` and `support.reason` for locked controls. Neither a
+client flag nor the global experimental-writes option authorizes these writes.
+An explicit setting-test option does not bypass model, firmware or readback checks.

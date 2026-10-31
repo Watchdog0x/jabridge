@@ -139,26 +139,202 @@ and output backpressure through a real pseudo-terminal.
 
 ### Reads and discovery
 
-`supportsValidatedPairingReads` in `jabraApi.go` checks the dongle's USB ID.
+`supportsValidatedPairingReads` in `pairing_policy.go` checks the dongle's USB ID.
 `bluetooth_search.go` uses that policy for discovery. Headset models are not
 hardcoded into this gate. See the [Link 390 test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
 for the tested dongle and headset.
 
 ### Pairing writes
 
-`supportsExperimentalDongleWrites` keeps an independent USB ID list.
-`paired_devices.go` uses it for connect, disconnect and forget. Search-connect
-requires both read and write support before stopping discovery or opening the
-management interface. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
+`supportsExperimentalDongleWrites` keeps remembered-device writes separate
+from discovery and fresh pairing. `paired_devices.go` uses it for connect,
+disconnect and forget. Search-connect checks `pairingPolicy.SearchConnect`
+before stopping discovery or opening the management interface. A daemon opt-in
+can grant fresh search-connect for the 24c9 preview without granting remembered
+or settings writes. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
 lists the operations checked on Link 390.
 
+For the candidate `2e57` search flow, `internal/btsearch` has a separate
+dual-mode decoder and typed pairing transaction. Raw discovery flags are
+translated into classic/LE namespaces; duplicate addresses with different types
+remain separate choices. The service labels those choices for the client.
+The legacy Link 380 decoder and command bytes are unchanged.
+
+`bluetooth_search_bound.go` captures `firmware.ControlBinding` at search start.
+That small wrapper reuses the firmware module's USB generation and opened-FD
+parent/VID/PID checks. The binding follows neither a PID match nor a replacement
+USB attachment. Available USB serials are checked in their own format.
+An independent passive reader is opened before Stop/Pair. Attach/name events
+accelerate a fresh connected-entry check; missing events fall back to reads no
+faster than once a second. Each complete confirmation has a one-second deadline
+inside the unchanged 30-second pairing budget. Writes are never replayed.
+
+`internal/history/history.go` includes fresh search-connect requests in the
+bounded local history. Frequent search-status polling stays excluded. History
+keeps the method, phase and classified error, not request parameters, addresses
+or search tokens.
+
+### Link 380c pairing preview
+
+`pairing_policy.go` separates pairing-list/search access, fresh search-connect,
+remembered-device writes and bound transport from the search wire format.
+Link 380c 24c9 list, Classic discovery and pairing are off by default. Its
+separate option enables all three and is captured only when the daemon starts. `devices.list.searchConnect` advertises
+the effective permission to the terminal client; client environment variables
+never authorize service writes. The service checks the policy before stopping
+search or opening the pairing path. Remembered-device, settings and reset
+gates stay separate and unchanged.
+
+This preview uses the existing captured USB control binding with the legacy
+Classic start/stop masks. `PairLegacyBound` translates discovery flag 1 into
+Classic pairing namespace 0, sends one pair request after the session stops,
+and reuses the bounded confirmation loop. Binding a device never changes its
+wire masks. Acknowledgement alone is not success, writes are never replayed,
+and confirmation stays on the captured dongle and selected address. The tested
+24c7/24c8 path and Link 390 dual-mode flow retain their wire behavior.
+
+### Experimental Link 390 firmware
+
+`csr_link390.go` recognizes the narrow monolithic package and owns the
+protocol-7 transaction. Its stage uses the shared transfer primitive with an
+explicit protocol-7 policy: 8-byte count/CRC header, 52-byte blocks, final-batch
+acknowledgement, and version plus language. The existing extended 16/17 and
+legacy partitioned gnV flows keep their wire behavior.
+
+`csr_link390_linux.go` reads identity and protocol from the bound dongle.
+Language may be unavailable for this policy, matching the vendor's fallback;
+the candidate accepts only an unambiguous single-English image. Commit uses no
+configuration-end command. Fresh runtime identity and requested firmware must
+be read back, on either the same or a correctly rebound USB generation.
+
+`csr_link390_install.go` integrates the existing sealed archive, official release
+authorization, daemon pause, firmware lease and confirmation. It requires its
+own process-start opt-in. Recovery is saved durably before transfer and before
+commit. A `csr7-committing` record only permits read-only verification after
+interruption. It never authorizes another erase or commit.
+
+Archive inspection and installation share the profile validator. A successful
+layout check does not claim that the device was tested or that installation is
+enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
+`TEST_LINK390.md` contains the isolated review-service and firmware test steps.
+
 ### Setting validation
+
+`equalizer.go` validates the five bands against the exact model's static
+frequencies, Q and gain limits. Each row exposes half-dB choices, while encoding
+preserves the master gain and every other band's freshly read raw fields.
+`choice_payload.go` owns the shared codec contract and a cache scoped to one
+settings snapshot, so five EQ rows need one device query. It never caches writes.
+Unknown layouts show one generic read-only Equalizer row instead of guessing
+band frequencies. Other structured controls retain their own unavailable row.
+
+The equalizer editor in `tui_settings_editor.go` shows the actual current level,
+starts near it even when it is between steps, and uses arrows for 1 dB or
+Shift+arrows for 0.5 dB. It reserves separate rows for current value, step hints,
+the scroll window and Save/Cancel, including at 40×20.
+An invalid current value defaults to 0 dB, and Enter without moving an off-step
+selection makes no change.
+
+`settings_transaction.go` holds shared device access before taking the separate
+settings-write lease. Only read-modify-write operations take this nonblocking
+cross-process lock; scalar writes and normal reads keep their existing path.
+The lease lasts through full readback and prevents overlapping Jabridge changes
+from overwriting another band or preserved field. Firmware keeps its own lock.
+New power-saving and structured writes also verify the bound firmware version
+on their held transport, because a headset behind a dongle can update without
+changing the dongle's USB attachment. No new check is added to old scalar writes.
+
+`noise_cycle.go` validates the model's button-cycle members and encodes its
+length-prefixed list. Separate boolean members do not establish valid mode
+combinations. The default offers the full catalogued cycle and the current
+read value; selecting the current value is a no-op before device access or
+transaction locking. `setting_qualifications.go` narrows choices to reported
+working combinations for an exact headset, firmware and dongle route. It does
+not alias other models or firmware. Qualified choices bind the parent dongle's
+attachment, PID, firmware and HID path. They are checked before the settings
+lease, on the held transport just before the command, and after readback.
+Dongle firmware comes from registry metadata; no extra dongle query is added.
+An unobserved firmware change is not detected until that metadata or the USB
+attachment changes. The codec also rejects unconfirmed new combinations before
+a write and preserves the freshly read order.
+
+`setting_capability.go` records model, exact-firmware, current-read and hardware
+report evidence separately. Bool, choice and text resolvers reuse their existing
+reads; they do not scan unknown commands or probe writes. IPC's optional
+`support` object carries the same evidence into the menu and clients. A current
+read proves that a control answered, not that every write works. Offline model
+data leaves existing safe read probes read-only. Existing dongle write gates,
+firmware guards, target identity and full readback remain required. There is no
+known universal device command that lists every setting and allowed value.
+
+The optional choice payload codec binds to an exact firmware profile before
+editing, encodes from a fresh read, and verifies the full readback. Ordinary
+single-byte choices retain their existing encoder and readback rules.
+
+`voice_language.go` reads the complete 16-bit voice-language ID as a read-only
+setting and links to the Firmware menu. It never sends a direct language write.
+`tui_firmware_language.go` loads the current language and verified package
+choices asynchronously, binds the file and USB attachment, and hands the
+chosen language to the existing typed-confirmation installer. Cancel, an
+unchanged selection and a stale target never prepare a hardware write.
+
+`csr_language_plan.go` selects tunes content independently from main firmware;
+both can use partition zero with different versions. `csr_language_update.go`
+owns the new protocol-17 language-only policy: per-file version and LCID,
+every batch acknowledgement, commit, serial/permission/configuration exit,
+then fresh main-version, tunes-version, language and USB-generation checks.
+The old protocol-16/17 transfer policy remains unchanged. The new language path
+is limited to direct USB Evolve3 65 PID 2549/variant 01-A3 and an exact model
+profile with matching main firmware. It has a separate default-off preview opt-in.
+
+Recovery saves the source attachment and target language/pack before transfer
+and before commit. Once a commit may have started, retry only reads and verifies;
+it never erases, transfers or commits again. Normal firmware installation refuses
+a pending language update. The sealed archive, official release checksum,
+exclusive device lease and target binding remain required.
+
+The power-saving boolean uses the vendor's off sentinel: every byte except
+255 means on, while writes use 1 or 255. It requires an exact firmware profile
+with both boolean choices before editing, and reuses the bound headset-part
+transport and readback checks. Existing strict booleans keep their old decoder.
+
+`modelcatalog.Property` retains composite member paths, fixed values and
+editable members, plus special handling such as a required voice-language
+pack. Existing flat values stay unchanged. Missing static/editable metadata
+remains unknown so a structured control can refuse incomplete profiles.
+
+`choice_settings.go` shares choice names between the menu, command line and
+IPC. Auto-sleep labels match Jabra Plus's 15-minute to 8-hour choices; catalog
+values still filter the supported raw bytes for each model. Bash completion
+mirrors these names, with regression tests for both settings and IPC commands.
 
 `settings.go` requires both write support and `validatedForDongle` for each
 dongle setting. Only auto-pairing is writable on the tested Link 390; its
 other settings remain read-only as described in the [test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 
+### Default-off setting writes
+
+`setting_preview.go` captures the separate preview-setting option only in the
+daemon. Noise-cycle, five EQ bands and power saving remain visible but read-only
+without it; future structured codecs start locked too. The normal experimental
+writes flag grants none of these permissions. Choice writers reject the locked
+operation before edit checks, leases or transport. Boolean writers use the same
+authoritative gate in `canEditBoolSetting`. Snapshots carry the read-only reason
+instead of edit advice, and local text setters also refuse unchanged values
+when locked. Known legacy controls, including sleep times, are unaffected.
+
+`pairingUIAllowed` uses the daemon's advertised 24c9 permission for client
+visibility; it never authorizes backend IO. Both low-level pairing reads and
+cached IPC lists use backend policy. Global pairing-mode commands also require
+the existing remembered-write allowlist. Link 390 2e56 list/search have no
+opt-in in this stable release; firmware testing is a separate permission.
+
 ### Factory reset
+
+Link 390 PID 2e56 list and search are disabled in 1.5.0.
+Its pairing, remembered-device and auto-pairing writes remain blocked until a
+volunteer confirms the reads. The preview UI hides those actions. Other
+Link 390 IDs and the Link 380 flow keep their existing gates.
 
 `supportsValidatedFactoryReset` is separate and remains Link 380-only.
 Both the menu and the IPC reset route reach this check before opening the

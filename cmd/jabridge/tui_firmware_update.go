@@ -47,6 +47,10 @@ func handleFirmwareKey(event keyEvent, results chan<- actionResult) bool {
 	if uiBusy() {
 		return true
 	}
+	if event == keyLanguage {
+		startFirmwareLanguageSelection(results)
+		return true
+	}
 	if n := firmwareNumber(event); n != 0 {
 		selectFirmwareTargetNumber(n, results)
 		return true

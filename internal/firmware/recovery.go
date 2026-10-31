@@ -19,28 +19,29 @@ import (
 const firmwareRecoveryStateVersion = 1
 
 type firmwareRecoveryState struct {
-	FormatVersion            int                 `json:"formatVersion"`
-	ArchiveSHA256            string              `json:"archiveSha256"`
-	ProductName              string              `json:"productName"`
-	FirmwareVersion          string              `json:"firmwareVersion"`
-	TargetUSBPIDs            []string            `json:"targetUsbPids"`
-	Attempt                  int                 `json:"attempt"`
-	StartedAt                string              `json:"startedAt"`
-	USBPort                  string              `json:"usbPort,omitempty"`
-	TargetIdentitySHA256     string              `json:"targetIdentitySha256,omitempty"`
-	Language                 uint16              `json:"language,omitempty"`
-	Protocol                 int                 `json:"protocol,omitempty"`
-	RuntimePID               uint16              `json:"runtimePid,omitempty"`
-	BootPID                  uint16              `json:"bootPid,omitempty"`
-	Phase                    string              `json:"phase,omitempty"`
-	ControllerIdentitySHA256 string              `json:"controllerIdentitySha256,omitempty"`
-	USBSerialSHA256          string              `json:"usbSerialSha256,omitempty"`
-	Conexant                 *conexantRecovery   `json:"conexant,omitempty"`
-	SitelOTA                 *sitelOTARecovery   `json:"sitelOta,omitempty"`
-	SitelDECT                *sitelDECTRecovery  `json:"sitelDect,omitempty"`
-	Camera                   *cameraRecovery     `json:"camera,omitempty"`
-	UVCCamera                *uvcCameraRecovery  `json:"uvcCamera,omitempty"`
-	PanaCast50               *panacast50Recovery `json:"panaCast50,omitempty"`
+	FormatVersion            int                  `json:"formatVersion"`
+	ArchiveSHA256            string               `json:"archiveSha256"`
+	ProductName              string               `json:"productName"`
+	FirmwareVersion          string               `json:"firmwareVersion"`
+	TargetUSBPIDs            []string             `json:"targetUsbPids"`
+	Attempt                  int                  `json:"attempt"`
+	StartedAt                string               `json:"startedAt"`
+	USBPort                  string               `json:"usbPort,omitempty"`
+	TargetIdentitySHA256     string               `json:"targetIdentitySha256,omitempty"`
+	Language                 uint16               `json:"language,omitempty"`
+	Protocol                 int                  `json:"protocol,omitempty"`
+	RuntimePID               uint16               `json:"runtimePid,omitempty"`
+	BootPID                  uint16               `json:"bootPid,omitempty"`
+	Phase                    string               `json:"phase,omitempty"`
+	ControllerIdentitySHA256 string               `json:"controllerIdentitySha256,omitempty"`
+	USBSerialSHA256          string               `json:"usbSerialSha256,omitempty"`
+	Conexant                 *conexantRecovery    `json:"conexant,omitempty"`
+	SitelOTA                 *sitelOTARecovery    `json:"sitelOta,omitempty"`
+	SitelDECT                *sitelDECTRecovery   `json:"sitelDect,omitempty"`
+	Camera                   *cameraRecovery      `json:"camera,omitempty"`
+	UVCCamera                *uvcCameraRecovery   `json:"uvcCamera,omitempty"`
+	PanaCast50               *panacast50Recovery  `json:"panaCast50,omitempty"`
+	CSRLanguage              *csrLanguageRecovery `json:"csrLanguage,omitempty"`
 }
 
 type firmwareTransferPreparation struct {
@@ -168,6 +169,16 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 	if state.FormatVersion != firmwareRecoveryStateVersion || len(state.ArchiveSHA256) != sha256.Size*2 ||
 		state.ProductName == "" || state.FirmwareVersion == "" || len(state.TargetUSBPIDs) == 0 || state.Attempt < 1 {
 		return firmwareRecoveryState{}, errors.New("firmware recovery state is incomplete")
+	}
+	if isLink390CSR7Recovery(state) {
+		if err := validLink390CSR7Recovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	}
+	if state.CSRLanguage != nil {
+		if err := validCSRLanguageRecovery(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
 	}
 	if state.Protocol == 4 && state.SitelDECT != nil {
 		if err := validSitelDECTRecovery(state); err != nil {

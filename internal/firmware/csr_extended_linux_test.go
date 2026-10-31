@@ -12,6 +12,8 @@ import (
 )
 
 type extendedIdentityPeer struct {
+	protocol                  byte
+	noLanguage                bool
 	replies                   [][]byte
 	pid                       uint16
 	both, wrongPID, malformed bool
@@ -49,9 +51,16 @@ func (p *extendedIdentityPeer) Write(ctx context.Context, raw []byte) error {
 			data[0] = 7
 		}
 	case raw[5] == 0x13 && raw[6] == 8:
+		if p.noLanguage {
+			p.replies = append(p.replies, []byte{5, 0, raw[1], raw[3], 0xc6, 0xfe, 1})
+			return nil
+		}
 		data = []byte{9, 4}
 	case raw[5] == 2 && raw[6] == 0x14:
 		data = []byte{16}
+		if p.protocol != 0 {
+			data[0] = p.protocol
+		}
 	default:
 		return errors.New("unknown identity query")
 	}

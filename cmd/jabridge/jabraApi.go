@@ -41,6 +41,7 @@ type jabra_DeviceInfo struct {
 	deviceName       string
 	usbDevicePath    string
 	isDongle         bool
+	searchConnect    bool // Effective daemon permission; display only, never authorization.
 	serialNumber     string
 	variantType      string
 	firmwareVersion  string
@@ -710,42 +711,6 @@ func isKnownDonglePID(pid uint16) bool {
 	return false
 }
 
-// supportsValidatedPairingReads lists the USB IDs enabled for pairing-list
-// queries and headset discovery. Physical test scope is recorded separately
-// in docs/HARDWARE_TESTING.md; an allowlisted variant does not imply every
-// operation was tested on it. Pairing writes require their own allowlist.
-func supportsValidatedPairingReads(pid uint16) bool {
-	switch pid {
-	case 0x24c7, 0x24c8, // Link 380
-		0x2e57: // Link 390
-		return true
-	}
-	return false
-}
-
-// supportsExperimentalDongleWrites deliberately stays narrower than dongle
-// discovery. Pairing, remembered-device editing and the validated dongle
-// settings are enabled only for these IDs. Keep this list independent from
-// pairing reads so adding read-only support does not also permit writes.
-// Physical test scope is in docs/HARDWARE_TESTING.md. Factory reset has its
-// own, narrower allowlist.
-func supportsExperimentalDongleWrites(pid uint16) bool {
-	switch pid {
-	case 0x24c7, 0x24c8, // Link 380
-		0x2e57: // Link 390
-		return true
-	}
-	return false
-}
-
-// supportsValidatedFactoryReset preserves the existing Link 380 allowlist
-// for the Bluetooth-device factory-default operation. On Link 390
-// 0x2e57 the command completed but the dongle would not pair until it was
-// physically reconnected (docs/HARDWARE_TESTING.md), so it stays excluded.
-func supportsValidatedFactoryReset(pid uint16) bool {
-	return pid == 0x24c7 || pid == 0x24c8
-}
-
 func isAccessoryName(name string) bool {
 	lower := strings.ToLower(name)
 	for _, marker := range []string{"deskstand", "desk stand", "charger", "cradle", "busy light", "busylight"} {
@@ -1383,10 +1348,10 @@ func updateStartMenu() {
 		startMenu = append(startMenu,
 			menuItem{id: 2, label: "Dongle settings"},
 		)
-		if currentTUIBackend() != nil && supportsValidatedPairingReads(dongle.productID) {
+		if currentTUIBackend() != nil && pairingUIAllowed(dongle) {
 			startMenu = append(startMenu, menuItem{id: 0, label: "Find headset"})
 		}
-		if supportsValidatedPairingReads(dongle.productID) || dongle.featureFlags != nil && dongle.featureFlags.pairingList {
+		if pairingUIAllowed(dongle) {
 			count := 0
 			if dongle.pairingList != nil {
 				count = len(dongle.pairingList.pairedDevices)
@@ -1564,6 +1529,9 @@ func setDongleInBTPairing(pairing bool) error {
 	if err != nil {
 		return err
 	}
+	if !supportsExperimentalDongleWrites(dongle.productID) {
+		return fmt.Errorf("pairing mode is not enabled for dongle PID 0x%04x: %w", dongle.productID, ErrNotSupported)
+	}
 	h := openDeviceHidraw(dongle)
 	if h == nil {
 		return fmt.Errorf("open dongle GNP interface")
@@ -1584,10 +1552,12 @@ func connectNewDevice(pairingID uint16) error {
 }
 
 func getPairingList(deviceID uint16) (*pairingList, error) {
-	result := &pairingList{listType: pairedDevices, pairedDevices: make([]pairedDevice, 0)}
 	dongle := deviceForID(deviceID)
 	if dongle == nil || !dongle.isDongle || dongle.hidrawPath == "" {
 		return nil, fmt.Errorf("pairing list unavailable for device %d", deviceID)
+	}
+	if !supportsValidatedPairingReads(dongle.productID) {
+		return nil, fmt.Errorf("pairing reads are not enabled for dongle PID 0x%04x: %w", dongle.productID, ErrNotSupported)
 	}
 	h := openDeviceHidraw(dongle)
 	if h == nil {
@@ -1595,13 +1565,20 @@ func getPairingList(deviceID uint16) (*pairingList, error) {
 	}
 	defer h.close()
 
+	return readPairingList([]byte{0x00, 0x01}, func(op byte, request []byte) ([]byte, error) {
+		return gnpQueryPayloadWithData(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, op, request)
+	})
+}
+
+func readPairingList(bluetoothTypes []byte, query func(byte, []byte) ([]byte, error)) (*pairingList, error) {
+	result := &pairingList{listType: pairedDevices, pairedDevices: make([]pairedDevice, 0)}
 	querySucceeded := false
 	var lastErr error
-	for _, bluetoothType := range []byte{0x00, 0x01} {
+	for _, bluetoothType := range bluetoothTypes {
 		index := uint16(0)
 		for records := 0; records < 256; records++ {
 			request := []byte{byte(index), byte(index >> 8), bluetoothType}
-			namePayload, readErr := gnpQueryPayloadWithData(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpGetDBName, request)
+			namePayload, readErr := query(gnpOpGetDBName, request)
 			if readErr != nil {
 				lastErr = readErr
 				break
@@ -1612,7 +1589,7 @@ func getPairingList(deviceID uint16) (*pairingList, error) {
 				break
 			}
 			if name != "" {
-				recordPayload, recordErr := gnpQueryPayloadWithData(h, gnpSrcDongle, nextSeq(), gnpClassPairingDevice, gnpOpGetDBRecord, request)
+				recordPayload, recordErr := query(gnpOpGetDBRecord, request)
 				if recordErr == nil {
 					if device, recordParseErr := parsePairingRecord(name, recordPayload, index, bluetoothType); recordParseErr == nil {
 						result.pairedDevices = append(result.pairedDevices, device)

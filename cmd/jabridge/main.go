@@ -187,6 +187,8 @@ func runDaemon() error {
 		return err
 	}
 	defer func() { _ = lease.Close() }()
+	capturePairingPreviewOption()
+	capturePreviewSettingOption()
 	cfg := daemon.DefaultConfig()
 	cfg.ButtonsMonitor = buttons.NativeMonitor
 	if socket := os.Getenv("JABRIDGE_SOCKET"); socket != "" {
@@ -293,6 +295,7 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			FirmwareIdentity: firmware.WirelessFirmwareIdentity(dev.productID, dev.serialNumber, dev.variantType),
 			Selected:         int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
 			Parts:            ipcControlParts(dev),
+			SearchConnect:    pairingPolicyFor(dev).SearchConnect,
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)
@@ -364,7 +367,7 @@ func (j *jabraAPIBridge) GetFeatures() ipc.FeatureInfo {
 
 func (j *jabraAPIBridge) GetPairingList() []ipc.PairedDeviceInfo {
 	dongle, exists := selectedDongleSnapshot()
-	if !exists || dongle.pairingList == nil {
+	if !exists || dongle.pairingList == nil || !supportsValidatedPairingReads(dongle.productID) {
 		return nil
 	}
 	var out []ipc.PairedDeviceInfo
@@ -530,6 +533,7 @@ func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingIn
 		Device: deviceName, Key: setting.key(), Label: setting.label(),
 		Value: setting.valueName(), Editable: setting.editable(),
 		Help:       setting.help(),
+		Support:    setting.support(),
 		MayRestart: setting.needsConfigMode(),
 	}
 	if setting.Boolean != nil {

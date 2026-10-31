@@ -217,11 +217,21 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 	for _, definition := range choiceSettingDefinitions(scope) {
 		run(definition.Key, definition.Destination, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) {
 			if property, ok := firstCatalogProperty(capabilities, definition.CatalogProperties); ok {
-				definition.Choices = choicesAllowedByCatalog(definition.Choices, property.PossibleValues)
+				if definition.Codec != nil {
+					var supported bool
+					definition, supported = choiceSettingForCatalog(definition, property, capabilities.ExactFirmwareProfile)
+					if !supported {
+						return "", errors.New("model setting profile is incomplete")
+					}
+				} else {
+					definition.Choices = choicesAllowedByCatalog(definition.Choices, property.PossibleValues)
+				}
 			}
+			definition, _ = constrainNoiseCycle(device, capabilities, definition)
 			definition = presentVoiceGuidance(device, definition)
+			definition = applyPreviewChoicePolicy(definition)
 			value, err := readChoiceSetting(device, definition)
-			if err == nil && value.ChoiceIndex < 0 {
+			if err == nil && value.ChoiceIndex < 0 && value.FallbackName == "" {
 				return "", fmt.Errorf("invalid choice value")
 			}
 			name := choiceSettingName(value)
@@ -233,6 +243,8 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 		annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 	}
 	if !device.isDongle {
+		run("voice-language", 0, []string{"currentVoiceLanguage"}, false, func() (string, error) { value, err := readVoiceLanguageSetting(device); return value.valueName(), err })
+		annotateSettingQuery(checks, "voice-language", device, 0, gnpClassConfig, 0x74)
 		for _, definition := range headsetTextSettingDefinitions {
 			run(definition.Key, definition.Destination, definition.CatalogProperties, false, func() (string, error) {
 				_, err := readTextSetting(device, definition)

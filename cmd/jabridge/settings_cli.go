@@ -76,10 +76,18 @@ func printSettingsForDevice(kind, prefix string, device *jabra_DeviceInfo, scope
 		if setting.Choice != nil {
 			choices := make([]string, 0, len(setting.Choice.Definition.Choices))
 			for _, choice := range setting.Choice.Definition.Choices {
-				choices = append(choices, choiceValueToken(choice.Name))
+				choices = append(choices, choiceCommandToken(setting.Choice.Definition, choice))
 			}
+			separator := ", "
+			if _, ok := setting.Choice.Definition.Codec.(noiseCycleCodec); ok {
+				separator = " | "
+			}
+
 			fmt.Printf("  %s.%s = %s  (%s; choices: %s)\n",
-				settingPrefix, setting.key(), choiceValueToken(setting.valueName()), mode, strings.Join(choices, ", "))
+				settingPrefix, setting.key(), choiceDisplayValue(*setting.Choice), mode, strings.Join(choices, separator))
+			if setting.help() != "" {
+				fmt.Println("    " + setting.help())
+			}
 			continue
 		}
 		if setting.Text != nil {
@@ -117,6 +125,10 @@ func setDeviceSettingFromText(device *jabra_DeviceInfo, selector string, setting
 }
 
 func applyDeviceSettingFromText(device *jabra_DeviceInfo, setting deviceSettingValue, textValue string) (result string, changed bool, actionErr error) {
+	structured := setting.Choice != nil && setting.Choice.Definition.Codec != nil
+	if previewSettingLocked(setting.key(), structured) {
+		return "", false, fmt.Errorf("%s: %s: %w", setting.key(), previewSettingReadOnlyReason, ErrNotSupported)
+	}
 	entry := historyDeviceEvent(device, "settings")
 	entry.Setting = setting.key()
 	finish := history.Begin(entry)
@@ -224,4 +236,22 @@ func printSettingsUsage() {
 Only settings answered by the connected device are listed. Every change is
 read back from the device before Jabridge reports success. Bash completion
 suggests the valid setting names and values.`)
+}
+
+func choiceCommandToken(definition choiceSettingDefinition, choice settingChoice) string {
+	if _, ok := definition.Codec.(noiseCycleCodec); ok {
+		return choice.CatalogValue
+	}
+	return choiceValueToken(choice.Name)
+}
+
+func choiceDisplayValue(setting choiceSettingValue) string {
+	if _, ok := setting.Definition.Codec.(noiseCycleCodec); ok && setting.ChoiceIndex >= 0 {
+		value := noiseCycleChoice(setting.Raw).CatalogValue
+		if setting.FallbackName != "" {
+			value += " (current; not confirmed)"
+		}
+		return value
+	}
+	return choiceValueToken(choiceSettingName(setting))
 }

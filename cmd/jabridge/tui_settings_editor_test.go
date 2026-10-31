@@ -29,6 +29,104 @@ func editorFixture(t *testing.T, text bool) deviceSettingValue {
 	return deviceSettingValue{Remote: remote}
 }
 
+func TestEqualizerEditorUsesNearestStepAndFineNavigation(t *testing.T) {
+	setting := editorFixture(t, false)
+	definition := equalizerDefinitionForTest(t, 0)
+	setting.Remote.Key, setting.Remote.Label, setting.Remote.Value = "equalizer-60hz", "Equalizer 60 Hz", "1.33 dB"
+	setting.Remote.Choices = nil
+	for _, choice := range definition.Choices {
+		setting.Remote.Choices = append(setting.Remote.Choices, choice.Name)
+	}
+	if err := openSettingEditor(settingScopeHeadset, setting, &jabra_DeviceInfo{deviceName: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	if activeSettingEditor.choices[activeSettingEditor.choice] != "1.5 dB" {
+		t.Fatal("off-step current value jumped to an endpoint", activeSettingEditor.choice)
+	}
+	results := make(chan actionResult, 1)
+	handleSettingEditorKey(keyUp, results)
+	if activeSettingEditor.choices[activeSettingEditor.choice] != "2.5 dB" {
+		t.Fatal("normal arrow did not move one dB")
+	}
+	for _, event := range (&keyDecoder{}).feed([]byte("\x1b[1;2A")) {
+		handleSettingEditorKey(event, results)
+	}
+	if activeSettingEditor.choices[activeSettingEditor.choice] != "3 dB" {
+		t.Fatal("shift arrow did not move half a dB")
+	}
+	handleSettingEditorKey(keyDown, results)
+	if activeSettingEditor.choices[activeSettingEditor.choice] != "2 dB" {
+		t.Fatal("down arrow did not decrease gain")
+	}
+	for _, event := range (&keyDecoder{}).feed([]byte("\x1b[1;2B")) {
+		handleSettingEditorKey(event, results)
+	}
+	if activeSettingEditor.choices[activeSettingEditor.choice] != "1.5 dB" {
+		t.Fatal("shift down did not move half a dB")
+	}
+	handleSettingEditorKey(keyEscape, results)
+	if activeSettingEditor != nil || len(results) != 0 {
+		t.Fatal("navigation or cancel sent a setting change")
+	}
+	if navigationKey(keyFineUp) != keyUp || navigationKey(keyFineDown) != keyDown {
+		t.Fatal("modified arrows changed navigation outside the editor")
+	}
+}
+
+func TestEqualizerOffStepEnterWithoutMovementDoesNotWrite(t *testing.T) {
+	setting := editorFixture(t, false)
+	definition := equalizerDefinitionForTest(t, 0)
+	setting.Remote.Key, setting.Remote.Value = "equalizer-60hz", "1.33 dB"
+	setting.Remote.Choices = nil
+	for _, choice := range definition.Choices {
+		setting.Remote.Choices = append(setting.Remote.Choices, choice.Name)
+	}
+	if err := openSettingEditor(settingScopeHeadset, setting, &jabra_DeviceInfo{deviceName: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	writes := 0
+	activeSettingEditor.save = func(string) error { writes++; return nil }
+	results := make(chan actionResult, 1)
+	handleSettingEditorKey(keyEnter, results)
+	if activeSettingEditor != nil || writes != 0 || len(results) != 0 {
+		t.Fatal("unmoved off-step editor sent a setting change")
+	}
+	choices := []string{"7.5 dB", "3 dB", "0 dB", "-3 dB"}
+	for _, bad := range []string{"Unavailable", "NaN", "Inf", ""} {
+		if got := closestEqualizerChoice(choices, bad); got != 2 {
+			t.Fatal("invalid current value defaulted away from zero", bad, got)
+		}
+	}
+}
+
+func TestEqualizerEditorKeepsCurrentValueAndSaveHintsVisible(t *testing.T) {
+	for _, size := range [][2]int{{40, 20}, {80, 24}, {120, 40}} {
+		setting := editorFixture(t, false)
+		definition := equalizerDefinitionForTest(t, 0)
+		setting.Remote.Key, setting.Remote.Label, setting.Remote.Value = "equalizer-60hz", "Equalizer 60 Hz", "0 dB"
+		setting.Remote.Choices = nil
+		for _, choice := range definition.Choices {
+			setting.Remote.Choices = append(setting.Remote.Choices, choice.Name)
+		}
+		target := newRenderTarget(t, size[0], size[1])
+		if err := openSettingEditor(settingScopeHeadset, setting, &jabra_DeviceInfo{deviceName: "Test"}); err != nil {
+			t.Fatal(err)
+		}
+		renderSettingEditor()
+		if !strings.Contains(rowText(target, 9), "Current: 0 dB") || !strings.Contains(rowText(target, 10), "Shift .5dB") {
+			t.Fatal("current value or step hint was hidden", size)
+		}
+		text := ""
+		for row := 1; row <= size[1]; row++ {
+			text += rowText(target, row) + "\n"
+		}
+		if !strings.Contains(text, "Cancel") || !strings.Contains(text, "Save") {
+			t.Fatal("editor key hints disappeared", size, text)
+		}
+		closeSettingEditor()
+	}
+}
+
 func feedEditor(t *testing.T, decoder *keyDecoder, text []byte, results chan<- actionResult) {
 	t.Helper()
 	for _, event := range decoder.feed(text) {

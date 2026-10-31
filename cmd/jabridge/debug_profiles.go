@@ -115,5 +115,6 @@ func knownDiagnosticMappings(properties []string) []string {
 	for _, definition := range headsetTextSettingDefinitions {
 		match(definition.Key, definition.CatalogProperties, definition.Class, definition.Op)
 	}
+	match("voice-language", []string{"currentVoiceLanguage"}, gnpClassConfig, 0x74)
 	return result
 }

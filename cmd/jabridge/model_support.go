@@ -174,6 +174,7 @@ func printModelCatalogSummary(inventory *modelcatalog.Inventory) {
 	fmt.Println("Pairing controls enabled:")
 	fmt.Println("  Link 380: 0b0e:24c7, 0b0e:24c8")
 	fmt.Println("  Link 390: 0b0e:2e57")
+	fmt.Println("  Link 380c preview: 0b0e:24c9 (list/search/pairing require its separate opt-in)")
 	fmt.Println("Use `jabridge models Evolve2` (or another name) for exact IDs and firmware types.")
 }
 
