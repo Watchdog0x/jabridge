@@ -1,5 +1,10 @@
 # Using Jabridge
 
+On Link 390 `2e56` or `2e57`, variant `04-10`, firmware `3.2.0`, Dongle settings
+can offer Preferred connection mode and Computer audio. These require matching
+device and model data and have software tests only. They are separate from
+Prioritize computer audio and do not enable extra pairing or reset actions.
+
 For downloads and setup, see the [quick start](../README.md#start).
 
 ## Navigation

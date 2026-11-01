@@ -12,7 +12,6 @@ import (
 )
 
 func TestPowerSavingVendorBooleanAndPayload(t *testing.T) {
-	withPreviewSettingWrites(t)
 	definition, ok := findBoolSettingDefinition(settingScopeHeadset, "power-saving")
 	if !ok {
 		t.Fatal("power saving is missing")
@@ -59,7 +58,6 @@ func TestPowerSavingVendorBooleanAndPayload(t *testing.T) {
 }
 
 func TestPowerSavingClientAndCompletionValues(t *testing.T) {
-	withPreviewSettingWrites(t)
 	definition, ok := findBoolSettingDefinition(settingScopeHeadset, "power-saving")
 	if !ok {
 		t.Fatal("power saving is missing")
@@ -103,7 +101,7 @@ func TestPowerSavingRequiresExactBooleanCatalog(t *testing.T) {
 	if !ok {
 		t.Fatal("power saving is missing")
 	}
-	capabilities := &modelcatalog.Capabilities{ExactFirmwareProfile: true}
+	capabilities := &modelcatalog.Capabilities{ExactFirmwareProfile: true, DeviceFirmware: "1.0.1"}
 	property := modelcatalog.Property{Kind: "Enum", PossibleValues: []string{"true", "false"}}
 	if !catalogAllowsBoolSettingWrite(definition, capabilities, property) {
 		t.Fatal("matching read/write profile was refused")

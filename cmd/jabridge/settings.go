@@ -23,6 +23,7 @@ const (
 type boolSettingDefinition struct {
 	Key                   string
 	Label                 string
+	Help                  string
 	Scope                 settingScope
 	Class                 byte
 	Op                    byte
@@ -50,6 +51,7 @@ type boolSettingDefinition struct {
 }
 
 type boolSettingValue struct {
+	Catalog    settingCatalogMetadata
 	Provenance settingProvenance
 	Definition boolSettingDefinition
 	Value      bool
@@ -78,6 +80,7 @@ type textSettingDefinition struct {
 }
 
 type textSettingValue struct {
+	Catalog    settingCatalogMetadata
 	Provenance settingProvenance
 	Definition textSettingDefinition
 	Value      string
@@ -85,19 +88,21 @@ type textSettingValue struct {
 }
 
 type remoteSettingValue struct {
-	Support    *ipc.SettingSupport
-	Device     string
-	Key        string
-	Label      string
-	Value      string
-	Editable   bool
-	Choices    []string
-	Help       string
-	Kind       string
-	MaxBytes   int
-	Target     *ipc.SettingTarget
-	MayRestart bool
-	Component  string
+	Support         *ipc.SettingSupport
+	Device          string
+	Key             string
+	Label           string
+	Value           string
+	Editable        bool
+	Choices         []string
+	Help            string
+	Group           string
+	RequiresRestart *bool
+	Kind            string
+	MaxBytes        int
+	Target          *ipc.SettingTarget
+	MayRestart      bool
+	Component       string
 }
 
 func (setting deviceSettingValue) key() string {
@@ -150,18 +155,32 @@ func (setting deviceSettingValue) valueName() string {
 
 func (setting deviceSettingValue) help() string {
 	help := ""
-	if setting.Text != nil {
+	if setting.Boolean != nil {
+		help = setting.Boolean.Definition.Help
+	} else if setting.Text != nil {
 		help = setting.Text.Definition.Help
 	} else if setting.Choice != nil {
 		help = setting.Choice.Definition.Help
 	} else if setting.Remote != nil {
 		help = setting.Remote.Help
 	}
-	if support := setting.support(); support != nil && support.Reason != "" && !strings.Contains(help, support.Reason) {
-		if help != "" {
-			help += " "
+	catalogHelp := help == ""
+	if catalogHelp {
+		help = setting.catalogMetadata().Help
+	}
+	if support := setting.support(); support != nil && support.Reason != "" {
+		if catalogHelp {
+			if strings.HasPrefix(help, support.Reason) {
+				return help
+			}
+			return strings.TrimSpace(support.Reason + " " + help)
 		}
-		help += support.Reason
+		if !strings.Contains(help, support.Reason) {
+			if help != "" {
+				help += " "
+			}
+			help += support.Reason
+		}
 	}
 	return help
 }
@@ -544,7 +563,7 @@ func encodeBoolSettingPayload(definition boolSettingDefinition, value bool) []by
 // and a definition whose write and read-back were checked on that dongle
 // (docs/HARDWARE_TESTING.md).
 func canEditBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition) bool {
-	if device == nil || !definition.Writable || previewSettingLocked(definition.Key, false) {
+	if device == nil || !definition.Writable {
 		return false
 	}
 	if device.isDongle {
@@ -777,47 +796,60 @@ func refreshedSettingsDevice(original *jabra_DeviceInfo) *jabra_DeviceInfo {
 }
 
 func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []boolSettingValue {
-	values := make([]boolSettingValue, 0, len(settingDefinitions(scope)))
 	var capabilities *modelcatalog.Capabilities
 	var catalogErr error
 	if scope == settingScopeHeadset {
 		capabilities, catalogErr = lookupDeviceModel(device)
 	}
+	return readBoolSettingsSnapshot(device, scope, capabilities, catalogErr, readBoolSetting)
+}
+
+func readBoolSettingsSnapshot(device *jabra_DeviceInfo, scope settingScope, capabilities *modelcatalog.Capabilities, catalogErr error, read func(*jabra_DeviceInfo, boolSettingDefinition) (bool, error)) []boolSettingValue {
+	values := make([]boolSettingValue, 0, len(settingDefinitions(scope)))
 	seen := make(map[string]struct{})
 	for _, definition := range settingDefinitions(scope) {
+		wanted := definition.Writable
 		if _, exists := seen[definition.Key]; exists {
 			continue
 		}
 		catalogMatched := scope != settingScopeHeadset || len(definition.CatalogProperties) == 0
+		var metadata settingCatalogMetadata
+		var property modelcatalog.Property
 		if scope == settingScopeHeadset && catalogErr == nil {
-			property, matched := firstCatalogProperty(capabilities, definition.CatalogProperties)
+			var matched bool
+			property, matched = firstCatalogProperty(capabilities, definition.CatalogProperties)
 			catalogMatched = matched
 			definition.Writable = definition.Writable && catalogAllowsBoolSettingWrite(definition, capabilities, property)
+			if matched {
+				metadata = bindSettingCatalogMetadata(device, definition.Key, definition.Destination, property, capabilities)
+			}
 		} else if scope == settingScopeHeadset && catalogErr != nil {
 			catalogMatched = definition.ProbeWithoutCatalog
 		}
 		if !catalogMatched {
 			continue
 		}
-		value, err := readBoolSetting(device, definition)
+		value, err := read(device, definition)
 		if err != nil {
 			continue
 		}
 		seen[definition.Key] = struct{}{}
-		if definition.RequireExactProfile && capabilities != nil && capabilities.ExactFirmwareProfile {
+		if definition.RequireExactProfile && exactSettingProfile(capabilities) {
 			definition.ExpectedFirmware = capabilities.Firmware
 		}
 		reason := ""
-		if previewSettingLocked(definition.Key, false) {
-			reason = previewSettingReadOnlyReason
-		} else if scope == settingScopeHeadset && catalogErr != nil {
+		editable := canEditBoolSetting(device, definition) && (scope != settingScopeHeadset || catalogErr == nil)
+		if scope == settingScopeHeadset && catalogErr != nil {
 			reason = "Model data is unavailable; this control is read-only."
+		} else if !editable {
+			reason = boolSettingWriteReason(device, definition, wanted, capabilities, property)
 		}
 		values = append(values, boolSettingValue{
+			Catalog:    metadata,
 			Provenance: observedSetting(capabilities != nil && catalogMatched, capabilities != nil && capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", device != nil && device.isDongle && definition.validatedForDongle(device.productID), reason),
 			Definition: definition,
 			Value:      value,
-			Editable:   canEditBoolSetting(device, definition) && (scope != settingScopeHeadset || catalogErr == nil),
+			Editable:   editable,
 		})
 	}
 	return values
@@ -827,7 +859,7 @@ func catalogAllowsBoolSettingWrite(definition boolSettingDefinition, capabilitie
 	if !catalogAllowsSettingWrite(property) {
 		return false
 	}
-	if definition.RequireExactProfile && (capabilities == nil || !capabilities.ExactFirmwareProfile) {
+	if definition.RequireExactProfile && !exactSettingProfile(capabilities) {
 		return false
 	}
 	if !definition.RequireBooleanChoices {
@@ -898,19 +930,32 @@ func readSupportedTextSettings(device *jabra_DeviceInfo) []textSettingValue {
 	if err != nil {
 		return nil
 	}
+	return readTextSettingsSnapshot(device, capabilities, readTextSetting)
+}
+
+func readTextSettingsSnapshot(device *jabra_DeviceInfo, capabilities *modelcatalog.Capabilities, read func(*jabra_DeviceInfo, textSettingDefinition) (string, error)) []textSettingValue {
 	values := make([]textSettingValue, 0, len(headsetTextSettingDefinitions))
 	for _, definition := range headsetTextSettingDefinitions {
+		wanted := definition.Writable
 		property, supported := firstCatalogProperty(capabilities, definition.CatalogProperties)
 		if !supported {
 			continue
 		}
 		definition.Writable = definition.Writable && catalogAllowsSettingWrite(property)
-		value, readErr := readTextSetting(device, definition)
+		value, readErr := read(device, definition)
 		if readErr != nil {
 			continue
 		}
+		reason := ""
+		if !definition.Writable {
+			reason = modelSettingWriteReason(property, capabilities, false)
+			if reason == "" && !wanted {
+				reason = "Jabridge can read this control but cannot change it yet."
+			}
+		}
 		values = append(values, textSettingValue{Definition: definition, Value: value, Editable: definition.Writable,
-			Provenance: observedSetting(true, capabilities.ExactFirmwareProfile && capabilities.DeviceFirmware != "", false, "")})
+			Catalog:    bindSettingCatalogMetadata(device, definition.Key, definition.Destination, property, capabilities),
+			Provenance: observedSetting(true, exactSettingProfile(capabilities), false, reason)})
 	}
 	return values
 }

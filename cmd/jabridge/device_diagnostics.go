@@ -215,11 +215,19 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 		annotateSettingQuery(checks, definition.Key, device, definition.Destination, definition.Class, definition.Op)
 	}
 	for _, definition := range choiceSettingDefinitions(scope) {
+		if definition.DongleExactProfile {
+			if !matchingDongleSettingModel(device, capabilities) {
+				continue
+			}
+			if _, supported := firstCatalogProperty(capabilities, definition.CatalogProperties); !supported {
+				continue
+			}
+		}
 		run(definition.Key, definition.Destination, definition.CatalogProperties, definition.ProbeWithoutCatalog, func() (string, error) {
 			if property, ok := firstCatalogProperty(capabilities, definition.CatalogProperties); ok {
-				if definition.Codec != nil {
+				if definition.Codec != nil || definition.DongleExactProfile {
 					var supported bool
-					definition, supported = choiceSettingForCatalog(definition, property, capabilities.ExactFirmwareProfile)
+					definition, supported = choiceSettingForCatalog(definition, property, exactSettingProfile(capabilities))
 					if !supported {
 						return "", errors.New("model setting profile is incomplete")
 					}
@@ -229,7 +237,7 @@ func diagnoseSettings(device *jabra_DeviceInfo, capabilities *modelcatalog.Capab
 			}
 			definition, _ = constrainNoiseCycle(device, capabilities, definition)
 			definition = presentVoiceGuidance(device, definition)
-			definition = applyPreviewChoicePolicy(definition)
+			definition = applyChoiceWritePolicy(definition)
 			value, err := readChoiceSetting(device, definition)
 			if err == nil && value.ChoiceIndex < 0 && value.FallbackName == "" {
 				return "", fmt.Errorf("invalid choice value")

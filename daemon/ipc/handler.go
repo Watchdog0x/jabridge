@@ -89,19 +89,21 @@ type SettingSupport struct {
 }
 
 type SettingInfo struct {
-	Support    *SettingSupport `json:"support,omitempty"`
-	Device     string          `json:"device"`
-	Key        string          `json:"key"`
-	Label      string          `json:"label"`
-	Value      string          `json:"value"`
-	Editable   bool            `json:"editable"`
-	Choices    []string        `json:"choices,omitempty"`
-	Help       string          `json:"help,omitempty"`
-	Kind       string          `json:"kind,omitempty"`
-	MaxBytes   int             `json:"maxBytes,omitempty"`
-	Target     *SettingTarget  `json:"target,omitempty"`
-	MayRestart bool            `json:"mayRestart,omitempty"`
-	Component  string          `json:"component,omitempty"`
+	Support         *SettingSupport `json:"support,omitempty"`
+	Device          string          `json:"device"`
+	Key             string          `json:"key"`
+	Label           string          `json:"label"`
+	Value           string          `json:"value"`
+	Editable        bool            `json:"editable"`
+	Choices         []string        `json:"choices,omitempty"`
+	Help            string          `json:"help,omitempty"`
+	Group           string          `json:"group,omitempty"`
+	RequiresRestart *bool           `json:"requiresRestart,omitempty"`
+	Kind            string          `json:"kind,omitempty"`
+	MaxBytes        int             `json:"maxBytes,omitempty"`
+	Target          *SettingTarget  `json:"target,omitempty"`
+	MayRestart      bool            `json:"mayRestart,omitempty"`
+	Component       string          `json:"component,omitempty"`
 }
 
 type SettingTarget struct {

@@ -235,8 +235,19 @@ func renderSettingEditor() {
 		drawListHeading(editor.setting.label(), editor.choice, len(editor.choices))
 	}
 	drawListItem(8, left+4, "Device: "+editor.device.deviceName, false)
-	if editor.setting.needsConfigMode() {
-		drawListItem(9, left+4, "Saving may restart this device. Do not edit during a call.", false)
+	if notice := editor.setting.restartNotice(); notice != "" {
+		// Keep the warning itself visible when the full explanation cannot fit.
+		if displayWidth(notice) > right-left-8 {
+			notice = "May restart (model)."
+			if editor.setting.needsConfigMode() {
+				notice = "May restart; no calls."
+			}
+		}
+		row := 9
+		if editor.gainMode {
+			row = 11
+		}
+		drawListItem(row, left+4, notice, false)
 	}
 	if editor.textMode {
 		drawListItem(10, left+4, "Type a new value. Backspace edits; Ctrl+U clears.", false)
@@ -249,14 +260,19 @@ func renderSettingEditor() {
 		drawSplitActionBar([]string{"Esc Cancel"}, []string{"Enter Save"})
 		return
 	}
-	top, end := 10, bottom-1
+	top := 10
 	if editor.gainMode {
 		drawListItem(9, left+4, trimToWidth("Current: "+editor.setting.valueName(), max(1, right-left-8)), false)
 		drawListItem(10, left+4, "↑↓ 1dB  Shift .5dB", false)
 		top = 12
 	}
-	if editor.setting.needsConfigMode() {
+	if editor.setting.restartNotice() != "" {
 		top++
+	}
+	end := bottom
+	// Reserve help only when there is still a separate row for a choice.
+	if bottom-top >= 2 {
+		end--
 	}
 	visible := max(1, end-top)
 	start, windowEnd := listWindow(editor.choice, len(editor.choices), visible)
@@ -268,11 +284,13 @@ func renderSettingEditor() {
 		}
 		drawListItem(top+index-start, left+4, label, index == editor.choice)
 	}
-	help := editor.setting.help()
+	help := editor.setting.detailLine()
 	if help == "" {
 		help = "Choose a value. Nothing changes until you press Enter."
 	}
-	drawListItem(bottom-1, left+4, trimToWidth(strings.TrimSpace(help), max(1, right-left-6)), false)
+	if end < bottom {
+		drawListItem(bottom-1, left+4, trimToWidth(strings.TrimSpace(help), max(1, right-left-6)), false)
+	}
 	if editor.gainMode {
 		drawSplitActionBar([]string{"Esc Cancel"}, []string{hintSave})
 	} else {

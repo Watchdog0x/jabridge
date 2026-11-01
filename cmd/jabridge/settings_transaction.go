@@ -29,21 +29,21 @@ func checkSettingFirmware(expected string, read func() ([]byte, error)) error {
 	}
 	payload, err := read()
 	if err != nil {
-		return fmt.Errorf("check headset firmware: %w", err)
+		return fmt.Errorf("check device firmware: %w", err)
 	}
 	actual, err := decodeFirmwareVersionPayload(payload)
 	if err != nil {
 		return err
 	}
 	if actual != expected {
-		return errors.New("headset firmware changed; reopen Settings before saving")
+		return errors.New("device firmware changed; reopen Settings before saving")
 	}
 	return nil
 }
 
 func withProfiledSettingTransport(device *jabra_DeviceInfo, key string, override byte, expected string, action func(*hidrawConn, byte) error) error {
 	if expected == "" {
-		return errors.New("headset firmware profile is unavailable; reopen Settings")
+		return errors.New("device firmware profile is unavailable; reopen Settings")
 	}
 	if err := currentSettingDevice(device); err != nil {
 		return err
@@ -53,6 +53,17 @@ func withProfiledSettingTransport(device *jabra_DeviceInfo, key string, override
 		return err
 	}
 	defer h.close()
+	return withProfiledSettingHandle(device, key, override, expected, h, destination, action)
+}
+
+// Both production and simulated transports use these held-handle checks.
+func withProfiledSettingHandle(device *jabra_DeviceInfo, key string, override byte, expected string, h *hidrawConn, destination byte, action func(*hidrawConn, byte) error) error {
+	if expected == "" {
+		return errors.New("device firmware profile is unavailable; reopen Settings")
+	}
+	if err := currentSettingDevice(device); err != nil {
+		return err
+	}
 	if err := verifySettingPart(device, key, override, h); err != nil {
 		return err
 	}

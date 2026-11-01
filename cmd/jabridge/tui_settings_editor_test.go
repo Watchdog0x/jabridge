@@ -73,6 +73,54 @@ func TestEqualizerEditorUsesNearestStepAndFineNavigation(t *testing.T) {
 	}
 }
 
+func TestRestartingGainEditorKeepsCurrentValueAndKeysAtMinimumSize(t *testing.T) {
+	setting := editorFixture(t, false)
+	definition := equalizerDefinitionForTest(t, 0)
+	setting.Remote.Key, setting.Remote.Label, setting.Remote.Value = "equalizer-60hz", "Equalizer 60 Hz", "0 dB"
+	setting.Remote.RequiresRestart = restartFlag(true)
+	setting.Remote.Choices = nil
+	for _, choice := range definition.Choices {
+		setting.Remote.Choices = append(setting.Remote.Choices, choice.Name)
+	}
+	f := newRenderTarget(t, 40, 20)
+	if err := openSettingEditor(settingScopeHeadset, setting, &jabra_DeviceInfo{deviceName: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	renderSettingEditor()
+	if !strings.Contains(rowText(f, 9), "Current: 0 dB") || !strings.Contains(rowText(f, 10), "Shift .5dB") || !strings.Contains(rowText(f, 11), "May restart (model).") {
+		t.Fatal("restart warning collided with gain controls", rowText(f, 9), rowText(f, 10), rowText(f, 11))
+	}
+	var all strings.Builder
+	for row := 1; row <= f.height; row++ {
+		all.WriteString(rowText(f, row))
+		all.WriteByte('\n')
+	}
+	if !strings.Contains(all.String(), "Cancel") || !strings.Contains(all.String(), "Save") || !strings.Contains(all.String(), "(current)") {
+		t.Fatal("restart warning hid choices or key hints", all.String())
+	}
+}
+
+func TestRestartingToggleOpensEditorBeforeAnyWrite(t *testing.T) {
+	setting := editorFixture(t, false)
+	setting.Remote.Kind, setting.Remote.Key, setting.Remote.Value = "boolean", "sidetone", "On"
+	setting.Remote.Choices = []string{"Off", "On"}
+	setting.Remote.RequiresRestart = restartFlag(true)
+	withDeviceState(t, devices{1: {deviceID: 1, deviceName: "Test", deviceConnection: deviceConnectionType_USB}}, 1, -1)
+	oldValues := headsetSettingsValues
+	t.Cleanup(func() { headsetSettingsValues = oldValues })
+	headsetSettingsValues = []deviceSettingValue{setting}
+	currentSelection = 0
+	results := make(chan actionResult, 1)
+	toggleSelectedSetting(settingScopeHeadset, results)
+	if activeSettingEditor == nil || len(results) != 0 {
+		t.Fatal("restart toggle saved without showing an editor")
+	}
+	handleSettingEditorKey(keyEscape, results)
+	if activeSettingEditor != nil || len(results) != 0 || setting.Remote.Value != "On" {
+		t.Fatal("cancel changed restarting toggle")
+	}
+}
+
 func TestEqualizerOffStepEnterWithoutMovementDoesNotWrite(t *testing.T) {
 	setting := editorFixture(t, false)
 	definition := equalizerDefinitionForTest(t, 0)

@@ -420,6 +420,7 @@ func loadIPCSettings(scope settingScope) ([]menuItem, []deviceSettingValue, erro
 			Value: setting.Value, Editable: editable,
 			Choices: append([]string(nil), setting.Choices...),
 			Help:    setting.Help,
+			Group:   setting.Group, RequiresRestart: setting.RequiresRestart,
 			Support: setting.Support,
 			Kind:    setting.Kind, MaxBytes: setting.MaxBytes, Target: setting.Target,
 			MayRestart: setting.MayRestart,

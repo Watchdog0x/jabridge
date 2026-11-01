@@ -125,6 +125,14 @@ Check the running service's capability reply. Not every model emits every event.
 Read settings before offering edits. Show the returned choices and check whether
 the setting is writable. Some settings have several choices or accept text.
 
+Settings may include `group` and `help` text. The optional `requiresRestart`
+field is Jabra model data: `true` warns that saving restarts the device,
+`false` means the exact known firmware profile says no restart, and an omitted
+field means unknown. It does not grant permission to write. The existing
+`mayRestart` flag is a separate configuration-mode warning and keeps its
+meaning; a catalog `false` must not suppress it. Clients should show a restart
+notice before saving, even for a simple on/off setting.
+
 Selection is shared by clients. `device.select` takes an `id` from
 `devices.list`. Numeric IDs can be reused after reconnects, so track `instance`
 too and refresh an editor when the device changes.
@@ -206,8 +214,14 @@ ignore this additive field. A successful current-value read is not proof that
 all values or combinations work. The same constrained choices apply to
 `settings.set`, the command line and the menu.
 
-In 1.5.0, equalizer bands, noise button cycle and power saving are read-only
-unless the service starts with the separate setting-test option. `settings.list`
-returns `editable: false` and `support.reason` for locked controls. Neither a
-client flag nor the global experimental-writes option authorizes these writes.
-An explicit setting-test option does not bypass model, firmware or readback checks.
+Equalizer bands, noise button cycle and power saving are editable by default
+when the exact firmware profile, model data and current device reply match.
+`settings.list` reports `editable` and a reason when a control cannot change.
+Unknown structured codecs remain blocked by the service, including requests
+for the current value. Client flags cannot grant permission. `available`
+describes software support, not physical qualification of every choice.
+
+Link 390 `2e56` and `2e57`, variant `04-10`, firmware `3.2.0` may also expose
+`preferred-connection-mode` and `computer-audio` under `dongle`. They require
+exact model and device identities, use only listed values, and have no physical
+test report yet. Their support does not enable pairing or factory reset.

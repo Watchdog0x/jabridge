@@ -26,7 +26,6 @@ func qualifiedCycleDeviceForTest(t *testing.T) (*jabra_DeviceInfo, choiceSetting
 }
 
 func TestRetainedNoiseCycleRejectsChangedParentBeforeLease(t *testing.T) {
-	withPreviewSettingWrites(t)
 	for _, field := range []string{"firmware", "pid", "instance", "path", "child-parent"} {
 		for _, wanted := range []string{"hearthrough,anc", "hearthrough,off"} {
 			t.Run(field+"/"+wanted, func(t *testing.T) {
@@ -68,7 +67,6 @@ func TestRetainedNoiseCycleRejectsChangedParentBeforeLease(t *testing.T) {
 }
 
 func TestQualifiedNoiseCycleHeldRouteGuard(t *testing.T) {
-	withPreviewSettingWrites(t)
 	t.Setenv("JABRIDGE_HISTORY", "off")
 	device, value := qualifiedCycleDeviceForTest(t)
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)

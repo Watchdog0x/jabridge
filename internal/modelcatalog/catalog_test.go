@@ -9,7 +9,41 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 )
+
+func TestDisplayTextKeepsUnicodeWithoutTerminalControls(t *testing.T) {
+	input := "  Lyd\t på\n日本語\u202e\u2066\x1b\u009b\x00  "
+	if got := DisplayText(input); got != "Lyd på 日本語" {
+		t.Fatalf("unsafe or damaged description: %q", got)
+	}
+	got := DisplayText(strings.Repeat("æ\u202e ", 1000))
+	if utf8.RuneCountInString(got) > 240 || !utf8.ValidString(got) || strings.TrimSpace(got) != got {
+		t.Fatal("description cap split Unicode or retained whitespace", len(got))
+	}
+	for _, r := range got {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			t.Fatalf("retained control %U", r)
+		}
+	}
+}
+
+func TestDuplicatePropertyDescriptionsMergeDeterministically(t *testing.T) {
+	const fixture = `{"a":{"groupName":"Audio","settings":[{"sdkProperties":["mode"],"helpText":"Useful\nhelp","requiresRestart":true}]},"z":{"sdkProperties":["mode"],"helpText":"","groupName":"","requiresRestart":false}}`
+	for range 100 {
+		var document any
+		if err := json.Unmarshal([]byte(fixture), &document); err != nil {
+			t.Fatal(err)
+		}
+		properties := map[string]Property{}
+		collectProperties(document, properties)
+		mode := properties["mode"]
+		if mode.Group != "Audio" || mode.Help != "Useful help" || !mode.RestartKnown || !mode.RequiresRestart {
+			t.Fatalf("metadata lost in a duplicate: %#v", mode)
+		}
+	}
+}
 
 func TestModelSettingMetadataPreservesChoicesAndUnknownRestart(t *testing.T) {
 	var document any

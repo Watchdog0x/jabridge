@@ -220,6 +220,16 @@ enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
 
 ### Setting validation
 
+`setting_metadata.go` carries model help, groups and restart information from
+successful reads to IPC, the menu and CLI. Local help and read-only reasons
+take priority. Controller parts never inherit the headset's model text.
+`modelcatalog.DisplayText` removes terminal controls and limits descriptions;
+duplicate metadata merges deterministically, keeping any restart warning.
+The optional IPC `requiresRestart` field records catalog advice separately
+from the existing `mayRestart` configuration-mode warning. Unknown restart
+information is omitted; a fallback profile cannot promise no restart.
+These descriptions never grant writes or change configuration-mode packets.
+
 `equalizer.go` validates the five bands against the exact model's static
 frequencies, Q and gain limits. Each row exposes half-dB choices, while encoding
 preserves the master gain and every other band's freshly read raw fields.
@@ -312,16 +322,31 @@ mirrors these names, with regression tests for both settings and IPC commands.
 dongle setting. Only auto-pairing is writable on the tested Link 390; its
 other settings remain read-only as described in the [test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 
-### Default-off setting writes
+### Implemented setting writes
 
-`setting_preview.go` captures the separate preview-setting option only in the
-daemon. Noise-cycle, five EQ bands and power saving remain visible but read-only
-without it; future structured codecs start locked too. The normal experimental
-writes flag grants none of these permissions. Choice writers reject the locked
-operation before edit checks, leases or transport. Boolean writers use the same
-authoritative gate in `canEditBoolSetting`. Snapshots carry the read-only reason
-instead of edit advice, and local text setters also refuse unchanged values
-when locked. Known legacy controls, including sleep times, are unaffected.
+Link 390 `2e56` and `2e57`, variant `04-10`, firmware `3.2.0` also expose
+preferred connection mode (`13/FB`) and computer audio (`0D/0F`). Their scalar
+definitions require one-byte replies, a serial and attachment identity, and an
+exact matching live model. Only the catalog intersection is offered. Other
+dongles return before the extra catalog lookup; diagnostics apply the same
+identity and model exclusion before issuing these reads.
+These controls use the profiled held-handle firmware check, then one write
+and verified readback. They do not grant pairing, reset or other dongle writes.
+They have software coverage but no physical report.
+
+`setting_write_policy.go` permits the implemented noise-cycle and equalizer
+codecs by default. Power saving also needs no environment option. Unknown
+structured codec types are refused before no-op handling, leases or transport;
+client flags cannot grant permission. `exactSettingProfile` requires the actual
+device firmware to be known as well as an exact catalog match. Model access,
+allowed values, target identity, route binding and full readback remain required.
+
+The bool and choice snapshot collectors accept a read function so tests can
+exercise production filtering and provenance with simulated replies. Normal
+callers use the existing device readers. Read-only rows explain the missing
+model or implementation without adjustment advice. A noise cycle with no
+different permitted choice does not offer an edit. Legacy scalar controls,
+dongle qualification and separate firmware options keep their existing gates.
 
 `pairingUIAllowed` uses the daemon's advertised 24c9 permission for client
 visibility; it never authorizes backend IO. Both low-level pairing reads and

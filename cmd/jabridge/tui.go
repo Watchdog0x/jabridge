@@ -770,7 +770,7 @@ func toggleSelectedSetting(scope settingScope, results chan<- actionResult) {
 		setStatus("Device disconnected", true)
 		return
 	}
-	if settingIsText(setting) || len(settingChoices(setting)) > 2 || setting.needsConfigMode() {
+	if setting.usesEditor() {
 		if err := openSettingEditor(scope, setting, device); err != nil {
 			setStatus(err.Error(), true)
 		}
@@ -1643,7 +1643,7 @@ func renderDeviceSettings(lines []menuItem, values []deviceSettingValue) int {
 	row++
 	listBottom := panelBottom
 	for _, setting := range values {
-		if setting.help() != "" && panelBottom-row >= 3 {
+		if setting.detailLine() != "" && panelBottom-row >= 3 {
 			listBottom--
 			break
 		}
@@ -1660,8 +1660,8 @@ func renderDeviceSettings(lines []menuItem, values []deviceSettingValue) int {
 		row++
 	}
 	if listBottom < panelBottom {
-		if selected, ok := selectedDeviceSettingForValues(values); ok && selected.help() != "" {
-			drawListItem(listBottom, left+4, selected.help(), false)
+		if selected, ok := selectedDeviceSettingForValues(values); ok && selected.detailLine() != "" {
+			drawListItem(listBottom, left+4, selected.detailLine(), false)
 		}
 	}
 	return row
@@ -1674,7 +1674,7 @@ func settingsActionBar(values []deviceSettingValue) []string {
 	}
 	actions = append(actions, hintMove)
 	if setting, exists := selectedDeviceSettingForValues(values); exists && setting.editable() {
-		if settingIsText(setting) || len(settingChoices(setting)) > 2 || setting.needsConfigMode() {
+		if setting.usesEditor() {
 			return append(actions, hintEdit)
 		}
 		return append(actions, hintChange)

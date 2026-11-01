@@ -39,7 +39,8 @@ Support depends on your model. Evolve2 40 still has an [unresolved firmware prob
 
 ## Experimental controls
 
-Equalizer, noise button cycle and power saving are read-only by default.
+Equalizer, noise button cycle and power saving can be changed on matching
+firmware profiles. These controls have not been fully tested on hardware.
 Link 380c `24c9` pairing features are off by default. These options still need
 device tests. See the [optional test steps](docs/TEST_EVOLVE3_CONTROLS.md).
 

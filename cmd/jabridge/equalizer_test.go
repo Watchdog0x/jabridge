@@ -166,7 +166,6 @@ func equalizerBytes(t *testing.T, value string) []byte {
 }
 
 func equalizerDefinitionForTest(t *testing.T, band int) choiceSettingDefinition {
-	withPreviewSettingWrites(t)
 	t.Helper()
 	definition, supported := choiceSettingForCatalog(equalizerDefinitions()[band], equalizerPropertyForTest(t), true)
 	if !supported {

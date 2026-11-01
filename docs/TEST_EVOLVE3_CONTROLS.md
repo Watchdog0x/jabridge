@@ -1,14 +1,14 @@
 # Evolve3 65 controls preview
 
-Testing is optional. These controls are read-only in 1.5.0 unless the service
-gets the setting-test option below. Use the extracted binary in a separate
+Testing is optional. Implemented controls can be edited on matching exact
+firmware profiles without a setting-test option. Power-saving and equalizer
+writes still need physical testing. Use the extracted binary in a separate
 folder; do not run setup or replace your normal installation for this test.
 Stop the normal service and close other device-control apps:
 
 ```sh
 jabridge service stop
 ./jabridge --version
-JABRIDGE_ENABLE_PREVIEW_SETTING_WRITES=I_ACCEPT_UNTESTED_SETTINGS \
 JABRIDGE_SOCKET="$XDG_RUNTIME_DIR/jabridge-controls-test.sock" ./jabridge --daemon
 ```
 
@@ -18,8 +18,8 @@ In a second terminal in the same folder:
 JABRIDGE_SOCKET="$XDG_RUNTIME_DIR/jabridge-controls-test.sock" ./jabridge
 ```
 
-The option belongs on the service. Setting it only on a client does not grant
-permission. The global experimental-writes option does not grant it either.
+The service decides which controls and values are supported. Client flags do
+not override model, firmware, device binding or verification checks.
 
 On Evolve3 65 firmware 1.0.1, please try these in the headset Settings menu:
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -562,6 +563,35 @@ func collectProperties(value any, output map[string]Property) {
 	collectPropertiesWithGroup(value, output, "")
 }
 
+// DisplayText keeps catalog descriptions safe for terminal and plain-text UI.
+func DisplayText(value string) string {
+	var text strings.Builder
+	count, space := 0, false
+	for _, r := range value {
+		if unicode.IsSpace(r) {
+			space = text.Len() > 0
+			continue
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		if space {
+			if count >= 239 {
+				break
+			}
+			text.WriteByte(' ')
+			count++
+			space = false
+		}
+		if count >= 240 {
+			break
+		}
+		text.WriteRune(r)
+		count++
+	}
+	return text.String()
+}
+
 func collectPropertiesWithGroup(value any, output map[string]Property, group string) {
 	switch typed := value.(type) {
 	case []any:
@@ -570,13 +600,17 @@ func collectPropertiesWithGroup(value any, output map[string]Property, group str
 		}
 	case map[string]any:
 		if name, ok := typed["groupName"].(string); ok {
-			group = name
+			if name = DisplayText(name); name != "" {
+				group = name
+			}
 		}
 		names := propertyNames(typed)
 		for _, name := range names {
 			property := output[name]
 			property.Name = name
-			property.Group = group
+			if group != "" {
+				property.Group = group
+			}
 			if id, ok := typed["settingId"].(string); ok {
 				property.SettingID = id
 			}
@@ -584,7 +618,9 @@ func collectPropertiesWithGroup(value any, output map[string]Property, group str
 				property.Kind = kind
 			}
 			if help, ok := typed["helpText"].(string); ok {
-				property.Help = help
+				if help = DisplayText(help); help != "" {
+					property.Help = help
+				}
 			}
 			if handling, ok := typed["specialHandling"].(string); ok {
 				property.SpecialHandling = handling
@@ -596,7 +632,7 @@ func collectPropertiesWithGroup(value any, output map[string]Property, group str
 				property.Access = access
 			}
 			if restart, ok := typed["requiresRestart"].(bool); ok {
-				property.RequiresRestart = restart
+				property.RequiresRestart = property.RequiresRestart || restart
 				property.RestartKnown = true
 			}
 			if possible, ok := typed["possibleValues"].([]any); ok {
@@ -608,8 +644,13 @@ func collectPropertiesWithGroup(value any, output map[string]Property, group str
 			}
 			output[name] = property
 		}
-		for _, child := range typed {
-			collectPropertiesWithGroup(child, output, group)
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			collectPropertiesWithGroup(typed[key], output, group)
 		}
 	}
 }

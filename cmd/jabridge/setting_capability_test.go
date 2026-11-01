@@ -72,7 +72,6 @@ func TestNoiseCycleChoicesDependOnExactSetup(t *testing.T) {
 }
 
 func TestNoiseCycleUnconfirmedChoicesNeverReachDeviceOrLease(t *testing.T) {
-	withPreviewSettingWrites(t)
 	state := t.TempDir()
 	t.Setenv("JABRIDGE_FIRMWARE_STATE_DIR", state)
 	t.Setenv("JABRIDGE_HISTORY", "off")
@@ -106,7 +105,6 @@ func TestNoiseCycleUnconfirmedChoicesNeverReachDeviceOrLease(t *testing.T) {
 }
 
 func TestNoiseCycleObservedCurrentValueIsNoOpOnly(t *testing.T) {
-	withPreviewSettingWrites(t)
 	state := t.TempDir()
 	t.Setenv("JABRIDGE_FIRMWARE_STATE_DIR", state)
 	definition := cycleDefinitionForTest(t, cycleProfileForTest(), nil)
@@ -217,7 +215,6 @@ func TestSettingSupportIsAdditiveAndDoesNotPromoteReads(t *testing.T) {
 }
 
 func TestNoiseCycleCommandTokensRoundTrip(t *testing.T) {
-	withPreviewSettingWrites(t)
 	t.Setenv("JABRIDGE_HISTORY", "off")
 	definition := cycleDefinitionForTest(t, cycleProfileForTest(), nil)
 	current, err := decodeChoiceSettingPayload(definition, []byte{2, 2, 0})

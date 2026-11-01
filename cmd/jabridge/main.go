@@ -188,7 +188,6 @@ func runDaemon() error {
 	}
 	defer func() { _ = lease.Close() }()
 	capturePairingPreviewOption()
-	capturePreviewSettingOption()
 	cfg := daemon.DefaultConfig()
 	cfg.ButtonsMonitor = buttons.NativeMonitor
 	if socket := os.Getenv("JABRIDGE_SOCKET"); socket != "" {
@@ -532,9 +531,11 @@ func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingIn
 	info := ipc.SettingInfo{
 		Device: deviceName, Key: setting.key(), Label: setting.label(),
 		Value: setting.valueName(), Editable: setting.editable(),
-		Help:       setting.help(),
-		Support:    setting.support(),
-		MayRestart: setting.needsConfigMode(),
+		Help:            setting.help(),
+		Group:           setting.group(),
+		RequiresRestart: setting.requiresRestart(),
+		Support:         setting.support(),
+		MayRestart:      setting.needsConfigMode(),
 	}
 	if setting.Boolean != nil {
 		info.Kind = "boolean"

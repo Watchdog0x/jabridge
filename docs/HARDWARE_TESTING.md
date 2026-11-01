@@ -1,10 +1,18 @@
 # Testing your device
 
+## Link 390 connection and computer-audio controls
+
+Preferred connection mode and computer audio have protocol, model and simulated
+packet checks for Link 390 `2e56`/`2e57`, variant `04-10`, firmware `3.2.0`.
+Neither control has a physical test report. Whether changing them interrupts
+audio or disconnects a headset remains unverified. Other firmware profiles
+do not expose them. Pairing and reset permissions are unchanged.
+
 ## Evolve3 65 controls preview
 
-Version 1.5.0 reads power saving, noise-button cycle and five equalizer bands
-for matching profiles. These controls are read-only by default; their writes
-require the separate setting-test service option in TEST_EVOLVE3_CONTROLS.md.
+Power saving, noise-button cycle and five equalizer bands can be edited on
+matching exact firmware profiles. No setting-test environment option is needed.
+Power-saving and equalizer writes have no physical report yet.
 USB voice-language updates have their own default-off option.
 Software checks and recovery simulations do not qualify spoken language,
 audible EQ or settings persistence. See TEST_EVOLVE3_CONTROLS.md and
@@ -21,9 +29,9 @@ correct sleep-timer labels on Evolve3 65 (PID 2549, firmware 1.0.1) through Link
 HearThrough, ANC and Off; HearThrough and ANC; and HearThrough and Off. Other choices showed
 errors; the report does not identify whether those were device errors or
 readback differences, or qualify every ordering. Preview choices are narrowed
-only for this exact setup when setting-test writes are enabled. Other profiles
-show the full catalogued cycle and current value. All these new cycle controls
-are read-only in the default release. Reported old mode sets do not qualify the
+only for this exact setup. Other profiles show the full catalogued cycle and
+current value; a row with no different allowed value cannot be edited.
+Reported old mode sets do not qualify the
 new menu, EQ or power-saving writes on every model.
 
 ## Link 380c 24c9 preview
