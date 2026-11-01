@@ -324,6 +324,13 @@ other settings remain read-only as described in the [test report](HARDWARE_TESTI
 
 ### Implemented setting writes
 
+`control_gate.go` and `control_gate_hidraw.go` coordinate Link 390 traffic per
+physical USB port. Existing readers drain before ownership, and bound search
+keeps its permit until close. Unknown-parent exchanges also participate, so
+they cannot race the transition from idle to owned. Read-only passive HID
+observers send no GNP and do not block ownership. See [the reader audit](READERS_AUDIT.md)
+for the lock order, covered entry points and process-local boundary.
+
 Link 390 `2e56` and `2e57`, variant `04-10`, firmware `3.2.0` also expose
 preferred connection mode (`13/FB`) and computer audio (`0D/0F`). Their scalar
 definitions require one-byte replies, a serial and attachment identity, and an

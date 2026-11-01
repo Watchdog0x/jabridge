@@ -156,8 +156,13 @@ func connectSearchDeviceBound(index int, token string) error {
 		if binding == nil || parent == nil {
 			return errors.New("search has no captured USB attachment; search again")
 		}
-		link, err := openBoundSearchLink(target, binding)
+		permit, err := controlDevicePermit(target, false)
 		if err != nil {
+			return err
+		}
+		link, err := openBoundSearchLink(target, binding, permit)
+		if err != nil {
+			permit.release()
 			return err
 		}
 		defer func() { _ = link.Close() }()
@@ -204,6 +209,9 @@ func getSearchDeviceList(deviceID uint16) *pairingList {
 }
 
 type searchLink struct {
+	permit    *controlPermit
+	closeOnce sync.Once
+	closeErr  error
 	device    *jabra_DeviceInfo
 	binding   *firmware.ControlBinding
 	pairing   bool
@@ -211,13 +219,26 @@ type searchLink struct {
 	assembler *firmware.ControlPacketAssembler
 }
 
-func openSearchLink(device *jabra_DeviceInfo) (*searchLink, error) {
+func openSearchLink(device *jabra_DeviceInfo) (link *searchLink, err error) {
+	permit, err := controlDevicePermit(device, true)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			permit.release()
+		}
+	}()
 	if pairingPolicyFor(device).BoundSearch {
 		binding, err := firmware.BindControlDevice(firmware.USBDevice{SysPath: device.usbDevicePath, VendorID: device.vendorID, ProductID: device.productID})
 		if err != nil {
 			return nil, err
 		}
-		return openBoundSearchLink(device, binding)
+		link, err = openBoundSearchLink(device, binding, permit)
+		if err == nil {
+			link.permit = permit
+		}
+		return link, err
 	}
 	layout, err := firmware.InspectControlLayout(device.hidrawPath)
 	if err != nil {
@@ -227,10 +248,18 @@ func openSearchLink(device *jabra_DeviceInfo) (*searchLink, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &searchLink{device: device, file: os.NewFile(uintptr(fd), device.hidrawPath), assembler: firmware.NewControlPacketAssembler(layout)}, nil
+	return &searchLink{device: device, permit: permit, file: os.NewFile(uintptr(fd), device.hidrawPath), assembler: firmware.NewControlPacketAssembler(layout)}, nil
 }
 
-func (s *searchLink) Close() error { return s.file.Close() }
+func (s *searchLink) Close() error {
+	s.closeOnce.Do(func() {
+		if s.file != nil {
+			s.closeErr = s.file.Close()
+		}
+		s.permit.release()
+	})
+	return s.closeErr
+}
 func (s *searchLink) discoveryCommand(start bool) []byte {
 	if usesDualModeSearch(s.device) {
 		if start {
@@ -257,6 +286,17 @@ func (s *searchLink) command(ctx context.Context, opcode byte, payload []byte) e
 	if s.binding != nil {
 		return s.Command(ctx, opcode, payload)
 	}
+	if s.permit != nil && !s.permit.valid() {
+		return errControlClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	h, err := openDeviceHidrawResult(s.device)
+	if err != nil {
+		return err
+	}
+	defer h.close()
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
 	for !gnpIOMu.TryLock() {
@@ -273,11 +313,6 @@ func (s *searchLink) command(ctx context.Context, opcode byte, payload []byte) e
 	if !searchMatchesCurrent(s.device) {
 		return errors.New("dongle changed during search")
 	}
-	h := openDeviceHidraw(s.device)
-	if h == nil {
-		return errors.New("cannot open dongle management endpoint")
-	}
-	defer h.close()
 	seq := nextSeq()
 	packet, err := buildGNPReport(gnpSrcDongle, seq, gnpFlagCmd, gnpClassPairingDevice, opcode, payload)
 	if err != nil {

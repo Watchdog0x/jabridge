@@ -444,14 +444,17 @@ func settingTransport(device *jabra_DeviceInfo) (*hidrawConn, byte, error) {
 		if parent == nil || !parent.isDongle {
 			return nil, 0, errors.New("headset dongle is no longer connected")
 		}
-		h := openDeviceHidraw(parent)
-		if h == nil {
-			return nil, 0, errors.New("dongle has no usable GNP hidraw interface")
+		h, err := openDeviceHidrawResult(parent)
+		if err != nil {
+			return nil, 0, fmt.Errorf("dongle has no usable GNP hidraw interface: %w", err)
 		}
 		return h, 4, nil
 	}
-	h := openDeviceHidraw(device)
+	h, openErr := openDeviceHidrawResult(device)
 	if h == nil {
+		if errors.Is(openErr, errControlBusy) {
+			return nil, 0, openErr
+		}
 		paths := findHidrawPathsForPID(device.vendorID, device.productID)
 		if len(paths) == 0 {
 			return nil, 0, errors.New("no HID interface found; reconnect USB and run jabridge debug")
