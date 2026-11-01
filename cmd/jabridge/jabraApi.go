@@ -561,6 +561,9 @@ func openDeviceHidraw(dev *jabra_DeviceInfo) *hidrawConn {
 }
 
 func openDeviceHidrawResult(dev *jabra_DeviceInfo) (*hidrawConn, error) {
+	if controlDeviceBusy(dev) {
+		return nil, errControlBusy
+	}
 	if dev == nil || dev.hidrawPath == "" {
 		return nil, errors.New("device has no management interface")
 	}

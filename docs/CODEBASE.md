@@ -331,6 +331,17 @@ they cannot race the transition from idle to owned. Read-only passive HID
 observers send no GNP and do not block ownership. See [the reader audit](READERS_AUDIT.md)
 for the lock order, covered entry points and process-local boundary.
 
+`link390_config.go` owns a single-write configuration transaction. Its byte
+values cover the exact wireless-range and softphone contracts in
+`link390_config_definition.go`. The native source verifies USB and GNP identity,
+variant and firmware on every handle, and holds the settings lease before the
+port permit. END is attempted only on the original attachment. Reopened handles
+are read-only. The software verification policy waits at least three seconds
+after END and requires two matching reads at least one second apart on one
+generation; it is not a measurement of hardware settling or persistence.
+Failure recovery refreshes only a verified physical attachment, otherwise the
+stale registry slot is invalidated. This engine alone exposes no setting writes.
+
 Link 390 `2e56` and `2e57`, variant `04-10`, firmware `3.2.0` also expose
 preferred connection mode (`13/FB`) and computer audio (`0D/0F`). Their scalar
 definitions require one-byte replies, a serial and attachment identity, and an

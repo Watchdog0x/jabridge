@@ -49,6 +49,9 @@ func controlDevicePermit(device *jabra_DeviceInfo, search bool) (*controlPermit,
 	if device == nil {
 		return nil, errLink390Identity
 	}
+	if controlDeviceBusy(device) {
+		return nil, errControlBusy
+	}
 	if device.deviceConnection == deviceConnectionType_BT {
 		device = deviceForID(device.parentDeviceID)
 		if device == nil {
