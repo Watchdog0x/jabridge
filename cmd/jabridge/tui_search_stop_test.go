@@ -13,6 +13,7 @@ import (
 
 func TestBackQueuesSearchStopWhileStartIsBusy(t *testing.T) {
 	withMenuState(t)
+	withDeviceState(t, devices{0: {deviceID: 0, isDongle: true, productID: 0x24c7}}, -1, 0)
 	oldBackend := currentTUIBackend()
 	defer setTUIBackend(oldBackend)
 	oldTail, oldGeneration := searchCommandDone, searchCommandGeneration
@@ -167,6 +168,7 @@ func TestCompletedNativeSearchOffersSearchAgain(t *testing.T) {
 
 func TestNewUISessionDoesNotWaitForOldSearchCommand(t *testing.T) {
 	withMenuState(t)
+	withDeviceState(t, devices{0: {deviceID: 0, isDongle: true, productID: 0x24c7}}, -1, 0)
 	oldBackend := currentTUIBackend()
 	defer setTUIBackend(oldBackend)
 	oldTail, oldGeneration := searchCommandDone, searchCommandGeneration

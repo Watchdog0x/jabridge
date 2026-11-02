@@ -24,6 +24,13 @@ func resetSearchCommands() {
 }
 
 func queueSearchCommand(results chan<- actionResult, start bool) bool {
+	if start {
+		dongle, exists := selectedDongleSnapshot()
+		if !exists || !pairingUIAllowed(dongle) {
+			setStatus("Find headset is not available for this dongle.", false)
+			return false
+		}
+	}
 	if start && uiBusy() {
 		return false
 	}

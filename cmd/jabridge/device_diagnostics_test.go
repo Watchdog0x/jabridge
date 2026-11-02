@@ -109,28 +109,27 @@ func TestProtocolFailuresAreUsefulWithoutRawData(t *testing.T) {
 }
 
 func TestPairingAccessCheckExplainsPolicyWithoutIO(t *testing.T) {
-	preservePairingOption(t)
-	for _, preview := range []bool{false, true} {
-		link380CSearchConnectEnabled.Store(preview)
-		for _, pid := range []uint16{0x24c7, 0x24c8, 0x24c9, 0x24ca, 0x24e9, 0x2e50, 0x2e51, 0x2e56, 0x2e57, 0xffff} {
-			device := &jabra_DeviceInfo{productID: pid, isDongle: true}
-			before := *device
-			check, ok := pairingAccessCheck(device)
-			if !ok || check.Feature != "pairing access" || check.State != "INFO" || !strings.Contains(check.Detail, "Policy check only; no device query sent.") || strings.Contains(check.Detail, link380CSearchConnectAck) {
-				t.Fatal(pid, preview, check)
-			}
-			if !reflect.DeepEqual(*device, before) {
-				t.Fatal("policy check changed device", pid)
-			}
-			enabled := pid == 0x24c7 || pid == 0x24c8 || pid == 0x2e57 || pid == 0x24c9 && preview
-			if enabled != strings.Contains(check.Detail, "are enabled") {
-				t.Fatal(pid, preview, check)
-			}
-			if pid == 0x2e56 {
-				policy := pairingPolicyFor(device)
-				if policy.Reads || policy.SearchConnect || policy.RememberedWrites || !strings.Contains(check.Detail, "no opt-in exists") || !strings.Contains(check.Detail, "2e56") {
-					t.Fatal(policy, check)
-				}
+	for _, pid := range []uint16{0x24c7, 0x24c8, 0x24c9, 0x24ca, 0x24e9, 0x2e50, 0x2e51, 0x2e56, 0x2e57, 0xffff} {
+		device := &jabra_DeviceInfo{productID: pid, isDongle: true}
+		before := *device
+		check, ok := pairingAccessCheck(device)
+		if !ok || check.Feature != "pairing access" || check.State != "INFO" || !strings.Contains(check.Detail, "Policy check only; no device query sent.") {
+			t.Fatal(pid, check)
+		}
+		if !reflect.DeepEqual(*device, before) {
+			t.Fatal("policy check changed device", pid)
+		}
+		enabled := pid == 0x24c7 || pid == 0x24c8 || pid == 0x24c9 || pid == 0x2e57
+		if enabled != strings.Contains(check.Detail, "are enabled") {
+			t.Fatal(pid, check)
+		}
+		if pid == 0x24c9 && (strings.Contains(check.Detail, "option") || strings.Contains(check.Detail, "opt-in") || !strings.Contains(check.Detail, "Remembered-device changes stay off")) {
+			t.Fatal("Link 380c diagnostic lost its current support limits", check)
+		}
+		if pid == 0x2e56 {
+			policy := pairingPolicyFor(device)
+			if policy.Reads || policy.SearchConnect || policy.RememberedWrites || !strings.Contains(check.Detail, "no opt-in exists") || !strings.Contains(check.Detail, "2e56") {
+				t.Fatal(policy, check)
 			}
 		}
 	}

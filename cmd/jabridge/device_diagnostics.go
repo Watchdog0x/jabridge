@@ -339,10 +339,8 @@ func pairingAccessCheck(device *jabra_DeviceInfo) (ipc.DiagnosticCheck, bool) {
 	switch {
 	case device.productID == 0x2e56 && !policy.Reads && !policy.SearchConnect:
 		detail = "Pairing list, Find headset and connect are off for USB ID 2e56 by release policy until this ID is confirmed on hardware. This is not a dongle, access or service fault, and no opt-in exists. Policy check only; no device query sent."
-	case device.productID == 0x24c9 && policy.Reads && policy.SearchConnect:
-		detail = "Pairing list, search and fresh pairing are enabled as a preview for this USB ID. Remembered-device changes stay off. Policy check only; no device query sent."
 	case device.productID == 0x24c9:
-		detail = "Pairing is off by default for this USB ID. Its separate service-start preview option is required. Policy check only; no device query sent."
+		detail = "Pairing list, search and fresh pairing are enabled for this USB ID after a reported successful pairing. Remembered-device changes stay off. Policy check only; no device query sent."
 	case policy.Reads && policy.SearchConnect:
 		detail = "Pairing list, Find headset and connect are enabled for this USB ID. Policy check only; no device query sent."
 	}

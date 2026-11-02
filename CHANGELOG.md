@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1 — 2026-11-02
+
+Fix pairing being blocked by default on the recognized Link 380c USB ID
+`0b0e:24c9` (#58). Pairing-list reads, Find headset and fresh pairing no longer
+need a test option after a user reported successful pairing with an Evolve2 85.
+The menu still respects the running service's permission when versions differ.
+Remembered-device changes, dongle settings writes and reset stay off for this ID.
+
 ## 1.6.0 — 2026-11-02
 
 Enable exact-model equalizer, noise-button cycle and power-saving controls

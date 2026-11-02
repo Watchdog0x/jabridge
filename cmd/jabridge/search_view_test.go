@@ -11,8 +11,6 @@ func TestFindHeadsetMenuUsesSupportedDongle(t *testing.T) {
 	old := currentTUIBackend()
 	setTUIBackend(&tuiIPCBackend{})
 	defer setTUIBackend(old)
-	preservePairingOption(t)
-	link380CSearchConnectEnabled.Store(false)
 	for _, test := range []struct {
 		pid  uint16
 		want bool
