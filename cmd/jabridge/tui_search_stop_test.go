@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"strings"
 	"testing"
 	"time"
@@ -24,19 +23,22 @@ func TestBackQueuesSearchStopWhileStartIsBusy(t *testing.T) {
 	oldContext := uiResultContext
 	uiResultContext = ctx
 	defer func() { uiResultContext = oldContext }()
-	server, connection := net.Pipe()
-	client := ipc.ClientFromConnection(connection)
-	defer func() { _ = server.Close(); _ = client.Close() }()
-	setTUIBackend(&tuiIPCBackend{client: client})
+	backend, requests := newTUIActionPipeBackend(t)
+	defer requests.Close()
+	setTUIBackend(backend)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	stopped := make(chan struct{})
 	serverDone := make(chan struct{})
 	go func() {
 		defer close(serverDone)
-		decoder := json.NewDecoder(server)
-		encoder := json.NewEncoder(server)
 		for _, method := range []string{"bt.search", "bt.search.stop"} {
+			server, ok := requests.Accept()
+			if !ok {
+				return
+			}
+			defer func() { _ = server.Close() }()
+			decoder, encoder := json.NewDecoder(server), json.NewEncoder(server)
 			var request ipc.Request
 			if err := decoder.Decode(&request); err != nil {
 				return
@@ -180,13 +182,17 @@ func TestNewUISessionDoesNotWaitForOldSearchCommand(t *testing.T) {
 	oldContext := uiResultContext
 	uiResultContext = ctx
 	defer func() { uiResultContext = oldContext }()
-	server, connection := net.Pipe()
-	client := ipc.ClientFromConnection(connection)
-	defer func() { _ = server.Close(); _ = client.Close() }()
-	setTUIBackend(&tuiIPCBackend{client: client})
+	backend, requests := newTUIActionPipeBackend(t)
+	defer requests.Close()
+	setTUIBackend(backend)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		server, ok := requests.Accept()
+		if !ok {
+			return
+		}
+		defer func() { _ = server.Close() }()
 		var request ipc.Request
 		if err := json.NewDecoder(server).Decode(&request); err != nil {
 			return

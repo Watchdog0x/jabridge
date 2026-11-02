@@ -129,10 +129,10 @@ func TestServiceSettingsMetadataKeepsValueLinesAndExplainsRestart(t *testing.T) 
 }
 
 func TestSettingsMetadataReachesTUIThroughRealLocalIPC(t *testing.T) {
-	client := metadataCLIClient(t)
+	backend := newTUIServiceTestBackend(t, &metadataCLIAPI{})
 	withDeviceState(t, devices{7: {deviceID: 7, deviceName: "Fixture", deviceConnection: deviceConnectionType_USB}}, 7, -1)
 	old := currentTUIBackend()
-	setTUIBackend(&tuiIPCBackend{client: client})
+	setTUIBackend(backend)
 	t.Cleanup(func() { setTUIBackend(old) })
 	_, values, err := loadIPCSettings(settingScopeHeadset)
 	if err != nil || len(values) != 4 {

@@ -473,3 +473,15 @@ readback and attachment are returned without PID-based refresh. `ResponsePrefix`
 in choice definitions checks ringer selectors before decoding the value.
 
 An exact Link 390 settings listing shares one model lookup across Boolean and choice rows, including lookup failure. An offline catalog does not cause a second lookup timeout for the same listing.
+
+### TUI request connections
+
+After startup, the TUI keeps one connection for status refresh, events and
+reconnects. `tuiIPCCall` opens one short-lived connection per action and sends
+one request; it never retries a request. A one-slot action gate preserves the
+ordering of settings loads and changes. Search start, stop and status use
+separate ungated calls because the search command queue already orders them.
+`close` rejects new calls and closes active action clients; a late reconnect
+cannot revive a closed backend. Pairing actions allow 45 seconds for command
+acknowledgements and state checks. Other CLI clients retain their own existing
+connection handling.

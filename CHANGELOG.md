@@ -2,6 +2,9 @@
 
 ## 1.6.0 — Unreleased
 
+Keep long device actions separate from TUI status polling so the menu does not
+disconnect while waiting for a reply. Allow more time for pairing state checks.
+
 Explain why pairing is disabled on unqualified Link 390 USB ID `2e56` (#59).
 
 ## 1.5.0 — 2026-10-31

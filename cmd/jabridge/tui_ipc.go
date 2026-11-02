@@ -21,9 +21,13 @@ import (
 var errPackagedServiceNotRunning = errors.New("the Jabridge service is not running or does not match this app; restart it with your package manager's service, for example: systemctl --user restart jabridge.service")
 
 type tuiIPCBackend struct {
-	mu     sync.RWMutex
-	client *ipc.Client
-	socket string
+	mu         sync.RWMutex
+	client     *ipc.Client
+	socket     string
+	dial       func(context.Context) (*ipc.Client, error)
+	closed     bool
+	active     map[*ipc.Client]struct{}
+	actionGate chan struct{}
 }
 
 var (
@@ -54,6 +58,11 @@ func (backend *tuiIPCBackend) clientSnapshot() *ipc.Client {
 
 func (backend *tuiIPCBackend) replaceClient(client *ipc.Client) {
 	backend.mu.Lock()
+	if backend.closed && client != nil {
+		backend.mu.Unlock()
+		_ = client.Close()
+		return
+	}
 	old := backend.client
 	backend.client = client
 	backend.mu.Unlock()
@@ -62,9 +71,107 @@ func (backend *tuiIPCBackend) replaceClient(client *ipc.Client) {
 	}
 }
 
+func newTUIIPCBackend(client *ipc.Client, socket string, dial func(context.Context) (*ipc.Client, error)) *tuiIPCBackend {
+	return &tuiIPCBackend{client: client, socket: socket, dial: dial, active: make(map[*ipc.Client]struct{}), actionGate: make(chan struct{}, 1)}
+}
+
 func (backend *tuiIPCBackend) close() {
-	if backend != nil {
-		backend.replaceClient(nil)
+	if backend == nil {
+		return
+	}
+	backend.mu.Lock()
+	backend.closed = true
+	active := backend.active
+	backend.active = nil
+	backend.mu.Unlock()
+	backend.replaceClient(nil)
+	for client := range active {
+		_ = client.Close()
+	}
+}
+
+var errTUIServiceNotConnected = errors.New("jabridge service is not connected")
+
+func tuiClientAlive(client *ipc.Client) bool {
+	if client == nil {
+		return false
+	}
+	select {
+	case <-client.Done():
+		return false
+	default:
+		return true
+	}
+}
+
+// In the TUI, the persistent client belongs to refresh/subscription. Each action gets
+// one connection and one request, so a slow device cannot block status refresh.
+func (backend *tuiIPCBackend) call(ctx context.Context, method string, params, result any) error {
+	if backend == nil {
+		return errTUIServiceNotConnected
+	}
+	backend.mu.RLock()
+	poll, closed, dial, socket := backend.client, backend.closed, backend.dial, backend.socket
+	backend.mu.RUnlock()
+	if closed || !tuiClientAlive(poll) {
+		return errTUIServiceNotConnected
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	var client *ipc.Client
+	var err error
+	if dial != nil {
+		client, err = dial(dialCtx)
+	} else {
+		client, err = ipc.Dial(dialCtx, socket)
+	}
+	cancel()
+	if err != nil {
+		if client != nil {
+			_ = client.Close()
+		}
+		return err
+	}
+	if client == nil {
+		return errTUIServiceNotConnected
+	}
+	backend.mu.Lock()
+	if backend.closed || !tuiClientAlive(backend.client) {
+		backend.mu.Unlock()
+		_ = client.Close()
+		return errTUIServiceNotConnected
+	}
+	if backend.active == nil {
+		backend.active = make(map[*ipc.Client]struct{})
+	}
+	backend.active[client] = struct{}{}
+	backend.mu.Unlock()
+	defer func() { _ = client.Close(); backend.mu.Lock(); delete(backend.active, client); backend.mu.Unlock() }()
+	return client.Call(ctx, method, params, result)
+}
+
+func (backend *tuiIPCBackend) acquireAction(ctx context.Context) (func(), error) {
+	if backend == nil {
+		return nil, errTUIServiceNotConnected
+	}
+	backend.mu.Lock()
+	if backend.closed || !tuiClientAlive(backend.client) {
+		backend.mu.Unlock()
+		return nil, errTUIServiceNotConnected
+	}
+	// Literal backends are also used by the transport tests.
+	if backend.actionGate == nil {
+		backend.actionGate = make(chan struct{}, 1)
+	}
+	gate := backend.actionGate
+	backend.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+		return func() { <-gate }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
@@ -80,7 +187,7 @@ func connectTUIServiceWithOutput(output io.Writer) (*tuiIPCBackend, error) {
 	defer func() { _ = lease.Close() }()
 	socket := ipcSocketPath()
 	if client, version, err := dialServiceVersion(socket, 700*time.Millisecond); err == nil && version == buildinfo.Version && (!buildinfo.SetupEnabled() || !serviceHistoryNeedsSetup(client)) {
-		return &tuiIPCBackend{client: client, socket: socket}, nil
+		return newTUIIPCBackend(client, socket, nil), nil
 	} else if client != nil {
 		_ = client.Close()
 	}
@@ -108,7 +215,7 @@ func connectTUIServiceWithOutput(output io.Writer) (*tuiIPCBackend, error) {
 		_ = client.Close()
 		return nil, fmt.Errorf("service version %s does not match app version %s", version, buildinfo.Version)
 	}
-	return &tuiIPCBackend{client: client, socket: socket}, nil
+	return newTUIIPCBackend(client, socket, nil), nil
 }
 
 func serviceHistoryNeedsSetup(client *ipc.Client) bool {
@@ -142,25 +249,31 @@ func dialServiceVersion(socket string, timeout time.Duration) (*ipc.Client, stri
 	return client, result.Version, nil
 }
 
+func tuiIPCTimeout(method string) time.Duration {
+	switch method {
+	case "settings.list", "settings.set":
+		return 90 * time.Second
+	// Connect can include a prior disconnect; forget can include both waits.
+	// Commands and the final state reads add time to the nominal wait budgets.
+	case "bt.search.connect", "bt.connect", "bt.disconnect", "bt.forget":
+		return 45 * time.Second
+	case "sound.default", "sound.volume", "sound.mute", "sound.mode":
+		return 25 * time.Second
+	default:
+		return 15 * time.Second
+	}
+}
+
 func tuiIPCCall(method string, params, result any) error {
 	backend := currentTUIBackend()
-	if backend == nil {
-		return errors.New("jabridge service is not connected")
-	}
-	client := backend.clientSnapshot()
-	if client == nil {
-		return errors.New("jabridge service is not connected")
-	}
-	timeout := 15 * time.Second
-	if method == "settings.list" || method == "settings.set" {
-		timeout = 90 * time.Second
-	}
-	if method == "sound.default" || method == "sound.volume" || method == "sound.mute" || method == "sound.mode" {
-		timeout = 25 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), tuiIPCTimeout(method))
 	defer cancel()
-	return client.Call(ctx, method, params, result)
+	release, err := backend.acquireAction(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return backend.call(ctx, method, params, result)
 }
 
 func initialTUIServiceSync(backend *tuiIPCBackend) error {
