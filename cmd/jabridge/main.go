@@ -484,6 +484,15 @@ func (j *jabraAPIBridge) setSettingChecked(deviceName, key, value string, target
 	if previous != nil && *previous != setting.valueName() {
 		return ipc.SettingInfo{}, fmt.Errorf("setting changed while editing; reload before saving")
 	}
+	if settingUsesLink390Config(setting) {
+		applied, err := applyLink390ConfigFromText(device, setting, value)
+		if err != nil {
+			return ipc.SettingInfo{}, err
+		}
+		info := ipcSettingInfo(deviceName, applied.Setting)
+		info.Target, info.Component = settingTarget(applied.Device), settingValuePart(applied.Device, applied.Setting)
+		return info, nil
+	}
 	if _, _, err := applyDeviceSettingFromText(device, setting, value); err != nil {
 		return ipc.SettingInfo{}, err
 	}

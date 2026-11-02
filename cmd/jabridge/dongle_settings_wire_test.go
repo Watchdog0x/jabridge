@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -16,7 +17,10 @@ import (
 // endpoint. This does not exercise hidraw ioctl/open or a physical device.
 func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 	for _, definition := range dongleChoiceSettingDefinitions {
-		for _, scenario := range []string{"match", "firmware changed", "target changed", "alternate address", "readback mismatch", "read failure"} {
+		if definition.NeedsConfigMode {
+			continue
+		}
+		for _, scenario := range []string{"match", "firmware changed", "target changed", "alternate address", "readback mismatch", "read failure", "wrong selector"} {
 			t.Run(definition.Key+"/"+scenario, func(t *testing.T) {
 				fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 				if err != nil {
@@ -29,6 +33,7 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 				stored := *device
 				withDeviceState(t, devices{7: &stored}, -1, 7)
 				wanted := definition.Choices[len(definition.Choices)-1].Raw
+				wirePayload := append(append([]byte(nil), definition.WritePrefix...), wanted)
 				var writes atomic.Int32
 				done := make(chan error, 1)
 				release := make(chan struct{})
@@ -86,7 +91,7 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 						return
 					}
 					packet, err = readPacket()
-					if err == nil && (packet[1] != gnpSrcDongle || packet[4]&0xc0 != gnpFlagCmd || packet[5] != definition.Class || packet[6] != definition.Op || int(packet[4]&0x3f) != 7 || packet[7] != wanted) {
+					if err == nil && (packet[1] != gnpSrcDongle || packet[4]&0xc0 != gnpFlagCmd || packet[5] != definition.Class || packet[6] != definition.Op || int(packet[4]&0x3f) != 6+len(wirePayload) || !bytes.Equal(packet[7:7+len(wirePayload)], wirePayload)) {
 						err = fmt.Errorf("wrong scalar packet: %x", packet)
 					}
 					if err == nil {
@@ -98,7 +103,7 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 						return
 					}
 					packet, err = readPacket()
-					if err == nil && (packet[5] != definition.Class || packet[6] != definition.Op || packet[4]&0xc0 == gnpFlagCmd) {
+					if err == nil && (packet[5] != definition.Class || packet[6] != definition.Op || packet[4]&0xc0 == gnpFlagCmd || !bytes.Equal(packet[7:1+int(packet[4]&0x3f)], definition.Request)) {
 						err = fmt.Errorf("readback replayed a write: %x", packet)
 					}
 					if scenario == "read failure" {
@@ -110,15 +115,19 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 						actual = 0xff
 					}
 					if err == nil {
-						err = respond(packet, definition.Class, definition.Op, []byte{actual}, gnpSrcDongle)
+						reply := append(append([]byte(nil), definition.ResponsePrefix...), actual)
+						if scenario == "wrong selector" && len(definition.ResponsePrefix) > 0 {
+							reply[0] = 1
+						}
+						err = respond(packet, definition.Class, definition.Op, reply, gnpSrcDongle)
 					}
 					done <- err
 				}()
 				err = withProfiledSettingHandle(device, definition.Key, 0, "3.2.0", h, gnpSrcDongle, func(handle *hidrawConn, destination byte) error {
-					if err := gnpCommand(handle, destination, nextSeq(), definition.Class, definition.Op, []byte{wanted}); err != nil {
+					if err := gnpCommand(handle, destination, nextSeq(), definition.Class, definition.Op, wirePayload); err != nil {
 						return err
 					}
-					payload, err := gnpQueryPayloadWithDataTimeout(handle, destination, nextSeq(), definition.Class, definition.Op, nil, 200*time.Millisecond)
+					payload, err := gnpQueryPayloadWithDataTimeout(handle, destination, nextSeq(), definition.Class, definition.Op, definition.Request, 200*time.Millisecond)
 					if err != nil {
 						return err
 					}
@@ -128,7 +137,7 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 					}
 					return err
 				})
-				if (err == nil) != (scenario == "match") {
+				if (err == nil) != (scenario == "match" || scenario == "wrong selector" && len(definition.ResponsePrefix) == 0) {
 					t.Fatal("unexpected verification result", scenario, err)
 				}
 				if scenario == "firmware changed" && !strings.Contains(err.Error(), "firmware changed") || scenario == "readback mismatch" && !strings.Contains(err.Error(), "readback mismatch") {

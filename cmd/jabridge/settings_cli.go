@@ -144,6 +144,14 @@ func setDeviceSettingFromText(device *jabra_DeviceInfo, selector string, setting
 }
 
 func applyDeviceSettingFromText(device *jabra_DeviceInfo, setting deviceSettingValue, textValue string) (result string, changed bool, actionErr error) {
+	if settingUsesLink390Config(setting) {
+		applied, err := applyLink390ConfigFromText(device, setting, textValue)
+		if err != nil {
+			return "", false, err
+		}
+		return applied.Setting.valueName(), applied.Changed, nil
+	}
+
 	if setting.Choice != nil && !choiceDeviceWriteAllowed(device, setting.Choice.Definition) {
 		return "", false, fmt.Errorf("changing %s is not enabled on this device: %w", setting.key(), ErrNotSupported)
 	}
@@ -250,6 +258,8 @@ func settingScopeName(scope settingScope) string {
 func printSettingsUsage() {
 	fmt.Println(`Usage:
   jabridge settings
+  jabridge settings set dongle.wireless-range low
+  jabridge settings set dongle.headset-ringer on
   jabridge settings set dongle.auto-pairing on
   jabridge settings set dongle.prioritize-computer-audio off
   jabridge settings set headset.sidetone on

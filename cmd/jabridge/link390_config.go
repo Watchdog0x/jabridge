@@ -219,7 +219,7 @@ func runLink390ConfigChange(ctx context.Context, source link390ConfigSource, tar
 			return result.failure(errors.Join(writeErr, endErr, lastErr, err))
 		}
 	}
-	if streak >= 2 && lastValue != desired {
+	if streak >= 2 && lastValue != desired && (writeErr == nil || strings.Contains(writeErr.Error(), "NAK")) {
 		result.Status = link390NotApplied
 	}
 	return result.failure(errors.Join(writeErr, endErr, lastErr, errors.New("setting read-back was not confirmed before timeout")))

@@ -34,6 +34,7 @@ type boolSettingDefinition struct {
 	Invert                bool
 	Writable              bool
 	NeedsConfigMode       bool
+	Link390Config         bool
 	ValidatedLink380      bool
 	ValidatedLink390      bool
 	CatalogProperties     []string
@@ -569,6 +570,9 @@ func canEditBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefiniti
 	if device == nil || !definition.Writable {
 		return false
 	}
+	if definition.Link390Config {
+		return isLink390ConfigBool(device, definition)
+	}
 	if device.isDongle {
 		return supportsExperimentalDongleWrites(device.productID) && definition.validatedForDongle(device.productID)
 	}
@@ -591,6 +595,19 @@ func (definition boolSettingDefinition) validatedForDongle(pid uint16) bool {
 }
 
 func writeBoolSetting(device *jabra_DeviceInfo, definition boolSettingDefinition, value bool) error {
+	if definition.Link390Config {
+		if !isLink390ConfigBool(device, definition) {
+			return ErrNotSupported
+		}
+		// Compatibility callers have no editor snapshot; capture a fresh previous value.
+		previous, err := readBoolSetting(device, definition)
+		if err != nil {
+			return err
+		}
+		_, err = applyLink390ConfigFromText(device, deviceSettingValue{Boolean: &boolSettingValue{Definition: definition, Value: previous, Editable: true}}, onOff(value))
+		return err
+	}
+
 	if !canEditBoolSetting(device, definition) {
 		return fmt.Errorf("setting %s is read-only on this device: %w", definition.Key, ErrNotSupported)
 	}
@@ -801,7 +818,7 @@ func refreshedSettingsDevice(original *jabra_DeviceInfo) *jabra_DeviceInfo {
 func readSupportedBoolSettings(device *jabra_DeviceInfo, scope settingScope) []boolSettingValue {
 	var capabilities *modelcatalog.Capabilities
 	var catalogErr error
-	if scope == settingScopeHeadset {
+	if scope == settingScopeHeadset || scope == settingScopeDongle && exactDongleSettingProfile(device) {
 		capabilities, catalogErr = lookupDeviceModel(device)
 	}
 	return readBoolSettingsSnapshot(device, scope, capabilities, catalogErr, readBoolSetting)
@@ -811,6 +828,7 @@ func readBoolSettingsSnapshot(device *jabra_DeviceInfo, scope settingScope, capa
 	values := make([]boolSettingValue, 0, len(settingDefinitions(scope)))
 	seen := make(map[string]struct{})
 	for _, definition := range settingDefinitions(scope) {
+		definition = bindLink390ConfigBool(device, definition, capabilities, catalogErr)
 		wanted := definition.Writable
 		if _, exists := seen[definition.Key]; exists {
 			continue
@@ -818,7 +836,7 @@ func readBoolSettingsSnapshot(device *jabra_DeviceInfo, scope settingScope, capa
 		catalogMatched := scope != settingScopeHeadset || len(definition.CatalogProperties) == 0
 		var metadata settingCatalogMetadata
 		var property modelcatalog.Property
-		if scope == settingScopeHeadset && catalogErr == nil {
+		if (scope == settingScopeHeadset || definition.Link390Config) && catalogErr == nil {
 			var matched bool
 			property, matched = firstCatalogProperty(capabilities, definition.CatalogProperties)
 			catalogMatched = matched
@@ -907,12 +925,24 @@ func readSupportedDeviceSettings(device *jabra_DeviceInfo, scope settingScope) [
 	if scope == settingScopeController {
 		return filterControllerSettings(device, readSupportedDeviceSettings(device, settingScopeHeadset), true)
 	}
-	settings := make([]deviceSettingValue, 0)
-	for _, value := range readSupportedBoolSettings(device, scope) {
+	// One snapshot lookup per exact dongle listing, including failures. Without
+	// this, an offline catalog adds a second six-second wait for the choice rows.
+	var booleans []boolSettingValue
+	var choices []choiceSettingValue
+	if scope == settingScopeDongle && exactDongleSettingProfile(device) {
+		capabilities, catalogErr := lookupDeviceModel(device)
+		booleans = readBoolSettingsSnapshot(device, scope, capabilities, catalogErr, readBoolSetting)
+		choices = readChoiceSettingsSnapshot(device, choiceSettingDefinitions(scope), capabilities, catalogErr, readChoiceSettingPayload)
+	} else {
+		booleans = readSupportedBoolSettings(device, scope)
+		choices = readSupportedChoiceSettings(device, scope)
+	}
+	settings := make([]deviceSettingValue, 0, len(booleans)+len(choices))
+	for _, value := range booleans {
 		copy := value
 		settings = append(settings, deviceSettingValue{Boolean: &copy})
 	}
-	for _, value := range readSupportedChoiceSettings(device, scope) {
+	for _, value := range choices {
 		copy := value
 		settings = append(settings, deviceSettingValue{Choice: &copy})
 	}

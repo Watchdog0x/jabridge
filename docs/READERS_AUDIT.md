@@ -23,6 +23,8 @@ device/settings leases provide their own cross-process coordination.
 | Captured pairing after search | Acquire a new ordinary permit after discovery stops and retain it through pairing/confirmation. |
 | Legacy search | Non-scoped devices retain their existing path. |
 | `debug_hid_activity.go` observation | Read-only file descriptors, no GNP commands. Exempt from draining so a long observation cannot block configuration indefinitely. |
+| `cmd/jabridge/buttons.go` | Passive read-only button input; no GNP writes, exempt from draining. |
+| `debug.go`, `debug_findings.go`, `setup.go` access probes | Open/close checks only, no GNP writes; do not hold a transaction reader. |
 | `daemon/buttons/linux.go` | Read-only HID input handles, no GNP writes. Exempt for the same reason. |
 
 An unresolved handle must resolve its parent again at an exchange. If it

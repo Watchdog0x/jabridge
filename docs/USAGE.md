@@ -152,3 +152,21 @@ Before opening an issue, save a debug report:
 If that file already exists, Jabridge saves a new report as `jabridge-debug-1.txt`, then `jabridge-debug-2.txt`, and so on. The command shows the exact file to attach.
 
 Check that file before sharing it. Then [open an issue](https://github.com/Watchdog0x/jabridge/issues/new), attach the file and tell us your device model and what went wrong. Debug does not change settings or firmware.
+
+### Link 390 settings
+
+Wireless range, softphone integration, headset ringer, preferred connection mode
+and computer audio use Jabra's exact model data on Link 390 `2e56`/`2e57`,
+variant `04-10`, firmware `3.2.0`. These controls passed software tests; they
+still need physical testing. Other firmware keeps its existing support.
+
+```bash
+jabridge settings set dongle.wireless-range low
+jabridge settings set dongle.softphone-integration on
+jabridge settings set dongle.headset-ringer on
+```
+
+Range choices are `normal`, `low` and `very-low`. Range and softphone changes
+may restart the dongle. Jabridge waits for verified reads before showing success.
+If the result is unknown, read the setting again before retrying. Bluetooth radio
+stays read-only on Link 390.

@@ -387,3 +387,15 @@ explicit `get` command reports the saved value and labels it accordingly.
 It cannot establish current loudness or successful playback. The debug report
 now also records the standard analog/digital profile, playback node/link state,
 and PipeWire percentage without private stream or profile names.
+
+### Link 390 model-backed configuration
+
+Wireless range (`13/0e`: 1 normal, 2 low, 3 very low), softphone integration
+(`13/4c`: 0/1), and ringer (`13/13`: selector 0, value 0/1) are enabled only
+with exact `2e56`/`2e57`, literal variant `04-10`, firmware `3.2.0` model data.
+Bluetooth radio is still read-only. The range and softphone flow sends one write
+and one original-attachment END, then waits at least three seconds and requires
+two fresh matching reads at least one second apart. These delays are software
+policy, not measured hardware timing. Fault tests exercise actual GNP exchanges
+and registry recovery using fake OS boundaries; they do not prove USB/GNP serial
+equality, physical effects, or persistence after a later restart on real units.

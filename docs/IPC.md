@@ -225,3 +225,9 @@ Link 390 `2e56` and `2e57`, variant `04-10`, firmware `3.2.0` may also expose
 `preferred-connection-mode` and `computer-audio` under `dongle`. They require
 exact model and device identities, use only listed values, and have no physical
 test report yet. Their support does not enable pairing or factory reset.
+
+Link 390 configuration changes can restart the USB attachment. Allow 90 seconds
+for `settings.set` and `settings.list`. A successful configuration change returns
+the verified setting and its current target directly. Do not automatically retry
+failed writes: an unknown result may mean the setting changed but verification
+could not finish. `mayRestart` marks range and softphone integration changes.

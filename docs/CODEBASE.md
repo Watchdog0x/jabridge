@@ -464,3 +464,12 @@ sticky-mixer warnings to the current USB port. These warnings may belong to an
 earlier attachment on the same port. Raw kernel logs and USB serials are omitted.
 The kernel mixer issue and hub-dependent silent playback remain distinct clues,
 not diagnoses inferred from a kernel version or controller name alone.
+
+Link 390 native transaction tests (`link390_config_native_test.go`) replace only OS discovery/open boundaries. The real identity queries, leases, ownership, wire commands, reconnect verification and registry publication run against socket-backed fake dongles. Transport timeouts remain retryable; identity mismatches stop verification. Unacknowledged writes stay unknown even when later reads show a different value.
+
+`link390_config_apply.go` binds exact Link 390 softphone definitions and routes
+CLI, IPC and compatibility setters through one configuration flow. The verified
+readback and attachment are returned without PID-based refresh. `ResponsePrefix`
+in choice definitions checks ringer selectors before decoding the value.
+
+An exact Link 390 settings listing shares one model lookup across Boolean and choice rows, including lookup failure. An offline catalog does not cause a second lookup timeout for the same listing.

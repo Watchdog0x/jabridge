@@ -10,7 +10,9 @@ import (
 
 var errNoControlUSBParent = errors.New("management interface has no physical USB parent")
 
-func controlUSBParent(path string) (string, error) {
+var controlUSBParent = realControlUSBParent
+
+func realControlUSBParent(path string) (string, error) {
 	node, err := filepath.EvalSymlinks(filepath.Join("/sys/class/hidraw", filepath.Base(path), "device"))
 	if err != nil {
 		return "", err

@@ -77,6 +77,8 @@ func uniqueLink390USB(identity link390Identity) error {
 type link390HIDSource struct {
 	owner      *controlPermit
 	definition link390ConfigDefinition
+	device     *jabra_DeviceInfo
+	operation  uint64
 }
 
 func (s *link390HIDSource) Now() time.Time { return time.Now() }
@@ -183,8 +185,11 @@ func (s *link390HIDSession) Identity() (link390Identity, error) {
 	}
 	info, infoErr := gnpQueryPayloadWithDataTimeout(s.h, gnpSrcDongle, nextSeq(), gnpClassDevInfo, gnpOpDeviceInfo, nil, 750*time.Millisecond)
 	variant, validVariant := decodeDeviceVariant(info)
-	if infoErr != nil || !validVariant || variant != s.target.Variant {
-		return before, errors.Join(errLink390Identity, infoErr, errors.New("dongle variant changed"))
+	if infoErr != nil {
+		return before, infoErr
+	}
+	if !validVariant || variant != s.target.Variant {
+		return before, errLink390Identity
 	}
 	after, err := s.kernelIdentity()
 	if err != nil {
@@ -255,7 +260,11 @@ func (s *link390HIDSession) Write(value byte) error {
 	if err != nil {
 		return err
 	}
-	return gnpCommand(s.h, gnpSrcDongle, nextSeq(), d.Class, d.Op, payload)
+	err = gnpCommand(s.h, gnpSrcDongle, nextSeq(), d.Class, d.Op, payload)
+	if s.source.device != nil {
+		recordSettingEvidence(s.source.device, d.Key, s.source.operation, "setting-ack", err)
+	}
+	return err
 }
 
 func (s *link390HIDSession) End() error {
@@ -334,7 +343,7 @@ func changeLink390Config(device *jabra_DeviceInfo, definition link390ConfigDefin
 	if err != nil {
 		return verified, err
 	}
-	if target.USBSerial == "" || target.USBSerial != device.serialNumber {
+	if target.ProductID != device.productID || target.USBSerial == "" || target.USBSerial != device.serialNumber {
 		return verified, errLink390Identity
 	}
 	target.GNPSerial = target.USBSerial // Expected value; verified over every fresh handle.
@@ -347,6 +356,7 @@ func changeLink390Config(device *jabra_DeviceInfo, definition link390ConfigDefin
 		return verified, err
 	}
 	operation := startSettingWriteEvidence(device, definition.Key)
+	source.device, source.operation = device, operation
 	result, err := runLink390ConfigChange(ctx, source, target, definition.Key, value, expected)
 	verified.Result = result
 	recordSettingEvidence(device, definition.Key, operation, "setting-readback", err)

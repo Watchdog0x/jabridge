@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,6 +38,8 @@ type choiceSettingDefinition struct {
 	ExpectedFirmware    string
 	ResponseBytes       int
 	DongleExactProfile  bool
+	Link390Config       bool
+	ResponsePrefix      []byte
 }
 
 type choiceSettingValue struct {
@@ -271,6 +274,17 @@ func ringtoneChoices() []settingChoice {
 }
 
 var dongleChoiceSettingDefinitions = []choiceSettingDefinition{
+	{Key: "wireless-range", Label: "Wireless range", Scope: settingScopeDongle,
+		Help:  "Changing this may restart the dongle. Based on Jabra's model data; not tested on hardware.",
+		Class: gnpClassConfig, Op: 0x0e, Writable: true, NeedsConfigMode: true, Link390Config: true,
+		DongleExactProfile: true, ResponseBytes: 1, CatalogProperties: []string{"radioPower"},
+		Choices: []settingChoice{{Name: "Normal", Raw: 1, CatalogValue: "normal"}, {Name: "Low", Raw: 2, CatalogValue: "low"}, {Name: "Very low", Raw: 3, CatalogValue: "veryLow"}}},
+	{Key: "headset-ringer", Label: "Headset ringer", Scope: settingScopeDongle,
+		Help:  "Based on Jabra's model data for this firmware. Jabridge has not tested this on hardware.",
+		Class: gnpClassConfig, Op: 0x13, Writable: true, DongleExactProfile: true,
+		Request: []byte{0}, WritePrefix: []byte{0}, ResponsePrefix: []byte{0}, ResponseIndex: 1, ResponseBytes: 2,
+		CatalogProperties: []string{"ringer"}, Choices: []settingChoice{{Name: "Off", Raw: 0, CatalogValue: "false"}, {Name: "On", Raw: 1, CatalogValue: "true"}}},
+
 	{
 		Key: "preferred-connection-mode", Label: "Preferred connection mode", Scope: settingScopeDongle,
 		Help:  "Based on Jabra's model data for this firmware. Jabridge has not tested this on hardware.",
@@ -313,6 +327,10 @@ func readChoiceSetting(device *jabra_DeviceInfo, definition choiceSettingDefinit
 }
 
 func decodeChoiceSettingPayload(definition choiceSettingDefinition, payload []byte) (choiceSettingValue, error) {
+	if !bytes.HasPrefix(payload, definition.ResponsePrefix) {
+		return choiceSettingValue{}, errors.New("unexpected setting response selector")
+	}
+
 	if definition.ResponseBytes > 0 && len(payload) != definition.ResponseBytes {
 		return choiceSettingValue{}, errors.New("unexpected setting response size")
 	}
@@ -379,6 +397,14 @@ func readChoiceSettingPayload(device *jabra_DeviceInfo, definition choiceSetting
 }
 
 func writeChoiceSetting(device *jabra_DeviceInfo, setting choiceSettingValue, choiceIndex int) error {
+	if setting.Definition.Link390Config {
+		if !isLink390ConfigChoice(device, setting.Definition) || !setting.Editable || choiceIndex < 0 || choiceIndex >= len(setting.Definition.Choices) {
+			return ErrNotSupported
+		}
+		_, err := applyLink390ConfigFromText(device, deviceSettingValue{Choice: &setting}, setting.Definition.Choices[choiceIndex].Name)
+		return err
+	}
+
 	if !choiceDeviceWriteAllowed(device, setting.Definition) {
 		return fmt.Errorf("changing %s is not enabled on this device: %w", setting.Definition.Key, ErrNotSupported)
 	}

@@ -15,7 +15,7 @@ func controlCacheFixture(t *testing.T) (string, *jabra_DeviceInfo, *jabra_Device
 	return port, dongle, child
 }
 
-// Claims with no direct test in the candidate.
+// An owned port must not turn a temporary absence into a lost headset.
 func TestControlCacheBatteryAndChildSurviveOwnedAbsence(t *testing.T) {
 	port, _, _ := controlCacheFixture(t)
 	owner, err := link390ControlGate.exclusive(context.Background(), port, port)
@@ -76,5 +76,13 @@ func TestControlCacheSettingTransportBusyIsTypedForDongleAndChild(t *testing.T) 
 	}
 }
 
-// Search on a scoped dongle whose parent cannot be resolved must refuse, and
-// the same check must not change a non-scoped dongle when idle.
+func TestControlCacheSearchRefusesMissingScopedParent(t *testing.T) {
+	_, dongle, _ := controlCacheFixture(t)
+	dongle.usbDevicePath = "/missing/control-test-port"
+	if link, err := openSearchLink(dongle); !errors.Is(err, errLink390Identity) {
+		if link != nil {
+			_ = link.Close()
+		}
+		t.Fatalf("search did not refuse an unresolved scoped dongle: %v", err)
+	}
+}

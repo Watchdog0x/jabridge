@@ -292,12 +292,17 @@ func openHidraw(path string) (*hidrawConn, error) {
 
 func openHidrawWithPermit(path string, permit *controlPermit) (*hidrawConn, error) {
 	return openHidrawCoordinated(path, permit, controlUSBParent, func(path string) (*hidrawConn, error) {
-		control, err := firmwaretool.OpenControlHidraw(path)
-		if err != nil {
-			return nil, err
-		}
-		return &hidrawConn{control: control, path: path, reportSize: control.Layout.OutputBytes}, nil
+		return openHidrawRaw(path, permit)
 	})
+}
+
+// Only the OS open is replaceable in tests; identity and permit checks still run.
+var openHidrawRaw = func(path string, _ *controlPermit) (*hidrawConn, error) {
+	control, err := firmwaretool.OpenControlHidraw(path)
+	if err != nil {
+		return nil, err
+	}
+	return &hidrawConn{control: control, path: path, reportSize: control.Layout.OutputBytes}, nil
 }
 
 func (h *hidrawConn) close() {
@@ -611,7 +616,9 @@ type usbDev struct {
 	serial       string
 }
 
-func enumerateJabraUSB() ([]usbDev, error) {
+var enumerateJabraUSB = realEnumerateJabraUSB
+
+func realEnumerateJabraUSB() ([]usbDev, error) {
 	root := "/sys/bus/usb/devices"
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -2089,7 +2096,7 @@ func (s *jabraBusylightSender) SetBusylight(on bool) error {
 		return fmt.Errorf("busylight: no device with hidraw")
 	}
 
-	h, err := openHidraw(dev.hidrawPath)
+	h, err := openDeviceHidrawResult(dev)
 	if err != nil {
 		return fmt.Errorf("busylight: %w", err)
 	}

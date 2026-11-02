@@ -139,7 +139,11 @@ func ipcSocketPath() string {
 }
 
 func ipcCall(client *ipc.Client, method string, params, result any) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := 5 * time.Second
+	if method == "settings.set" || method == "settings.list" {
+		timeout = 90 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return client.Call(ctx, method, params, result)
 }

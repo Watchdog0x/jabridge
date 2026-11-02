@@ -141,6 +141,9 @@ func TestDongleIdentityExclusionsHappenBeforeCatalogOrTransport(t *testing.T) {
 func TestDongleRepliesAndForgedWritesStayBound(t *testing.T) {
 	profile := dongleProfileForTest(t, 0x2e56)
 	for _, definition := range dongleChoiceSettingDefinitions {
+		if _, supported := firstCatalogProperty(profile, definition.CatalogProperties); !supported {
+			continue
+		}
 		for _, payload := range [][]byte{nil, {1, 0}} {
 			if _, err := decodeChoiceSettingPayload(definition, payload); err == nil {
 				t.Fatal("wrong reply size accepted", definition.Key, payload)
@@ -237,7 +240,12 @@ func TestDongleCompletionTokensAndHistoryRoundTrip(t *testing.T) {
 		}
 	}
 	events, _, err := recorder.Read(10)
-	if err != nil || len(events) != 2 || !slices.Contains([]string{"preferred-connection-mode", "computer-audio"}, events[0].Setting) || !slices.Contains([]string{"preferred-connection-mode", "computer-audio"}, events[1].Setting) {
+	if err != nil || len(events) != len(dongleChoiceSettingDefinitions) {
 		t.Fatal("history dropped a known key", events, err)
+	}
+	for _, event := range events {
+		if event.Setting == "" {
+			t.Fatal("history dropped a known key", events)
+		}
 	}
 }
