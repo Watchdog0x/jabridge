@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0 — Unreleased
+
+Explain why pairing is disabled on unqualified Link 390 USB ID `2e56` (#59).
+
 ## 1.5.0 — 2026-10-31
 
 Add a Link 380c preview for USB ID 0b0e:24c9 (#58), which was recognized but

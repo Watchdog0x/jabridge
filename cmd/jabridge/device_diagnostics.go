@@ -113,9 +113,7 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 			add("headset volume descriptors", "INFO", fmt.Sprintf("USB Audio 1; interface=%d; playback path=1->8->2->3; channels=%d; advertised-volume=%t. Cached descriptors only; no volume request sent.", info.Interface, info.Channels, info.AdvertisedVolume))
 		}
 	}
-	for _, feature := range []string{"setting writes and read-back", "pairing/reset", "firmware installation/recovery", "microphone and speaker audio quality", "button/wheel behavior", "meeting-app call control", "USB reconnect and power cycle"} {
-		add(feature, "NOT TESTED", "Needs a separate hardware test; not exercised by this read-only report.")
-	}
+	checks = append(checks, diagnosticClosingChecks(device)...)
 	return checks, nil
 }
 
@@ -329,4 +327,35 @@ func catalogPropertyDetail(property modelcatalog.Property) string {
 		detail += "; help=" + property.Help
 	}
 	return detail + "; metadata only, runtime protection not tested"
+}
+
+// This reports service policy, without probing device capabilities or health.
+func pairingAccessCheck(device *jabra_DeviceInfo) (ipc.DiagnosticCheck, bool) {
+	if device == nil || !device.isDongle {
+		return ipc.DiagnosticCheck{}, false
+	}
+	policy := pairingPolicyFor(device)
+	detail := "Pairing is not enabled for this USB ID. Policy check only; no device query sent."
+	switch {
+	case device.productID == 0x2e56 && !policy.Reads && !policy.SearchConnect:
+		detail = "Pairing list, Find headset and connect are off for USB ID 2e56 by release policy until this ID is confirmed on hardware. This is not a dongle, access or service fault, and no opt-in exists. Policy check only; no device query sent."
+	case device.productID == 0x24c9 && policy.Reads && policy.SearchConnect:
+		detail = "Pairing list, search and fresh pairing are enabled as a preview for this USB ID. Remembered-device changes stay off. Policy check only; no device query sent."
+	case device.productID == 0x24c9:
+		detail = "Pairing is off by default for this USB ID. Its separate service-start preview option is required. Policy check only; no device query sent."
+	case policy.Reads && policy.SearchConnect:
+		detail = "Pairing list, Find headset and connect are enabled for this USB ID. Policy check only; no device query sent."
+	}
+	return ipc.DiagnosticCheck{Feature: "pairing access", State: "INFO", Detail: detail}, true
+}
+
+func diagnosticClosingChecks(device *jabra_DeviceInfo) []ipc.DiagnosticCheck {
+	var checks []ipc.DiagnosticCheck
+	if pairing, ok := pairingAccessCheck(device); ok {
+		checks = append(checks, pairing)
+	}
+	for _, feature := range []string{"setting writes and read-back", "pairing/reset", "firmware installation/recovery", "microphone and speaker audio quality", "button/wheel behavior", "meeting-app call control", "USB reconnect and power cycle"} {
+		checks = append(checks, ipc.DiagnosticCheck{Feature: feature, State: "NOT TESTED", Detail: "Needs a separate hardware test; not exercised by this read-only report."})
+	}
+	return checks
 }

@@ -25,7 +25,7 @@ For downloads and setup, see the [quick start](../README.md#start).
 
 Long lists scroll as you move. Choose Quit from the main menu to close the app.
 
-With a Link 380 or Link 390, choose **Find headset** and put your headset in pairing mode. Q stops the search.
+**Find headset** is available on Link 380 USB IDs `24c7` and `24c8` and Link 390 USB ID `2e57`. Link 380c `24c9` shows it only with its [separate preview](TEST_LINK380C.md). Other USB IDs, including Link 390 `2e56`, do not show it. Where it is shown, choose it and put your headset in pairing mode. Q stops the search. `jabridge debug` reports whether pairing is enabled for your dongle.
 
 ## App updates
 
