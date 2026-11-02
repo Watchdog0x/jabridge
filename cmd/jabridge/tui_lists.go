@@ -87,7 +87,7 @@ func drawSettingRow(row int, setting deviceSettingValue, selected bool) {
 	value := setting.valueName()
 	if !setting.editable() {
 		value += " [read only]"
-	} else if settingIsText(setting) || len(settingChoices(setting)) > 2 || setting.needsConfigMode() {
+	} else if setting.usesEditor() {
 		value += " >"
 	}
 	drawLabelValue(row, setting.label(), value, selected)

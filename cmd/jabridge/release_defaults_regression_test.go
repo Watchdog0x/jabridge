@@ -1,14 +1,17 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestStableReleaseDefaultsDoNotEnableUnconfirmedFeatures(t *testing.T) {
 	definition, ok := findBoolSettingDefinition(settingScopeHeadset, "power-saving")
 	if !ok {
 		t.Fatal("power-saving read definition missing")
 	}
-	if canEditBoolSetting(&jabra_DeviceInfo{}, definition) {
-		t.Error("power saving writes enabled by default")
+	if err := writeBoolSetting(&jabra_DeviceInfo{}, definition, true); err == nil || !strings.Contains(err.Error(), "firmware profile is unavailable") {
+		t.Error("power saving wrote without a bound firmware profile", err)
 	}
 	if supportsValidatedPairingReads(0x24c9) {
 		t.Error("untested Link 380c pairing feature enabled by default")

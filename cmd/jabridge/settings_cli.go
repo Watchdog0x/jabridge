@@ -64,6 +64,10 @@ func printSettingsForDevice(kind, prefix string, device *jabra_DeviceInfo, scope
 		}
 		return
 	}
+	printSettingValues(prefix, device, values)
+}
+
+func printSettingValues(prefix string, device *jabra_DeviceInfo, values []deviceSettingValue) {
 	for _, setting := range values {
 		settingPrefix := prefix
 		if settingValuePart(device, setting) == "controller" {
@@ -85,17 +89,29 @@ func printSettingsForDevice(kind, prefix string, device *jabra_DeviceInfo, scope
 
 			fmt.Printf("  %s.%s = %s  (%s; choices: %s)\n",
 				settingPrefix, setting.key(), choiceDisplayValue(*setting.Choice), mode, strings.Join(choices, separator))
-			if setting.help() != "" {
-				fmt.Println("    " + setting.help())
-			}
+			printSettingDetails(setting)
 			continue
 		}
 		if setting.Text != nil {
 			fmt.Printf("  %s.%s = %q  (%s; set a quoted name with the command below)\n",
 				settingPrefix, setting.key(), setting.valueName(), mode)
+			printSettingDetails(setting)
 			continue
 		}
 		fmt.Printf("  %s.%s = %s  (%s)\n", settingPrefix, setting.key(), strings.ToLower(setting.valueName()), mode)
+		printSettingDetails(setting)
+	}
+}
+
+func printSettingDetails(setting deviceSettingValue) {
+	if group := setting.group(); group != "" {
+		fmt.Println("    Group: " + group)
+	}
+	if help := setting.help(); help != "" {
+		fmt.Println("    " + help)
+	}
+	if notice := setting.restartNotice(); notice != "" {
+		fmt.Println("    " + notice)
 	}
 }
 
@@ -121,13 +137,29 @@ func setDeviceSettingFromText(device *jabra_DeviceInfo, selector string, setting
 	if setting.help() != "" {
 		fmt.Println(setting.help())
 	}
+	if notice := setting.restartNotice(); notice != "" {
+		fmt.Println(notice)
+	}
 	return nil
 }
 
 func applyDeviceSettingFromText(device *jabra_DeviceInfo, setting deviceSettingValue, textValue string) (result string, changed bool, actionErr error) {
-	structured := setting.Choice != nil && setting.Choice.Definition.Codec != nil
-	if previewSettingLocked(setting.key(), structured) {
-		return "", false, fmt.Errorf("%s: %s: %w", setting.key(), previewSettingReadOnlyReason, ErrNotSupported)
+	if settingUsesLink390Config(setting) {
+		applied, err := applyLink390ConfigFromText(device, setting, textValue)
+		if err != nil {
+			return "", false, err
+		}
+		return applied.Setting.valueName(), applied.Changed, nil
+	}
+
+	if setting.Choice != nil && !choiceDeviceWriteAllowed(device, setting.Choice.Definition) {
+		return "", false, fmt.Errorf("changing %s is not enabled on this device: %w", setting.key(), ErrNotSupported)
+	}
+	if setting.Choice != nil && !choiceWriteImplemented(setting.Choice.Definition) {
+		return "", false, fmt.Errorf("%s: %s: %w", setting.key(), settingWriteNotImplemented, ErrNotSupported)
+	}
+	if setting.Choice != nil && !setting.Choice.Definition.Writable {
+		return "", false, fmt.Errorf("setting %s is read-only: %w", setting.key(), ErrNotSupported)
 	}
 	entry := historyDeviceEvent(device, "settings")
 	entry.Setting = setting.key()
@@ -226,6 +258,8 @@ func settingScopeName(scope settingScope) string {
 func printSettingsUsage() {
 	fmt.Println(`Usage:
   jabridge settings
+  jabridge settings set dongle.wireless-range low
+  jabridge settings set dongle.headset-ringer on
   jabridge settings set dongle.auto-pairing on
   jabridge settings set dongle.prioritize-computer-audio off
   jabridge settings set headset.sidetone on

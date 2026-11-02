@@ -48,6 +48,7 @@ type Event struct {
 	USBProduct    uint16    `json:"usbProduct,omitempty"`
 	Connection    string    `json:"connection,omitempty"`
 	Setting       string    `json:"setting,omitempty"`
+	ResetOutcome  string    `json:"resetOutcome,omitempty"`
 	Part          string    `json:"part,omitempty"`
 	Address       byte      `json:"address,omitempty"`
 	Method        string    `json:"method,omitempty"`
@@ -109,7 +110,7 @@ func TraceMethod(method string) bool {
 	switch method {
 	case "device.volume", "device.volume.get", "sound.recover", "sound.default", "sound.volume", "sound.mute", "sound.mode", "buttons.configure":
 		return true
-	case "settings.set", "settings.list", "device.select", "device.reset", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.connect", "service.shutdown":
+	case "settings.set", "settings.list", "device.select", "device.reset", "device.reset.bound", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.connect", "service.shutdown":
 		return true
 	}
 	return false
@@ -290,7 +291,15 @@ func sanitize(event Event) Event {
 	event.Command = allowed(event.Command, "tui status battery diagnose debug buttons daemon --daemon -d update firmware fw settings model models headset sound audio use setup ipc service completion history --version -v version --help -h help")
 	event.Subcommand = allowed(event.Subcommand, "start status stop restart install download verify set list output volume mute usb dongle ping watch devices battery settings select bash clear on off music calls capabilities")
 	event.Input = allowed(event.Input, "up down enter back action-1 action-2 action-3 action-4")
-	event.Action = allowed(event.Action, "run key navigation screen action load-settings message connect reconnect request malformed close attach detach battery pairing select settings start stop panic debug history dfu-enter dfu-runtime dfu-transfer dfu-verify sitel-plan sitel-identify sitel-enter sitel-wait-boot sitel-open-boot sitel-prepare sitel-restart-boot sitel-transfer sitel-verify sitel-start-runtime sitel-wait-runtime sitel-activate setting-request setting-ack setting-readback button media volume volume-read audio-recovery")
+	event.Action = allowed(event.Action, "run key navigation screen action load-settings message connect reconnect request malformed close attach detach battery pairing reset select settings start stop panic debug history dfu-enter dfu-runtime dfu-transfer dfu-verify sitel-plan sitel-identify sitel-enter sitel-wait-boot sitel-open-boot sitel-prepare sitel-restart-boot sitel-transfer sitel-verify sitel-start-runtime sitel-wait-runtime sitel-activate setting-request setting-ack setting-readback button media volume volume-read audio-recovery")
+	if event.Action != "reset" {
+		event.ResetOutcome = ""
+	} else {
+		event.ResetOutcome = allowed(event.ResetOutcome, "refused rejected unknown requested restart-verified")
+		if event.ResetOutcome == "other" {
+			event.ResetOutcome = ""
+		}
+	}
 	event.Control = allowed(event.Control, "play pause play-pause next previous stop mute volume-up volume-down microphone-mute hook-switch")
 	event.ControlState = allowed(event.ControlState, "pressed released active inactive initial-active initial-inactive")
 	if event.Control == "other" || event.Action != "button" && event.Action != "media" {
@@ -312,7 +321,7 @@ func sanitize(event Event) Event {
 	if event.Address != 1 && event.Address != 3 {
 		event.Address = 0
 	}
-	event.Method = allowed(event.Method, "service.ping service.capabilities service.shutdown history.status version devices.list device.select settings.list settings.set device.battery device.firmware device.volume device.volume.get device.volume.info device.features device.reset device.busylight bt.list bt.search bt.search.list bt.search.connect bt.connect bt.disconnect bt.forget bt.pair bt.autopair subscribe diagnostics.device sound.list sound.default sound.volume sound.mute sound.mode sound.recover sound.changed buttons.status buttons.configure device.button buttons.changed media.action")
+	event.Method = allowed(event.Method, "service.ping service.capabilities service.shutdown history.status version devices.list device.select settings.list settings.set device.battery device.firmware device.volume device.volume.get device.volume.info device.features device.reset device.reset.bound device.busylight bt.list bt.search bt.search.list bt.search.connect bt.connect bt.disconnect bt.forget bt.pair bt.autopair subscribe diagnostics.device sound.list sound.default sound.volume sound.mute sound.mode sound.recover sound.changed buttons.status buttons.configure device.button buttons.changed media.action")
 	event.Error = allowed(event.Error, "cancelled timeout permission missing already-exists read-only-filesystem disk-full history-busy disconnected device-rejected unsupported invalid-data failed panic transport-closed truncated malformed service-capabilities readback-mismatch "+hidAccessErrorCodes)
 	if _, ok := settings.Load(event.Setting); !ok {
 		event.Setting = ""
@@ -604,6 +613,9 @@ func Describe(event Event) string {
 	}
 	if event.Setting != "" {
 		text += " setting=" + event.Setting
+	}
+	if event.ResetOutcome != "" {
+		text += " reset=" + event.ResetOutcome
 	}
 	if event.Part != "" {
 		text += fmt.Sprintf(" part=%s address=%d", event.Part, event.Address)

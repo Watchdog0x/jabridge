@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +14,16 @@ func TestSearchRefreshDoesNotBlockNavigation(t *testing.T) {
 	withMenuState(t)
 	oldBackend := currentTUIBackend()
 	defer setTUIBackend(oldBackend)
-	server, connection := net.Pipe()
-	client := ipc.ClientFromConnection(connection)
-	defer func() { _ = server.Close(); _ = client.Close() }()
-	setTUIBackend(&tuiIPCBackend{client: client})
+	backend, requests := newTUIActionPipeBackend(t)
+	setTUIBackend(backend)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		server, ok := requests.Accept()
+		if !ok {
+			return
+		}
+		// The action client closes after consuming its reply; pipes.Close owns the server endpoint.
 		var request ipc.Request
 		if err := json.NewDecoder(server).Decode(&request); err != nil {
 			return
@@ -29,7 +31,7 @@ func TestSearchRefreshDoesNotBlockNavigation(t *testing.T) {
 		time.Sleep(400 * time.Millisecond)
 		_ = json.NewEncoder(server).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": ipc.SearchState{State: "searching"}})
 	}()
-	defer func() { _ = server.Close(); _ = client.Close(); <-done }()
+	defer func() { requests.Close(); <-done }()
 	menuState = screenSearch
 	clearSearchResults()
 	defer cancelSearchRefresh()
@@ -127,12 +129,16 @@ func TestDeviceSelectionKeepsUIResponsive(t *testing.T) {
 	t.Cleanup(func() { switchDeviceItems = oldItems })
 	oldBackend := currentTUIBackend()
 	defer setTUIBackend(oldBackend)
-	server, connection := net.Pipe()
-	client := ipc.ClientFromConnection(connection)
-	setTUIBackend(&tuiIPCBackend{client: client})
+	backend, requests := newTUIActionPipeBackend(t)
+	setTUIBackend(backend)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		server, ok := requests.Accept()
+		if !ok {
+			return
+		}
+		// The action client closes after consuming its reply; pipes.Close owns the server endpoint.
 		var request ipc.Request
 		if err := json.NewDecoder(server).Decode(&request); err != nil {
 			return
@@ -140,7 +146,7 @@ func TestDeviceSelectionKeepsUIResponsive(t *testing.T) {
 		time.Sleep(400 * time.Millisecond)
 		_ = json.NewEncoder(server).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": map[string]bool{"ok": true}})
 	}()
-	defer func() { _ = server.Close(); _ = client.Close(); <-done }()
+	defer func() { requests.Close(); <-done }()
 	menuState = screenSwitchDevice
 	width, height = 100, 30
 	refreshSwitchDeviceItems()

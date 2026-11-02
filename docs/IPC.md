@@ -125,6 +125,14 @@ Check the running service's capability reply. Not every model emits every event.
 Read settings before offering edits. Show the returned choices and check whether
 the setting is writable. Some settings have several choices or accept text.
 
+Settings may include `group` and `help` text. The optional `requiresRestart`
+field is Jabra model data: `true` warns that saving restarts the device,
+`false` means the exact known firmware profile says no restart, and an omitted
+field means unknown. It does not grant permission to write. The existing
+`mayRestart` flag is a separate configuration-mode warning and keeps its
+meaning; a catalog `false` must not suppress it. Clients should show a restart
+notice before saving, even for a simple on/off setting.
+
 Selection is shared by clients. `device.select` takes an `id` from
 `devices.list`. Numeric IDs can be reused after reconnects, so track `instance`
 too and refresh an editor when the device changes.
@@ -206,8 +214,44 @@ ignore this additive field. A successful current-value read is not proof that
 all values or combinations work. The same constrained choices apply to
 `settings.set`, the command line and the menu.
 
-In 1.5.0, equalizer bands, noise button cycle and power saving are read-only
-unless the service starts with the separate setting-test option. `settings.list`
-returns `editable: false` and `support.reason` for locked controls. Neither a
-client flag nor the global experimental-writes option authorizes these writes.
-An explicit setting-test option does not bypass model, firmware or readback checks.
+Equalizer bands, noise button cycle and power saving are editable by default
+when the exact firmware profile, model data and current device reply match.
+`settings.list` reports `editable` and a reason when a control cannot change.
+Unknown structured codecs remain blocked by the service, including requests
+for the current value. Client flags cannot grant permission. `available`
+describes software support, not physical qualification of every choice.
+
+Link 390 `2e56` and `2e57`, variant `04-10`, firmware `3.2.0` may also expose
+`preferred-connection-mode` and `computer-audio` under `dongle`. They require
+exact model and device identities, use only listed values, and have no physical
+test report yet. Their support does not enable pairing or factory reset.
+
+Link 390 configuration changes can restart the USB attachment. Allow 90 seconds
+for `settings.set` and `settings.list`. A successful configuration change returns
+the verified setting and its current target directly. Do not automatically retry
+failed writes: an unknown result may mean the setting changed but verification
+could not finish. `mayRestart` marks range and softphone integration changes.
+
+### Bound Link 390 reset
+
+`devices.list` includes `boundReset` only when the selected device is eligible.
+It is a UI hint; the server checks its current instance and attachment again.
+Only Link 390 `2e57`, variant `04-10`, firmware `1.3.0` uses this route.
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"device.reset.bound","params":{"confirm":"RESET_LINK390_DONGLE","target":{"id":7,"instance":"<32 hex characters>","topology":""}}}
+```
+
+Allow 90 seconds for the reply. This is serialized with other mutations and
+sends one reset without retry. The result includes `outcome`, `attempted`,
+`reconnected`, `message` and separate `checks`. Outcomes are `refused`,
+`rejected`, `unknown`, `requested` and `restart-verified`. A lost ACK remains
+unknown even when the device returns. A verified restart does not prove erased
+pairings or defaults. Check states are `pass`, `differs`, `not-proven` and
+`unavailable`; partial pairing reads never pass.
+
+Stop calls/audio before requesting reset. Settings may return to defaults,
+headsets may need pairing again, and an address-only record can remain. Read
+state before retrying an uncertain result; the current generation cannot be
+reset twice by the same service. `device.reset` keeps its existing Link 380
+confirmation and behavior.

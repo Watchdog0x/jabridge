@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"strings"
 	"testing"
 	"time"
@@ -63,20 +62,24 @@ func TestReadOnlyPairingShortcutsNeverDispatchMutations(t *testing.T) {
 					forgetConfirmKey = "0:Test headset"
 					forgetConfirmUntil = time.Now().Add(time.Minute)
 				}
-				server, connection := net.Pipe()
-				client := ipc.ClientFromConnection(connection)
-				setTUIBackend(&tuiIPCBackend{client: client})
+				backend, pipes := newTUIActionPipeBackend(t)
+				setTUIBackend(backend)
 				requests := make(chan string, 2)
 				done := make(chan struct{})
 				go func() {
 					defer close(done)
+					server, ok := pipes.Accept()
+					if !ok {
+						return
+					}
+					// The action client closes after consuming its reply; pipes.Close owns the server endpoint.
 					var request ipc.Request
 					if json.NewDecoder(server).Decode(&request) == nil {
 						requests <- request.Method
 						_ = json.NewEncoder(server).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": map[string]bool{"ok": true}})
 					}
 				}()
-				t.Cleanup(func() { _ = server.Close(); _ = client.Close(); <-done })
+				t.Cleanup(func() { pipes.Close(); <-done })
 				results := make(chan actionResult, 2)
 				if test.event == keyEnter {
 					handleEnterKey(results)

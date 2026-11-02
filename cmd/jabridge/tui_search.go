@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
@@ -40,7 +39,6 @@ func queueSearchCommand(results chan<- actionResult, start bool) bool {
 	activity := beginUIActivity(label)
 	parent := currentUIResultContext()
 	backend := currentTUIBackend()
-	client := backend.clientSnapshot()
 	go func() {
 		ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 		defer cancel()
@@ -57,12 +55,8 @@ func queueSearchCommand(results chan<- actionResult, start bool) bool {
 		}
 		if err == nil {
 			if backend != nil {
-				if client == nil {
-					err = errors.New("jabridge service is not connected")
-				} else {
-					var result map[string]bool
-					err = client.Call(ctx, method, nil, &result)
-				}
+				var result map[string]bool
+				err = backend.call(ctx, method, nil, &result)
 			} else if start {
 				err = searchForNewDevices()
 			} else {
@@ -108,12 +102,7 @@ func refreshSearchDeviceList(results chan<- actionResult) {
 		defer cancel()
 		load := &searchLoadResult{generation: generation}
 		if backend != nil {
-			client := backend.clientSnapshot()
-			if client == nil {
-				load.err = errors.New("jabridge service is not connected")
-			} else {
-				load.err = client.Call(ctx, "bt.search.status", nil, &load.state)
-			}
+			load.err = backend.call(ctx, "bt.search.status", nil, &load.state)
 			for _, device := range load.state.Devices {
 				load.devices = append(load.devices, pairedDevice{deviceName: device.Name, isConnected: device.Connected})
 			}

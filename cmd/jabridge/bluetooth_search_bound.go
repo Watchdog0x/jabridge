@@ -22,12 +22,15 @@ func typedSearchName(device btsearch.Device) string {
 	return fmt.Sprintf("%s (%s)", device.Name, kind)
 }
 
-func openBoundSearchLink(device *jabra_DeviceInfo, binding *firmware.ControlBinding) (*searchLink, error) {
+func openBoundSearchLink(device *jabra_DeviceInfo, binding *firmware.ControlBinding, permit *controlPermit) (*searchLink, error) {
+	if scopedControlPID(device.productID) && (permit == nil || !permit.valid()) {
+		return nil, errControlClosed
+	}
 	file, layout, err := binding.OpenReader()
 	if err != nil {
 		return nil, err
 	}
-	return &searchLink{device: device, binding: binding, file: file, assembler: firmware.NewControlPacketAssembler(layout)}, nil
+	return &searchLink{device: device, permit: permit, binding: binding, file: file, assembler: firmware.NewControlPacketAssembler(layout)}, nil
 }
 
 func (s *searchLink) Valid() error {
@@ -81,6 +84,12 @@ func (s *searchLink) Confirm(ctx context.Context, device btsearch.Device) (bool,
 }
 
 func (s *searchLink) boundExchange(ctx context.Context, flags, class, opcode byte, payload []byte) ([]byte, error) {
+	if s.device == nil {
+		return nil, errLink390Identity
+	}
+	if scopedControlPID(s.device.productID) && (s.permit == nil || !s.permit.valid()) {
+		return nil, errControlClosed
+	}
 	operation, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	ctx = operation

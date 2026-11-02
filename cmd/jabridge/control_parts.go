@@ -166,7 +166,9 @@ func refreshControlParts(device *jabra_DeviceInfo) {
 }
 
 // Pin discovery to this physical USB path, not merely its product ID.
-func findHidrawPathsForDevice(device *jabra_DeviceInfo) []string {
+var findHidrawPathsForDevice = realFindHidrawPathsForDevice
+
+func realFindHidrawPathsForDevice(device *jabra_DeviceInfo) []string {
 	paths := findHidrawPathsForPID(device.vendorID, device.productID)
 	if device.usbDevicePath == "" {
 		return paths

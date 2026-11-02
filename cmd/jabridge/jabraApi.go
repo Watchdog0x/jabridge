@@ -40,8 +40,10 @@ type jabra_DeviceInfo struct {
 	vendorID         uint16
 	deviceName       string
 	usbDevicePath    string
+	usbGeneration    string // Kernel attachment for this instance; never refreshed in place.
 	isDongle         bool
 	searchConnect    bool // Effective daemon permission; display only, never authorization.
+	boundReset       bool // UI hint only; the server checks the current target again.
 	serialNumber     string
 	variantType      string
 	firmwareVersion  string
@@ -277,13 +279,27 @@ func experimentalDeviceWritesEnabled() bool {
 // ── Hidraw transport (minimal, for GNP queries) ──────────────────────
 
 type hidrawConn struct {
-	control    *firmwaretool.ControlHidraw
-	f          *os.File
-	path       string
-	reportSize int
+	controlPort    string
+	controlOwner   *controlPermit
+	controlRelease func()
+	control        *firmwaretool.ControlHidraw
+	f              *os.File
+	path           string
+	reportSize     int
 }
 
 func openHidraw(path string) (*hidrawConn, error) {
+	return openHidrawWithPermit(path, nil)
+}
+
+func openHidrawWithPermit(path string, permit *controlPermit) (*hidrawConn, error) {
+	return openHidrawCoordinated(path, permit, controlUSBParent, func(path string) (*hidrawConn, error) {
+		return openHidrawRaw(path, permit)
+	})
+}
+
+// Only the OS open is replaceable in tests; identity and permit checks still run.
+var openHidrawRaw = func(path string, _ *controlPermit) (*hidrawConn, error) {
 	control, err := firmwaretool.OpenControlHidraw(path)
 	if err != nil {
 		return nil, err
@@ -292,6 +308,11 @@ func openHidraw(path string) (*hidrawConn, error) {
 }
 
 func (h *hidrawConn) close() {
+	release := h.controlRelease
+	h.controlRelease = nil
+	if release != nil {
+		defer release()
+	}
 	if h.control != nil {
 		_ = h.control.Close()
 		h.control = nil
@@ -390,6 +411,11 @@ func gnpQueryWithPayload(h *hidrawConn, destination, seq, class, op byte, payloa
 }
 
 func gnpQueryWithPayloadTimeout(h *hidrawConn, destination, seq, class, op byte, payload []byte, timeout time.Duration) ([]byte, error) {
+	permit, err := controlExchangePermit(h)
+	if err != nil {
+		return nil, err
+	}
+	defer permit.release()
 	gnpIOMu.Lock()
 	defer gnpIOMu.Unlock()
 	buf, err := buildGNPReport(destination, seq, gnpFlagQuery, class, op, payload)
@@ -484,6 +510,11 @@ func gnpQueryPayloadWithDataTimeout(h *hidrawConn, destination, seq, class, op b
 
 // gnpCommand sends a GNP command (flag 0x80) and waits for ACK.
 func gnpCommand(h *hidrawConn, src, seq, class, op byte, payload []byte) error {
+	permit, err := controlExchangePermit(h)
+	if err != nil {
+		return err
+	}
+	defer permit.release()
 	gnpIOMu.Lock()
 	defer gnpIOMu.Unlock()
 	buf, err := buildGNPReport(src, seq, gnpFlagCmd, class, op, payload)
@@ -532,14 +563,31 @@ func matchGNPWriteReply(resp []byte, source, seq byte) (bool, error) {
 // openDeviceHidraw opens a GNP hidraw connection for the given device.
 // Returns nil if the device doesn't have a hidraw path.
 func openDeviceHidraw(dev *jabra_DeviceInfo) *hidrawConn {
+	h, _ := openDeviceHidrawResult(dev)
+	return h
+}
+
+func openDeviceHidrawResult(dev *jabra_DeviceInfo) (*hidrawConn, error) {
+	if controlDeviceBusy(dev) {
+		return nil, errControlBusy
+	}
 	if dev == nil || dev.hidrawPath == "" {
-		return nil
+		return nil, errors.New("device has no management interface")
 	}
 	h, err := openHidraw(dev.hidrawPath)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return h
+	if scopedControlPort(h.controlPort) {
+		port, pathErr := filepath.EvalSymlinks(dev.usbDevicePath)
+		vid, vidErr := readHexFile(filepath.Join(h.controlPort, "idVendor"))
+		pid, pidErr := readHexFile(filepath.Join(h.controlPort, "idProduct"))
+		if pathErr != nil || port != h.controlPort || vidErr != nil || pidErr != nil || vid != dev.vendorID || pid != dev.productID {
+			h.close()
+			return nil, errLink390Identity
+		}
+	}
+	return h, nil
 }
 
 // gnpSeqCounter is a monotonic sequence counter for GNP packets.
@@ -570,7 +618,9 @@ type usbDev struct {
 	serial       string
 }
 
-func enumerateJabraUSB() ([]usbDev, error) {
+var enumerateJabraUSB = realEnumerateJabraUSB
+
+func realEnumerateJabraUSB() ([]usbDev, error) {
 	root := "/sys/bus/usb/devices"
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -798,6 +848,8 @@ func registerUSBDevice(usbDevice usbDev) (*jabra_DeviceInfo, bool) {
 		return nil, false
 	}
 
+	device.usbGeneration = captureScopedUSBGeneration(device)
+
 	// Publish the sysfs identity before optional protocol enrichment. Devices
 	// such as Speak 510 do not answer headset GNP addresses; their absence must
 	// not hold the service registry behind several read timeouts.
@@ -808,6 +860,9 @@ func registerUSBDevice(usbDevice usbDev) (*jabra_DeviceInfo, bool) {
 
 func enrichUSBDevice(device *jabra_DeviceInfo) {
 	if device == nil {
+		return
+	}
+	if controlDeviceBusy(device) {
 		return
 	}
 	if len(controlPartPlans(device)) > 0 {
@@ -1005,6 +1060,9 @@ func removeMissingUSBDevices(present map[string]bool) {
 			continue
 		}
 		if !present[device.usbDevicePath] {
+			if controlDeviceBusy(device) {
+				continue
+			}
 			delete(deviceManager, id)
 			changed = true
 		}
@@ -1069,7 +1127,7 @@ func refreshSelectedDeviceData() {
 			if changed {
 				requestUIRedraw()
 			}
-		} else {
+		} else if !errors.Is(err, errControlBusy) {
 			changed := false
 			updateDeviceByID(headset.deviceID, func(stored *jabra_DeviceInfo) {
 				if stored.batteryStatus != nil {
@@ -1100,6 +1158,11 @@ func refreshDongleChildDevice() {
 		removeDongleChildAfterMiss()
 		return
 	}
+	permit, permitErr := controlDevicePermit(dongle, false)
+	if permitErr != nil {
+		return
+	}
+	defer permit.release()
 
 	gnpIOMu.Lock()
 	transport, err := firmwaretool.OpenControlHidraw(dongle.hidrawPath)
@@ -1122,6 +1185,9 @@ func refreshDongleChildDevice() {
 		}
 	}
 	gnpIOMu.Unlock()
+	if errors.Is(err, errControlBusy) {
+		return
+	}
 	if err != nil || productID == 0 {
 		removeDongleChildAfterMiss()
 		return
@@ -1696,6 +1762,9 @@ func getBatteryStatus(deviceID uint16) (*batteryStatus, error) {
 	if gnpErr == nil {
 		return status, nil
 	}
+	if errors.Is(gnpErr, errControlBusy) {
+		return nil, gnpErr
+	}
 	if dev.deviceConnection != deviceConnectionType_USB {
 		return nil, fmt.Errorf("battery unavailable through the dongle for %s: %w", dev.deviceName, gnpErr)
 	}
@@ -2031,7 +2100,7 @@ func (s *jabraBusylightSender) SetBusylight(on bool) error {
 		return fmt.Errorf("busylight: no device with hidraw")
 	}
 
-	h, err := openHidraw(dev.hidrawPath)
+	h, err := openDeviceHidrawResult(dev)
 	if err != nil {
 		return fmt.Errorf("busylight: %w", err)
 	}

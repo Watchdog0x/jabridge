@@ -24,6 +24,7 @@ import (
 // DeviceInfo is the JSON-serializable device representation for IPC.
 type DeviceInfo struct {
 	SearchConnect    bool              `json:"searchConnect,omitempty"`
+	BoundReset       bool              `json:"boundReset,omitempty"`
 	ID               uint16            `json:"id"`
 	Instance         string            `json:"instance,omitempty"`
 	Topology         string            `json:"topology,omitempty"`
@@ -89,19 +90,21 @@ type SettingSupport struct {
 }
 
 type SettingInfo struct {
-	Support    *SettingSupport `json:"support,omitempty"`
-	Device     string          `json:"device"`
-	Key        string          `json:"key"`
-	Label      string          `json:"label"`
-	Value      string          `json:"value"`
-	Editable   bool            `json:"editable"`
-	Choices    []string        `json:"choices,omitempty"`
-	Help       string          `json:"help,omitempty"`
-	Kind       string          `json:"kind,omitempty"`
-	MaxBytes   int             `json:"maxBytes,omitempty"`
-	Target     *SettingTarget  `json:"target,omitempty"`
-	MayRestart bool            `json:"mayRestart,omitempty"`
-	Component  string          `json:"component,omitempty"`
+	Support         *SettingSupport `json:"support,omitempty"`
+	Device          string          `json:"device"`
+	Key             string          `json:"key"`
+	Label           string          `json:"label"`
+	Value           string          `json:"value"`
+	Editable        bool            `json:"editable"`
+	Choices         []string        `json:"choices,omitempty"`
+	Help            string          `json:"help,omitempty"`
+	Group           string          `json:"group,omitempty"`
+	RequiresRestart *bool           `json:"requiresRestart,omitempty"`
+	Kind            string          `json:"kind,omitempty"`
+	MaxBytes        int             `json:"maxBytes,omitempty"`
+	Target          *SettingTarget  `json:"target,omitempty"`
+	MayRestart      bool            `json:"mayRestart,omitempty"`
+	Component       string          `json:"component,omitempty"`
 }
 
 type SettingTarget struct {
@@ -284,7 +287,7 @@ func dispatch(req Request, api API) (response Response) {
 	// Serialize entire mutation/read-back transactions across clients. The
 	// transport lock alone only protects one packet exchange at a time.
 	switch req.Method {
-	case "device.volume", "device.volume.get", "device.volume.info", "settings.set", "device.select", "device.reset", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.stop", "bt.search.connect":
+	case "device.volume", "device.volume.get", "device.volume.info", "settings.set", "device.select", "device.reset", "device.reset.bound", "device.busylight", "bt.connect", "bt.disconnect", "bt.forget", "bt.pair", "bt.autopair", "bt.search", "bt.search.stop", "bt.search.connect":
 		mutationMu.Lock()
 		defer mutationMu.Unlock()
 	}
@@ -552,6 +555,9 @@ func dispatch(req Request, api API) (response Response) {
 			return SuccessResponse(req.ID, map[string]string{"mode": params.Mode})
 		}
 		return SuccessResponse(req.ID, map[string]string{"mode": api.GetBusylightMode()})
+
+	case "device.reset.bound":
+		return dispatchBoundReset(req, api)
 
 	case "device.reset":
 		var params struct {

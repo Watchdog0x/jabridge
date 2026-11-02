@@ -37,7 +37,7 @@ func TestTUIInteractiveProbe(t *testing.T) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	if err := runTUIWithBackend(&tuiIPCBackend{client: client}); err != nil {
+	if err := runTUIWithBackend(newTUIIPCBackend(client, os.Getenv("JABRIDGE_TEST_SOCKET"), nil)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(3)
 	}

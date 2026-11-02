@@ -48,6 +48,7 @@ const tuiFrameInterval = time.Second / 30
 
 type actionResult struct {
 	originContext           context.Context
+	boundResetResult        *ipc.BoundResetResult
 	languageOptions         *firmwareLanguagePicker
 	installPlan             *firmware.PreparedInstall
 	activityID              uint64
@@ -460,6 +461,9 @@ func handleKeyEvent(event keyEvent, results chan<- actionResult) bool {
 			history.Record(next)
 		}
 	}()
+	if handleBoundResetPanelKey(event, results) {
+		return false
+	}
 	switch event {
 	case keyUp:
 		handleUpKey()
@@ -710,6 +714,10 @@ func handleDongleSettingsAction(event keyEvent, results chan<- actionResult) {
 		resetConfirmUntil = time.Time{}
 		toggleSelectedSetting(settingScopeDongle, results)
 	case keyAction2:
+		if boundResetUIAllowed(dongle) {
+			handleBoundResetAction(dongle, results)
+			return
+		}
 		if !supportsValidatedFactoryReset(dongle.productID) {
 			setStatus(fmt.Sprintf("Factory reset is not supported for dongle PID 0x%04x", dongle.productID), true)
 			return
@@ -770,7 +778,7 @@ func toggleSelectedSetting(scope settingScope, results chan<- actionResult) {
 		setStatus("Device disconnected", true)
 		return
 	}
-	if settingIsText(setting) || len(settingChoices(setting)) > 2 || setting.needsConfigMode() {
+	if setting.usesEditor() {
 		if err := openSettingEditor(scope, setting, device); err != nil {
 			setStatus(err.Error(), true)
 		}
@@ -983,6 +991,9 @@ func applyActionResult(result actionResult, results chan<- actionResult) {
 		return
 	}
 	endUIActivity(result.activityID)
+	if result.boundResetResult != nil && menuState == screenDongleSettings {
+		boundResetReceipt = result.boundResetResult
+	}
 	if result.searchCommandGeneration != 0 && result.searchCommandGeneration != searchCommandGeneration {
 		return
 	}
@@ -1168,6 +1179,8 @@ func indexOfStartMenuID(id int) int {
 
 // returnToStartMenu goes home and puts the highlight on the first action.
 func returnToStartMenu() {
+	clearBoundResetConfirmation()
+	boundResetReceipt = nil
 	if menuState == screenSwitchDevice {
 		deviceSelectionGeneration++
 	}
@@ -1571,6 +1584,9 @@ func menuPairedDevices() {
 }
 
 func renderDongleSettings() {
+	if renderBoundResetPanel() {
+		return
+	}
 	drawingBox()
 	drawListHeading("Dongle settings", currentSelection, len(dongleSettingsValues))
 	if dongleSettingsLoading && len(dongleSettingsLines) == 0 {
@@ -1586,6 +1602,9 @@ func renderDongleSettings() {
 		if dongle, exists := selectedDongleSnapshot(); exists && supportsValidatedFactoryReset(dongle.productID) {
 			factoryLabel = "Factory reset: press 2 twice (erases remembered headsets)"
 		}
+		if dongle, exists := selectedDongleSnapshot(); exists && boundResetUIAllowed(dongle) {
+			factoryLabel = "Reset Link 390: press 2"
+		}
 		drawListItem(lastRow, left+4, factoryLabel, false)
 	}
 
@@ -1595,6 +1614,9 @@ func renderDongleSettings() {
 		if !resetConfirmUntil.IsZero() && time.Now().Before(resetConfirmUntil) {
 			actions = []string{"Q Cancel", "2 CONFIRM factory reset"}
 		}
+	}
+	if dongle, exists := selectedDongleSnapshot(); exists && boundResetUIAllowed(dongle) {
+		actions = append(actions, "2 Reset")
 	}
 	drawSplitActionBar(actions[:1], actions[1:])
 }
@@ -1643,7 +1665,7 @@ func renderDeviceSettings(lines []menuItem, values []deviceSettingValue) int {
 	row++
 	listBottom := panelBottom
 	for _, setting := range values {
-		if setting.help() != "" && panelBottom-row >= 3 {
+		if setting.detailLine() != "" && panelBottom-row >= 3 {
 			listBottom--
 			break
 		}
@@ -1660,8 +1682,8 @@ func renderDeviceSettings(lines []menuItem, values []deviceSettingValue) int {
 		row++
 	}
 	if listBottom < panelBottom {
-		if selected, ok := selectedDeviceSettingForValues(values); ok && selected.help() != "" {
-			drawListItem(listBottom, left+4, selected.help(), false)
+		if selected, ok := selectedDeviceSettingForValues(values); ok && selected.detailLine() != "" {
+			drawListItem(listBottom, left+4, selected.detailLine(), false)
 		}
 	}
 	return row
@@ -1674,7 +1696,7 @@ func settingsActionBar(values []deviceSettingValue) []string {
 	}
 	actions = append(actions, hintMove)
 	if setting, exists := selectedDeviceSettingForValues(values); exists && setting.editable() {
-		if settingIsText(setting) || len(settingChoices(setting)) > 2 || setting.needsConfigMode() {
+		if setting.usesEditor() {
 			return append(actions, hintEdit)
 		}
 		return append(actions, hintChange)
@@ -1951,6 +1973,9 @@ func renderSmallTerminal() {
 }
 
 func resetExpiredFactoryConfirmation() {
+	if boundResetTarget != nil && !boundResetConfirmationCurrent(time.Now()) {
+		requestUIRedraw()
+	}
 	if resetConfirmUntil.IsZero() || time.Now().Before(resetConfirmUntil) {
 		return
 	}

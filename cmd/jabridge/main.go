@@ -188,7 +188,6 @@ func runDaemon() error {
 	}
 	defer func() { _ = lease.Close() }()
 	capturePairingPreviewOption()
-	capturePreviewSettingOption()
 	cfg := daemon.DefaultConfig()
 	cfg.ButtonsMonitor = buttons.NativeMonitor
 	if socket := os.Getenv("JABRIDGE_SOCKET"); socket != "" {
@@ -296,6 +295,7 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			Selected:         int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
 			Parts:            ipcControlParts(dev),
 			SearchConnect:    pairingPolicyFor(dev).SearchConnect,
+			BoundReset:       eligibleLink390Reset(dev),
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)
@@ -485,6 +485,15 @@ func (j *jabraAPIBridge) setSettingChecked(deviceName, key, value string, target
 	if previous != nil && *previous != setting.valueName() {
 		return ipc.SettingInfo{}, fmt.Errorf("setting changed while editing; reload before saving")
 	}
+	if settingUsesLink390Config(setting) {
+		applied, err := applyLink390ConfigFromText(device, setting, value)
+		if err != nil {
+			return ipc.SettingInfo{}, err
+		}
+		info := ipcSettingInfo(deviceName, applied.Setting)
+		info.Target, info.Component = settingTarget(applied.Device), settingValuePart(applied.Device, applied.Setting)
+		return info, nil
+	}
 	if _, _, err := applyDeviceSettingFromText(device, setting, value); err != nil {
 		return ipc.SettingInfo{}, err
 	}
@@ -532,9 +541,11 @@ func ipcSettingInfo(deviceName string, setting deviceSettingValue) ipc.SettingIn
 	info := ipc.SettingInfo{
 		Device: deviceName, Key: setting.key(), Label: setting.label(),
 		Value: setting.valueName(), Editable: setting.editable(),
-		Help:       setting.help(),
-		Support:    setting.support(),
-		MayRestart: setting.needsConfigMode(),
+		Help:            setting.help(),
+		Group:           setting.group(),
+		RequiresRestart: setting.requiresRestart(),
+		Support:         setting.support(),
+		MayRestart:      setting.needsConfigMode(),
 	}
 	if setting.Boolean != nil {
 		info.Kind = "boolean"

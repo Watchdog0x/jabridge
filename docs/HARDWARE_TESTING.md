@@ -1,10 +1,18 @@
 # Testing your device
 
+## Link 390 connection and computer-audio controls
+
+Preferred connection mode and computer audio have protocol, model and simulated
+packet checks for Link 390 `2e56`/`2e57`, variant `04-10`, firmware `3.2.0`.
+Neither control has a physical test report. Whether changing them interrupts
+audio or disconnects a headset remains unverified. Other firmware profiles
+do not expose them. Pairing and reset permissions are unchanged.
+
 ## Evolve3 65 controls preview
 
-Version 1.5.0 reads power saving, noise-button cycle and five equalizer bands
-for matching profiles. These controls are read-only by default; their writes
-require the separate setting-test service option in TEST_EVOLVE3_CONTROLS.md.
+Power saving, noise-button cycle and five equalizer bands can be edited on
+matching exact firmware profiles. No setting-test environment option is needed.
+Power-saving and equalizer writes have no physical report yet.
 USB voice-language updates have their own default-off option.
 Software checks and recovery simulations do not qualify spoken language,
 audible EQ or settings persistence. See TEST_EVOLVE3_CONTROLS.md and
@@ -21,9 +29,9 @@ correct sleep-timer labels on Evolve3 65 (PID 2549, firmware 1.0.1) through Link
 HearThrough, ANC and Off; HearThrough and ANC; and HearThrough and Off. Other choices showed
 errors; the report does not identify whether those were device errors or
 readback differences, or qualify every ordering. Preview choices are narrowed
-only for this exact setup when setting-test writes are enabled. Other profiles
-show the full catalogued cycle and current value. All these new cycle controls
-are read-only in the default release. Reported old mode sets do not qualify the
+only for this exact setup. Other profiles show the full catalogued cycle and
+current value; a row with no different allowed value cannot be edited.
+Reported old mode sets do not qualify the
 new menu, EQ or power-saving writes on every model.
 
 ## Link 380c 24c9 preview
@@ -89,9 +97,9 @@ connect attempts timed out with `headset did not connect before timeout`, and
 enabling auto pairing did not pair within 45 seconds. After unplugging and
 re-inserting the dongle and restarting the headset, the dongle connected the
 headset on its own and search and connect restored the record name. Factory
-reset is therefore not verified as a clean reset on this dongle; a physical
-reconnect was needed before it would pair again, and factory reset keeps its
-Link 380-only allowlist.
+reset was not verified as a clean reset in that test; a physical reconnect was
+needed before pairing worked again. That build kept the Link 380-only reset
+allowlist.
 
 On 2026-10-26 the same tester compared Jabra Direct and Jabridge without
 updating the dongle's 1.3.0 firmware. In two Jabra Direct tests, settings returned
@@ -116,13 +124,14 @@ address-only entry with a named connected entry, without unplugging USB.
 The first search returned no results; the next search succeeded. That single
 miss is unexplained and does not identify a device or software fault.
 This qualifies the reported pairing recovery on that setup. Jabridge's own
-factory reset remains disabled and unqualified; this test did not run it.
+reset route was disabled in that build; this test did not run it.
 Use the [separate review-build instructions](TEST_LINK390.md) for optional
 hardware checks.
 
 Not verified: Bluetooth radio, softphone integration, prioritize-computer-audio
 and dedicated-call writes, and firmware updates. Bluetooth radio and softphone
-integration stay read-only on Link 390 until their writes are tested. The other
+integration remain read-only on the reported 1.3.0 profile. The separate 3.2.0
+model-backed settings below have software tests but no physical write report. The other
 Link 390 USB IDs `0b0e:2e50` and `0b0e:2e51` remain outside the pairing
 allowlist. ID `0b0e:2e56` list, search, pairing and remembered-device writes remain
 disabled in this release.
@@ -379,3 +388,45 @@ explicit `get` command reports the saved value and labels it accordingly.
 It cannot establish current loudness or successful playback. The debug report
 now also records the standard analog/digital profile, playback node/link state,
 and PipeWire percentage without private stream or profile names.
+
+### Link 390 model-backed configuration
+
+Wireless range (`13/0e`: 1 normal, 2 low, 3 very low), softphone integration
+(`13/4c`: 0/1), and ringer (`13/13`: selector 0, value 0/1) are enabled only
+with exact `2e56`/`2e57`, literal variant `04-10`, firmware `3.2.0` model data.
+Bluetooth radio is still read-only. The range and softphone flow sends one write
+and one original-attachment END, then waits at least three seconds and requires
+two fresh matching reads at least one second apart. These delays are software
+policy, not measured hardware timing. Fault tests exercise actual GNP exchanges
+and registry recovery using fake OS boundaries; they do not prove USB/GNP serial
+equality, physical effects, or persistence after a later restart on real units.
+
+### Link 390 reset in 1.6.0
+
+The separate bound reset route is limited to USB `0b0e:2e57`, literal variant
+`04-10`, firmware `1.3.0`. The older reports above establish the command and
+USB restart on that profile. They do not establish a factory-clean database.
+The current recovery flow has passed software tests only.
+
+The request pins the selected device instance and sends one empty `0D/13`
+command at the dongle address. It sends no configuration permission or END.
+Registration records the kernel attachment generation; a stale confirmation is
+refused before HID opens, including a fast replug with the same serial and node
+name. Fresh handles must confirm the same identity on one new generation twice,
+at least one second apart, within the 45-second return budget. The service then
+publishes a new instance/path and drops stale headset and pairing caches.
+
+A lost ACK stays unknown even if USB returns. Requested/unknown resets cannot
+be replayed on that generation. An ACK with no confirmed restart is requested,
+not verified. Pairing and range checks remain separate from this outcome.
+Address-only records may remain, and an empty display list proves no erasure.
+The strict reader cannot yet qualify an empty namespace's NAK or zero-address
+reply, so incomplete summaries show unavailable. Range was not qualified as a
+read on 1.3.0; an unsupported reply does not fail reset.
+
+Software cases include denied/rejected operations, lost replies, delayed return,
+wrong serial/firmware, renumbered nodes, stale targets, generation changes,
+leases/search ownership and registry recovery without restarting the service.
+They do not prove current-build physical timing or audible pairing recovery.
+If the dongle stays missing, reconnect USB. Stop calls and audio before reset;
+headsets may need pairing again. Link 380's older reset route is unchanged.

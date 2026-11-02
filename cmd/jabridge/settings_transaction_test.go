@@ -54,7 +54,6 @@ func TestSettingFirmwareCheckIsScopedAndRejectsStaleProfiles(t *testing.T) {
 }
 
 func TestStructuredChoiceRejectsStaleTargetAndKeepsFreshOtherBands(t *testing.T) {
-	withPreviewSettingWrites(t)
 	definition := equalizerDefinitionForTest(t, 0)
 	flat := equalizerBytes(t, equalizerFlatReply)
 	loaded, err := decodeChoiceSettingPayload(definition, flat)

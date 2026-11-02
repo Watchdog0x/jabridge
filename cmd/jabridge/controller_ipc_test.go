@@ -1,16 +1,12 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
 	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
@@ -48,30 +44,12 @@ func (a *controllerEditorTestAPI) SetSettingTarget(device, key, value string, ta
 }
 
 func TestControllerIPCAndTUIListsKeepTheirOwnSettings(t *testing.T) {
-	listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "parts.sock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = listener.Close() }()
 	api := &controllerEditorTestAPI{editorTestAPI: editorTestAPI{value: "Original", instance: strings.Repeat("a", 32)}}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		conn, err := listener.Accept()
-		if err == nil {
-			ipc.HandleConnection(conn, api)
-		}
-	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	client, err := ipc.Dial(ctx, listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = client.Close(); <-done }()
+	backend := newTUIServiceTestBackend(t, api)
+	client := backend.clientSnapshot()
 	withDeviceState(t, nil, -1, -1)
 	oldBackend := currentTUIBackend()
-	setTUIBackend(&tuiIPCBackend{client: client})
+	setTUIBackend(backend)
 	defer setTUIBackend(oldBackend)
 	if err := syncTUIState(client); err != nil {
 		t.Fatal(err)

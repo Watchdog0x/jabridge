@@ -53,6 +53,11 @@ func tryServiceCLI(args []string) (bool, error) {
 	return true, err
 }
 
+func remoteSettingRestartNotice(info ipc.SettingInfo) string {
+	setting := deviceSettingValue{Remote: &remoteSettingValue{MayRestart: info.MayRestart, RequiresRestart: info.RequiresRestart}}
+	return setting.restartNotice()
+}
+
 func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -68,6 +73,9 @@ func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 		fmt.Fprintf(out, "%s = %s (read back from device)\n", args[2], setting.Value)
 		if setting.Help != "" {
 			fmt.Fprintln(out, setting.Help)
+		}
+		if notice := remoteSettingRestartNotice(setting); notice != "" {
+			fmt.Fprintln(out, notice)
 		}
 		return nil
 	}
@@ -172,8 +180,14 @@ func runServiceCLI(client *ipc.Client, args []string, out *bytes.Buffer) error {
 					fmt.Fprintf(out, "; choices: %s", strings.Join(s.Choices, ", "))
 				}
 				fmt.Fprintln(out, ")")
+				if s.Group != "" {
+					fmt.Fprintln(out, "    Group: "+s.Group)
+				}
 				if s.Help != "" {
 					fmt.Fprintln(out, "    "+s.Help)
+				}
+				if notice := remoteSettingRestartNotice(s); notice != "" {
+					fmt.Fprintln(out, "    "+notice)
 				}
 			}
 		}

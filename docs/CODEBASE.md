@@ -220,6 +220,16 @@ enabled. See the candidate qualification limits in `HARDWARE_TESTING.md`.
 
 ### Setting validation
 
+`setting_metadata.go` carries model help, groups and restart information from
+successful reads to IPC, the menu and CLI. Local help and read-only reasons
+take priority. Controller parts never inherit the headset's model text.
+`modelcatalog.DisplayText` removes terminal controls and limits descriptions;
+duplicate metadata merges deterministically, keeping any restart warning.
+The optional IPC `requiresRestart` field records catalog advice separately
+from the existing `mayRestart` configuration-mode warning. Unknown restart
+information is omitted; a fallback profile cannot promise no restart.
+These descriptions never grant writes or change configuration-mode packets.
+
 `equalizer.go` validates the five bands against the exact model's static
 frequencies, Q and gain limits. Each row exposes half-dB choices, while encoding
 preserves the master gain and every other band's freshly read raw fields.
@@ -312,16 +322,49 @@ mirrors these names, with regression tests for both settings and IPC commands.
 dongle setting. Only auto-pairing is writable on the tested Link 390; its
 other settings remain read-only as described in the [test report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 
-### Default-off setting writes
+### Implemented setting writes
 
-`setting_preview.go` captures the separate preview-setting option only in the
-daemon. Noise-cycle, five EQ bands and power saving remain visible but read-only
-without it; future structured codecs start locked too. The normal experimental
-writes flag grants none of these permissions. Choice writers reject the locked
-operation before edit checks, leases or transport. Boolean writers use the same
-authoritative gate in `canEditBoolSetting`. Snapshots carry the read-only reason
-instead of edit advice, and local text setters also refuse unchanged values
-when locked. Known legacy controls, including sleep times, are unaffected.
+`control_gate.go` and `control_gate_hidraw.go` coordinate Link 390 traffic per
+physical USB port. Existing readers drain before ownership, and bound search
+keeps its permit until close. Unknown-parent exchanges also participate, so
+they cannot race the transition from idle to owned. Read-only passive HID
+observers send no GNP and do not block ownership. See [the reader audit](READERS_AUDIT.md)
+for the lock order, covered entry points and process-local boundary.
+
+`link390_config.go` owns a single-write configuration transaction. Its byte
+values cover the exact wireless-range and softphone contracts in
+`link390_config_definition.go`. The native source verifies USB and GNP identity,
+variant and firmware on every handle, and holds the settings lease before the
+port permit. END is attempted only on the original attachment. Reopened handles
+are read-only. The software verification policy waits at least three seconds
+after END and requires two matching reads at least one second apart on one
+generation; it is not a measurement of hardware settling or persistence.
+Failure recovery refreshes only a verified physical attachment, otherwise the
+stale registry slot is invalidated. This engine alone exposes no setting writes.
+
+Link 390 `2e56` and `2e57`, variant `04-10`, firmware `3.2.0` also expose
+preferred connection mode (`13/FB`) and computer audio (`0D/0F`). Their scalar
+definitions require one-byte replies, a serial and attachment identity, and an
+exact matching live model. Only the catalog intersection is offered. Other
+dongles return before the extra catalog lookup; diagnostics apply the same
+identity and model exclusion before issuing these reads.
+These controls use the profiled held-handle firmware check, then one write
+and verified readback. They do not grant pairing, reset or other dongle writes.
+They have software coverage but no physical report.
+
+`setting_write_policy.go` permits the implemented noise-cycle and equalizer
+codecs by default. Power saving also needs no environment option. Unknown
+structured codec types are refused before no-op handling, leases or transport;
+client flags cannot grant permission. `exactSettingProfile` requires the actual
+device firmware to be known as well as an exact catalog match. Model access,
+allowed values, target identity, route binding and full readback remain required.
+
+The bool and choice snapshot collectors accept a read function so tests can
+exercise production filtering and provenance with simulated replies. Normal
+callers use the existing device readers. Read-only rows explain the missing
+model or implementation without adjustment advice. A noise cycle with no
+different permitted choice does not offer an edit. Legacy scalar controls,
+dongle qualification and separate firmware options keep their existing gates.
 
 `pairingUIAllowed` uses the daemon's advertised 24c9 permission for client
 visibility; it never authorizes backend IO. Both low-level pairing reads and
@@ -336,10 +379,15 @@ Its pairing, remembered-device and auto-pairing writes remain blocked until a
 volunteer confirms the reads. The preview UI hides those actions. Other
 Link 390 IDs and the Link 380 flow keep their existing gates.
 
-`supportsValidatedFactoryReset` is separate and remains Link 380-only.
-Both the menu and the IPC reset route reach this check before opening the
-device. The [Link 390 reset report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
-explains why that dongle is excluded.
+`supportsValidatedFactoryReset` remains the legacy Link 380-only gate for
+`device.reset`. Link 390 uses the separate `device.reset.bound` route only for
+`2e57`, variant `04-10`, firmware `1.3.0`. `link390_reset.go` separates reset
+request/rejection/unknown/restart verification; `link390_reset_hidraw.go` owns
+leases, one-command transport, the attempt ledger and registry recovery.
+`link390_reset_summary.go` reports optional checks without claiming erased
+pairings. `tui_bound_reset.go` pins the two-press confirmation and shows the
+outcome. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
+and new software flow are separate evidence.
 
 ## Build and check
 
@@ -421,3 +469,28 @@ sticky-mixer warnings to the current USB port. These warnings may belong to an
 earlier attachment on the same port. Raw kernel logs and USB serials are omitted.
 The kernel mixer issue and hub-dependent silent playback remain distinct clues,
 not diagnoses inferred from a kernel version or controller name alone.
+
+Link 390 native transaction tests (`link390_config_native_test.go`) replace only OS discovery/open boundaries. The real identity queries, leases, ownership, wire commands, reconnect verification and registry publication run against socket-backed fake dongles. Transport timeouts remain retryable; identity mismatches stop verification. Unacknowledged writes stay unknown even when later reads show a different value.
+
+`link390_config_apply.go` binds exact Link 390 softphone definitions and routes
+CLI, IPC and compatibility setters through one configuration flow. The verified
+readback and attachment are returned without PID-based refresh. `ResponsePrefix`
+in choice definitions checks ringer selectors before decoding the value.
+
+An exact Link 390 settings listing shares one model lookup across Boolean and choice rows, including lookup failure. An offline catalog does not cause a second lookup timeout for the same listing.
+
+### TUI request connections
+
+After startup, the TUI keeps one connection for status refresh, events and
+reconnects. `tuiIPCCall` opens one short-lived connection per action and sends
+one request; it never retries a request. A one-slot action gate preserves the
+ordering of settings loads and changes. Search start, stop and status use
+separate ungated calls because the search command queue already orders them.
+`close` rejects new calls and closes active action clients; a late reconnect
+cannot revive a closed backend. Pairing actions allow 45 seconds for command
+acknowledgements and state checks. Other CLI clients retain their own existing
+connection handling.
+
+For scoped dongles, registration captures the kernel USB generation before enrichment and outside the registry lock. Each registry instance retains that generation; only a verified transaction rotation publishes a new instance and generation together. Reset refuses a stale generation before opening HID. Missing-generation slots are retired after the metadata retry interval and registered again, never refreshed into permission in place.
+
+Exact-profile Link 390 setting writes compare their cached attachment before opening HID and again on the held handle after the firmware query. Shared ownership prevents these checks from retiring a slot during another configuration transaction. Other device families retain their existing paths.
