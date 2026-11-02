@@ -5,15 +5,31 @@ func rememberedPreviewIsReadOnly() bool {
 	return exists && !supportsExperimentalDongleWrites(dongle.productID)
 }
 
-// New clients use the daemon's advertised fresh-pairing permission. Existing
-// qualified variants keep working with older services that omit that field.
-func searchPreviewIsReadOnly() bool {
-	dongle, exists := selectedDongleSnapshot()
-	return exists && !supportsExperimentalDongleWrites(dongle.productID) && !dongle.searchConnect
+// The service owns pairing permission. Direct mode uses the same policy table.
+func dongleSearchConnectAllowed(device *jabra_DeviceInfo) bool {
+	if device == nil || !device.isDongle {
+		return false
+	}
+	if currentTUIBackend() != nil {
+		return device.searchConnect
+	}
+	return pairingPolicyFor(device).SearchConnect
 }
 
-// Service permission is display data here, never backend authorization. The
-// existing 24c9 option grants its reads and search as well as fresh pairing.
+// Existing writable variants keep working with older services that omit the
+// fresh-pairing permission. Link 380c requires the service's advertised value.
+func searchPreviewIsReadOnly() bool {
+	dongle, exists := selectedDongleSnapshot()
+	return exists && !supportsExperimentalDongleWrites(dongle.productID) && !dongleSearchConnectAllowed(dongle)
+}
+
+// Service permission is display data here, never backend authorization.
 func pairingUIAllowed(device *jabra_DeviceInfo) bool {
-	return device != nil && device.isDongle && (supportsValidatedPairingReads(device.productID) || device.productID == 0x24c9 && device.searchConnect)
+	if device == nil || !device.isDongle {
+		return false
+	}
+	if device.productID == 0x24c9 {
+		return dongleSearchConnectAllowed(device)
+	}
+	return supportsValidatedPairingReads(device.productID)
 }

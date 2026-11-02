@@ -108,11 +108,12 @@ does not pair anything. A timed-out scan is not reported as a successful empty
 search. Search support on other dongle models is not implied. Link 390 support
 covers USB ID `0b0e:2e57`. The unconfirmed `0b0e:2e56` list/search remain
 disabled. Link 380c `0b0e:24c9` list, Classic discovery and fresh search-connect
-all require its separate daemon-start opt-in. `devices.list` includes the optional boolean
-`searchConnect` for the effective service permission. Older clients can ignore
-it; missing permission never enables pairing on the new variant. This field
-is a policy result, not a hardware-test claim. The service still checks every
-connect request, regardless of client flags. The preview does not enable
+are enabled by default since 1.6.1. `devices.list` includes the optional boolean
+`searchConnect` for the effective service permission. For `24c9`, the client
+requires this permission, including when connected to an older service; a false
+or missing value keeps pairing hidden. This field is a policy result, not a
+hardware-test claim. The service still checks every connect request, regardless
+of client flags. Fresh-pairing support does not enable
 remembered-device changes, dongle settings writes or reset for 24c9.
 See [hardware testing](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test).
 

@@ -41,8 +41,11 @@ Support depends on your model. Evolve2 40 still has an [unresolved firmware prob
 
 Equalizer, noise button cycle and power saving can be changed on matching
 firmware profiles. These controls have not been fully tested on hardware.
-Link 380c `24c9` pairing features are off by default. These options still need
-device tests. See the [optional test steps](docs/TEST_EVOLVE3_CONTROLS.md).
+See the [control test steps](docs/TEST_EVOLVE3_CONTROLS.md).
+
+Link 380c `24c9` supports Find headset and fresh pairing without a test option.
+An Evolve2 85 user reported successful pairing. Other controls on this dongle
+remain limited; see the [pairing guide](docs/TEST_LINK380C.md).
 
 ## Need help?
 

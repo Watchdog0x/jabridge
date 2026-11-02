@@ -13,8 +13,8 @@ func TestStableReleaseDefaultsDoNotEnableUnconfirmedFeatures(t *testing.T) {
 	if err := writeBoolSetting(&jabra_DeviceInfo{}, definition, true); err == nil || !strings.Contains(err.Error(), "firmware profile is unavailable") {
 		t.Error("power saving wrote without a bound firmware profile", err)
 	}
-	if supportsValidatedPairingReads(0x24c9) {
-		t.Error("untested Link 380c pairing feature enabled by default")
+	if !supportsValidatedPairingReads(0x24c9) || supportsExperimentalDongleWrites(0x24c9) || supportsValidatedFactoryReset(0x24c9) {
+		t.Error("Link 380c fresh pairing must work without enabling other writes")
 	}
 	if supportsValidatedPairingReads(0x2e56) {
 		t.Error("untested Link 390 list/search enabled by default")

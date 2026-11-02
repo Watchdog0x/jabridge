@@ -149,8 +149,8 @@ for the tested dongle and headset.
 `supportsExperimentalDongleWrites` keeps remembered-device writes separate
 from discovery and fresh pairing. `paired_devices.go` uses it for connect,
 disconnect and forget. Search-connect checks `pairingPolicy.SearchConnect`
-before stopping discovery or opening the management interface. A daemon opt-in
-can grant fresh search-connect for the 24c9 preview without granting remembered
+before stopping discovery or opening the management interface. The 24c9 policy
+grants fresh search-connect by default without granting remembered-device
 or settings writes. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
 lists the operations checked on Link 390.
 
@@ -174,18 +174,22 @@ bounded local history. Frequent search-status polling stays excluded. History
 keeps the method, phase and classified error, not request parameters, addresses
 or search tokens.
 
-### Link 380c pairing preview
+### Link 380c pairing
 
 `pairing_policy.go` separates pairing-list/search access, fresh search-connect,
 remembered-device writes and bound transport from the search wire format.
-Link 380c 24c9 list, Classic discovery and pairing are off by default. Its
-separate option enables all three and is captured only when the daemon starts. `devices.list.searchConnect` advertises
-the effective permission to the terminal client; client environment variables
-never authorize service writes. The service checks the policy before stopping
+Link 380c 24c9 list, Classic discovery and fresh pairing are enabled by default
+after the successful pairing report in #58. The old service-start option is no
+longer read. `devices.list.searchConnect` advertises the effective permission
+to the terminal client. `dongleSearchConnectAllowed` uses that field when a
+backend is present and the policy table in direct mode. For 24c9, the UI never
+falls back to the static table when an older service omits the permission.
+Client environment variables never authorize service writes. Search start rechecks
+permission centrally in `queueSearchCommand`; stopping search is never gated. The service checks the policy before stopping
 search or opening the pairing path. Remembered-device, settings and reset
 gates stay separate and unchanged.
 
-This preview uses the existing captured USB control binding with the legacy
+This path uses the existing captured USB control binding with the legacy
 Classic start/stop masks. `PairLegacyBound` translates discovery flag 1 into
 Classic pairing namespace 0, sends one pair request after the session stops,
 and reuses the bounded confirmation loop. Binding a device never changes its

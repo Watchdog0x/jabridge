@@ -34,16 +34,18 @@ current value; a row with no different allowed value cannot be edited.
 Reported old mode sets do not qualify the
 new menu, EQ or power-saving writes on every model.
 
-## Link 380c 24c9 preview
+## Link 380c 24c9 pairing
 
-Issue [#58](https://github.com/Watchdog0x/jabridge/issues/58) reports Link 380c
-24c9, variant 04-0C, firmware 1.16.0 on openSUSE Leap 16. The service and
-five dongle setting reads passed. Pairing-list reads and discovery were blocked
-by Jabridge's own allowlist, so the old build did not test those operations.
-The separate daemon option enables list reads, Classic search and fresh
-pairing together. All three are off by default in 1.5.0. Its pairing and power-cycle reconnect have not been tested on hardware.
-Other dongle writes and factory reset remain disabled. See
-[optional test steps](TEST_LINK380C.md).
+Issue [#58](https://github.com/Watchdog0x/jabridge/issues/58) originally reported
+Link 380c `24c9`, variant `04-0C`, firmware `1.16.0` on openSUSE Leap 16.
+The service and five dongle setting reads worked, but Jabridge blocked pairing.
+
+On November 2, 2026, [@c-jung reported successful pairing](https://github.com/Watchdog0x/jabridge/issues/58#issuecomment-6573380991)
+with an Evolve2 85 after following the 1.5.0 test steps. Since 1.6.1, list reads,
+Classic search and fresh pairing are enabled without the old service option.
+This report covers one setup; it does not establish reset, remembered-device
+changes, settings writes, reconnect behaviour or support for every headset.
+Those other writes remain disabled. See the [pairing guide](TEST_LINK380C.md).
 
 ## Tested devices
 

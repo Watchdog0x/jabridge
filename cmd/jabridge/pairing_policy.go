@@ -1,23 +1,5 @@
 package main
 
-import (
-	"os"
-	"sync/atomic"
-)
-
-const (
-	link380CSearchConnectEnv = "JABRIDGE_ENABLE_LINK380C_SEARCH_CONNECT"
-	link380CSearchConnectAck = "I_ACCEPT_UNTESTED_PAIRING"
-)
-
-var link380CSearchConnectEnabled atomic.Bool
-
-// Only the daemon captures this option, before starting device workers. The
-// terminal client receives its effective permission through devices.list.
-func capturePairingPreviewOption() {
-	link380CSearchConnectEnabled.Store(os.Getenv(link380CSearchConnectEnv) == link380CSearchConnectAck)
-}
-
 type searchWire int
 
 const (
@@ -38,8 +20,7 @@ func pairingPolicyFor(device *jabra_DeviceInfo) pairingPolicy {
 	case 0x24c7, 0x24c8:
 		return pairingPolicy{Reads: true, SearchConnect: true, RememberedWrites: true}
 	case 0x24c9:
-		enabled := link380CSearchConnectEnabled.Load()
-		return pairingPolicy{Reads: enabled, SearchConnect: enabled, BoundSearch: true}
+		return pairingPolicy{Reads: true, SearchConnect: true, BoundSearch: true}
 	case 0x2e57:
 		return pairingPolicy{Reads: true, SearchConnect: true, RememberedWrites: true, BoundSearch: true, Wire: searchWireDualMode}
 	case 0x2e56:
@@ -49,7 +30,7 @@ func pairingPolicyFor(device *jabra_DeviceInfo) pairingPolicy {
 }
 
 // Recognition, pairing reads, fresh pairing and remembered-device writes are
-// separate permissions. A preview for one never grants the others.
+// separate permissions. Fresh pairing never grants the other writes.
 func supportsValidatedPairingReads(pid uint16) bool {
 	return pairingPolicyFor(&jabra_DeviceInfo{isDongle: true, productID: pid}).Reads
 }
@@ -59,7 +40,7 @@ func supportsExperimentalDongleWrites(pid uint16) bool {
 }
 
 // Reset has its own hardware qualification and is never granted by discovery
-// or the fresh-pairing preview option.
+// or fresh-pairing support.
 func supportsValidatedFactoryReset(pid uint16) bool {
 	return pid == 0x24c7 || pid == 0x24c8
 }

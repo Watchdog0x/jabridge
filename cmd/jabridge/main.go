@@ -187,7 +187,6 @@ func runDaemon() error {
 		return err
 	}
 	defer func() { _ = lease.Close() }()
-	capturePairingPreviewOption()
 	cfg := daemon.DefaultConfig()
 	cfg.ButtonsMonitor = buttons.NativeMonitor
 	if socket := os.Getenv("JABRIDGE_SOCKET"); socket != "" {

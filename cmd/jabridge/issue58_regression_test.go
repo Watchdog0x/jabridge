@@ -2,20 +2,26 @@ package main
 
 import "testing"
 
-func TestIssue58Link380CDiscoveryGate(t *testing.T) {
-	preservePairingOption(t)
-	link380CSearchConnectEnabled.Store(false)
-	if supportsValidatedPairingReads(0x24c9) {
-		t.Fatal("preview enabled by default")
+func TestIssue58Link380CPairingEnabledByDefault(t *testing.T) {
+	for _, value := range []string{"", "yes", "I_ACCEPT_UNTESTED_PAIRING"} {
+		t.Setenv("JABRIDGE_ENABLE_LINK380C_SEARCH_CONNECT", value)
+		policy := pairingPolicyFor(&jabra_DeviceInfo{isDongle: true, productID: 0x24c9})
+		if !isKnownDonglePID(0x24c9) || !policy.Reads || !policy.SearchConnect || !policy.BoundSearch || policy.Wire != searchWireLegacy {
+			t.Fatalf("Link 380c pairing blocked for old option %q: %+v", value, policy)
+		}
+		if policy.RememberedWrites || supportsExperimentalDongleWrites(0x24c9) || supportsValidatedFactoryReset(0x24c9) {
+			t.Fatal("pairing enabled unrelated writes")
+		}
 	}
-	link380CSearchConnectEnabled.Store(true)
-	if !isKnownDonglePID(0x24c9) {
-		t.Fatal("reported device is not recognized")
-	}
-	if !supportsValidatedPairingReads(0x24c9) {
-		t.Fatal("recognized Link 380c still has Find headset blocked")
-	}
-	if supportsExperimentalDongleWrites(0x24c9) || supportsValidatedFactoryReset(0x24c9) {
-		t.Fatal("discovery accidentally enabled unrelated writes")
+}
+
+func TestIssue58DirectPairingUsesServicePolicy(t *testing.T) {
+	withMenuState(t)
+	withDeviceState(t, devices{0: {deviceID: 0, isDongle: true, productID: 0x24c9}}, -1, 0)
+	old := currentTUIBackend()
+	setTUIBackend(nil)
+	t.Cleanup(func() { setTUIBackend(old) })
+	if !pairingUIAllowed(deviceForID(0)) || searchPreviewIsReadOnly() || !rememberedPreviewIsReadOnly() {
+		t.Fatal("direct mode must allow fresh pairing and refuse remembered-device changes")
 	}
 }

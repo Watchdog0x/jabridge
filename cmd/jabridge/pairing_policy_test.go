@@ -11,50 +11,42 @@ import (
 	"github.com/Watchdog0x/jabridge/internal/btsearch"
 )
 
-func preservePairingOption(t *testing.T) {
-	t.Helper()
-	old := link380CSearchConnectEnabled.Load()
-	t.Cleanup(func() { link380CSearchConnectEnabled.Store(old) })
-}
-
-func TestLink380COptInNeverGrantsOtherWrites(t *testing.T) {
-	preservePairingOption(t)
-	for _, value := range []string{"", "yes", "true", link380CSearchConnectAck} {
-		t.Setenv(link380CSearchConnectEnv, value)
-		capturePairingPreviewOption()
-		for _, pid := range []uint16{0x24c7, 0x24c8, 0x24c9, 0x24ca, 0x24e9, 0x2e50, 0x2e51, 0x2e56, 0x2e57} {
-			d := &jabra_DeviceInfo{isDongle: true, productID: pid}
-			p := pairingPolicyFor(d)
-			known := pid == 0x24c7 || pid == 0x24c8 || pid == 0x2e57
-			reads := known || pid == 0x24c9 && value == link380CSearchConnectAck
-			pair := known || pid == 0x24c9 && value == link380CSearchConnectAck
-			if p.Reads != reads || p.SearchConnect != pair || p.RememberedWrites != known {
-				t.Fatalf("wrong policy for %04x and option %q: %+v", pid, value, p)
+func TestPairingPolicyKeepsPermissionsSeparate(t *testing.T) {
+	tests := []struct {
+		pid  uint16
+		want pairingPolicy
+	}{
+		{0x24c7, pairingPolicy{Reads: true, SearchConnect: true, RememberedWrites: true}},
+		{0x24c8, pairingPolicy{Reads: true, SearchConnect: true, RememberedWrites: true}},
+		{0x24c9, pairingPolicy{Reads: true, SearchConnect: true, BoundSearch: true}},
+		{0x2e57, pairingPolicy{Reads: true, SearchConnect: true, RememberedWrites: true, BoundSearch: true, Wire: searchWireDualMode}},
+		{0x2e56, pairingPolicy{BoundSearch: true, Wire: searchWireDualMode}},
+		{0x24ca, pairingPolicy{}}, {0x24e9, pairingPolicy{}},
+		{0x2e50, pairingPolicy{}}, {0x2e51, pairingPolicy{}}, {0xffff, pairingPolicy{}},
+	}
+	for _, value := range []string{"", "yes", "true", "I_ACCEPT_UNTESTED_PAIRING"} {
+		t.Setenv("JABRIDGE_ENABLE_LINK380C_SEARCH_CONNECT", value)
+		for _, test := range tests {
+			got := pairingPolicyFor(&jabra_DeviceInfo{isDongle: true, productID: test.pid})
+			if got != test.want {
+				t.Fatalf("wrong policy for %04x and retired option %q: %+v, want %+v", test.pid, value, got, test.want)
 			}
-			if p.BoundSearch != (pid == 0x24c9 || pid == 0x2e56 || pid == 0x2e57) || (p.Wire == searchWireDualMode) != (pid == 0x2e56 || pid == 0x2e57) {
-				t.Fatal("transport identity and wire mode were coupled", pid, p)
-			}
-			if supportsExperimentalDongleWrites(pid) != known || supportsValidatedFactoryReset(pid) != (pid == 0x24c7 || pid == 0x24c8) {
-				t.Fatal("preview enabled unrelated writes", pid)
+			if supportsExperimentalDongleWrites(test.pid) != test.want.RememberedWrites || supportsValidatedFactoryReset(test.pid) != (test.pid == 0x24c7 || test.pid == 0x24c8) {
+				t.Fatal("pairing enabled unrelated writes", test.pid)
 			}
 		}
 	}
-	t.Setenv(link380CSearchConnectEnv, "")
-	t.Setenv(experimentalWritesEnv, experimentalWritesAck)
-	capturePairingPreviewOption()
-	if pairingPolicyFor(&jabra_DeviceInfo{isDongle: true, productID: 0x24c9}).SearchConnect {
-		t.Fatal("global write option enabled the separate preview")
-	}
-	if pairingPolicyFor(&jabra_DeviceInfo{productID: 0x24c9}) != (pairingPolicy{}) {
-		t.Fatal("a headset was granted dongle permissions")
+	if pairingPolicyFor(nil) != (pairingPolicy{}) || pairingPolicyFor(&jabra_DeviceInfo{productID: 0x24c9}) != (pairingPolicy{}) {
+		t.Fatal("a non-dongle was granted dongle permissions")
 	}
 }
 
-func TestLink380CUIUsesDaemonPermissionNotClientEnvironment(t *testing.T) {
+func TestLink380CUIUsesDaemonPermission(t *testing.T) {
 	withMenuState(t)
 	withDeviceState(t, make(devices), -1, -1)
-	preservePairingOption(t)
-	link380CSearchConnectEnabled.Store(true)
+	old := currentTUIBackend()
+	setTUIBackend(&tuiIPCBackend{})
+	t.Cleanup(func() { setTUIBackend(old) })
 	for _, allowed := range []bool{false, true} {
 		info := ipc.DeviceInfo{ID: 7, Instance: "candidate", IsDongle: true, PID: 0x24c9, Name: "Link 380c", Selected: true, SearchConnect: allowed}
 		replaceTUIDeviceState([]ipc.DeviceInfo{info}, nil, ipc.FeatureInfo{})
@@ -62,30 +54,23 @@ func TestLink380CUIUsesDaemonPermissionNotClientEnvironment(t *testing.T) {
 			t.Fatal("client option or fresh pairing unlocked the remembered list", allowed)
 		}
 	}
-	link380CSearchConnectEnabled.Store(false)
 	info := ipc.DeviceInfo{ID: 7, Instance: "candidate", IsDongle: true, PID: 0x24c9, Selected: true, SearchConnect: true}
 	replaceTUIDeviceState([]ipc.DeviceInfo{info}, nil, ipc.FeatureInfo{})
 	if searchPreviewIsReadOnly() {
-		t.Fatal("client required its own copy of the daemon option")
+		t.Fatal("client rejected the advertised daemon permission")
 	}
 }
 
 func TestLink380CServerAdvertisesEffectivePairingPolicy(t *testing.T) {
 	withDeviceState(t, devices{0: {deviceID: 0, instance: "candidate", isDongle: true, productID: 0x24c9}}, -1, 0)
-	preservePairingOption(t)
-	for _, allowed := range []bool{false, true} {
-		link380CSearchConnectEnabled.Store(allowed)
-		list := (&jabraAPIBridge{}).ListDevices()
-		if len(list) != 1 || list[0].SearchConnect != allowed {
-			t.Fatal("effective daemon capability missing", list)
-		}
+	list := (&jabraAPIBridge{}).ListDevices()
+	if len(list) != 1 || !list[0].SearchConnect {
+		t.Fatal("default service pairing permission missing", list)
 	}
 }
 
-func TestLink380CConnectRefusedBeforeStopWithoutDaemonOptIn(t *testing.T) {
-	preservePairingOption(t)
-	link380CSearchConnectEnabled.Store(false)
-	dongle := &jabra_DeviceInfo{deviceID: 0, instance: "candidate", productID: 0x24c9, isDongle: true, hidrawPath: "synthetic-no-device", searchConnect: true}
+func TestUnsupportedPairingConnectRefusedBeforeStop(t *testing.T) {
+	dongle := &jabra_DeviceInfo{deviceID: 0, instance: "candidate", productID: 0x2e56, isDongle: true, hidrawPath: "synthetic-no-device", searchConnect: true}
 	withDeviceState(t, devices{0: dongle}, -1, 0)
 	io := &previewSearchCounter{}
 	session, err := btsearch.Start(context.Background(), io, time.Second)
@@ -107,10 +92,8 @@ func TestLink380CConnectRefusedBeforeStopWithoutDaemonOptIn(t *testing.T) {
 	}
 }
 
-func TestLink380COptInDoesNotPermitRememberedOrSettingsWrites(t *testing.T) {
+func TestLink380CDefaultPairingDoesNotPermitRememberedOrSettingsWrites(t *testing.T) {
 	withDeviceState(t, devices{0: {deviceID: 0, instance: "candidate", productID: 0x24c9, isDongle: true, hidrawPath: "synthetic-no-device"}}, -1, 0)
-	preservePairingOption(t)
-	link380CSearchConnectEnabled.Store(true)
 	for _, test := range []struct {
 		action  func() error
 		message string
@@ -122,12 +105,12 @@ func TestLink380COptInDoesNotPermitRememberedOrSettingsWrites(t *testing.T) {
 		{func() error { return factoryResetConfirmed(0) }, "not enabled"},
 	} {
 		if err := test.action(); err == nil || !strings.Contains(err.Error(), test.message) {
-			t.Fatal("opt-in passed an unrelated operation's policy gate", err)
+			t.Fatal("fresh pairing passed an unrelated operation's policy gate", err)
 		}
 	}
 	for _, definition := range settingDefinitions(settingScopeDongle) {
 		if canEditBoolSetting(deviceForID(0), definition) {
-			t.Fatal("opt-in unlocked a dongle setting", definition.Key)
+			t.Fatal("fresh pairing unlocked a dongle setting", definition.Key)
 		}
 	}
 }
@@ -145,8 +128,6 @@ func (*previewSearchCounter) Read(ctx context.Context) ([]byte, error) {
 func TestLink380CBoundIdentityChecksRejectChangesBeforeOpeningUSB(t *testing.T) {
 	for _, change := range []string{"instance", "path", "pid", "usb-path", "serial", "selection"} {
 		t.Run(change, func(t *testing.T) {
-			preservePairingOption(t)
-			link380CSearchConnectEnabled.Store(true)
 			d := &jabra_DeviceInfo{deviceID: 0, instance: "first", productID: 0x24c9, vendorID: jabraVendorID, isDongle: true, hidrawPath: "synthetic", usbDevicePath: "/sys/synthetic", serialNumber: "first-serial"}
 			other := &jabra_DeviceInfo{deviceID: 1, instance: "other", productID: 0x24c9, isDongle: true, hidrawPath: "other"}
 			withDeviceState(t, devices{0: d, 1: other}, -1, 0)
