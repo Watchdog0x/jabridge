@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -20,7 +21,7 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 		if definition.NeedsConfigMode {
 			continue
 		}
-		for _, scenario := range []string{"match", "firmware changed", "target changed", "alternate address", "readback mismatch", "read failure", "wrong selector"} {
+		for _, scenario := range []string{"match", "firmware changed", "target changed", "alternate address", "readback mismatch", "read failure", "wrong selector", "attachment changed"} {
 			t.Run(definition.Key+"/"+scenario, func(t *testing.T) {
 				fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 				if err != nil {
@@ -30,6 +31,8 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 				peer := os.NewFile(uintptr(fds[1]), "simulated-device")
 				t.Cleanup(func() { h.close(); _ = peer.Close() })
 				device := dongleDeviceForTest(0x2e56)
+				port := stampExactDongleAttachmentForTest(t, device)
+				h.controlPort = port
 				stored := *device
 				withDeviceState(t, devices{7: &stored}, -1, 7)
 				wanted := definition.Choices[len(definition.Choices)-1].Raw
@@ -77,6 +80,12 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 					if scenario == "alternate address" {
 						source = gnpSrcHost
 					}
+					if scenario == "attachment changed" {
+						if err := os.WriteFile(filepath.Join(port, "devnum"), []byte("3"), 0600); err != nil {
+							done <- err
+							return
+						}
+					}
 					if scenario == "target changed" {
 						deviceStateMu.Lock()
 						deviceManager[7].instance = "new-attachment"
@@ -86,7 +95,7 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 						done <- err
 						return
 					}
-					if scenario == "firmware changed" || scenario == "target changed" || scenario == "alternate address" {
+					if scenario == "firmware changed" || scenario == "target changed" || scenario == "alternate address" || scenario == "attachment changed" {
 						done <- nil
 						return
 					}
@@ -140,6 +149,9 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 				if (err == nil) != (scenario == "match" || scenario == "wrong selector" && len(definition.ResponsePrefix) == 0) {
 					t.Fatal("unexpected verification result", scenario, err)
 				}
+				if scenario == "attachment changed" && (!errors.Is(err, errLink390Changed) || deviceForID(7) != nil) {
+					t.Fatal("attachment change was not refused", err)
+				}
 				if scenario == "firmware changed" && !strings.Contains(err.Error(), "firmware changed") || scenario == "readback mismatch" && !strings.Contains(err.Error(), "readback mismatch") {
 					t.Fatal("failure came from the wrong stage", err)
 				}
@@ -161,4 +173,24 @@ func TestDongleProfiledPacketsAndFailuresDoNotReplay(t *testing.T) {
 			})
 		}
 	}
+}
+
+func stampExactDongleAttachmentForTest(t *testing.T, device *jabra_DeviceInfo) string {
+	t.Helper()
+	port := t.TempDir()
+	for name, value := range map[string]string{"idVendor": "0b0e", "idProduct": "2e56", "busnum": "1", "devnum": "2", "serial": "simulated-serial"} {
+		if err := os.WriteFile(filepath.Join(port, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	device.usbDevicePath, device.hidrawPath = port, "simulated-control"
+	identity, err := link390USBIdentity(port, device.hidrawPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device.usbGeneration = identity.Generation
+	old := controlUSBParent
+	controlUSBParent = func(string) (string, error) { return port, nil }
+	t.Cleanup(func() { controlUSBParent = old })
+	return port
 }

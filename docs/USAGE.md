@@ -170,3 +170,16 @@ Range choices are `normal`, `low` and `very-low`. Range and softphone changes
 may restart the dongle. Jabridge waits for verified reads before showing success.
 If the result is unknown, read the setting again before retrying. Bluetooth radio
 stays read-only on Link 390.
+
+### Reset Link 390
+
+Reset is available in Dongle settings for USB ID `2e57`, variant `04-10`,
+firmware `1.3.0`. Press `2`, read the warning, then press `2` again. `Q` cancels.
+Stop calls and audio first. Settings may return to defaults and your headset
+may need pairing again. An address-only record can remain.
+
+Jabridge reports whether the dongle restarted and returned. This does not
+prove that every setting or pairing was removed. If the result is unknown,
+reconnect the dongle or restart the service before trying reset again. If it
+stays missing, reconnect USB. This recovery flow has software tests; the current
+build still needs a physical test. Other Link 390 firmware keeps reset off.

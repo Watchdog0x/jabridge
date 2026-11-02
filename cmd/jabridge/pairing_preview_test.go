@@ -72,7 +72,7 @@ func TestReadOnlyPairingShortcutsNeverDispatchMutations(t *testing.T) {
 					if !ok {
 						return
 					}
-					defer func() { _ = server.Close() }()
+					// The action client closes after consuming its reply; pipes.Close owns the server endpoint.
 					var request ipc.Request
 					if json.NewDecoder(server).Decode(&request) == nil {
 						requests <- request.Method

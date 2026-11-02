@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -88,6 +89,8 @@ func (s *tuiRecordingService) serve(connection net.Conn, action bool) {
 			return
 		}
 		if action {
+			// Match the service: the client owns the transaction lifetime.
+			_, _ = io.Copy(io.Discard, connection)
 			return
 		}
 	}
@@ -103,7 +106,7 @@ func TestTUIActionMethodsNeverUsePollConnection(t *testing.T) {
 	old := currentTUIBackend()
 	setTUIBackend(backend)
 	t.Cleanup(func() { setTUIBackend(old) })
-	methods := []string{"settings.list", "settings.set", "sound.default", "sound.volume", "sound.mute", "sound.mode", "sound.list", "device.select", "device.reset", "bt.connect", "bt.disconnect", "bt.forget", "bt.search.connect", "bt.search", "bt.search.stop", "bt.search.status"}
+	methods := []string{"settings.list", "settings.set", "sound.default", "sound.volume", "sound.mute", "sound.mode", "sound.list", "device.select", "device.reset", "device.reset.bound", "bt.connect", "bt.disconnect", "bt.forget", "bt.search.connect", "bt.search", "bt.search.stop", "bt.search.status"}
 	for _, method := range methods {
 		var err error
 		if method == "bt.search" || method == "bt.search.stop" || method == "bt.search.status" {
@@ -254,7 +257,7 @@ func TestTUIActionsRemainSerialized(t *testing.T) {
 	}
 }
 func TestTUITimeoutCoversServerBudget(t *testing.T) {
-	for _, method := range []string{"settings.list", "settings.set"} {
+	for _, method := range []string{"settings.list", "settings.set", "device.reset.bound"} {
 		if got := tuiIPCTimeout(method); got != 90*time.Second {
 			t.Fatal(method, got)
 		}

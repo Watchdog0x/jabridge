@@ -379,10 +379,15 @@ Its pairing, remembered-device and auto-pairing writes remain blocked until a
 volunteer confirms the reads. The preview UI hides those actions. Other
 Link 390 IDs and the Link 380 flow keep their existing gates.
 
-`supportsValidatedFactoryReset` is separate and remains Link 380-only.
-Both the menu and the IPC reset route reach this check before opening the
-device. The [Link 390 reset report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
-explains why that dongle is excluded.
+`supportsValidatedFactoryReset` remains the legacy Link 380-only gate for
+`device.reset`. Link 390 uses the separate `device.reset.bound` route only for
+`2e57`, variant `04-10`, firmware `1.3.0`. `link390_reset.go` separates reset
+request/rejection/unknown/restart verification; `link390_reset_hidraw.go` owns
+leases, one-command transport, the attempt ledger and registry recovery.
+`link390_reset_summary.go` reports optional checks without claiming erased
+pairings. `tui_bound_reset.go` pins the two-press confirmation and shows the
+outcome. The [hardware report](HARDWARE_TESTING.md#link-390-pairing-and-dongle-write-test)
+and new software flow are separate evidence.
 
 ## Build and check
 
@@ -485,3 +490,7 @@ separate ungated calls because the search command queue already orders them.
 cannot revive a closed backend. Pairing actions allow 45 seconds for command
 acknowledgements and state checks. Other CLI clients retain their own existing
 connection handling.
+
+For scoped dongles, registration captures the kernel USB generation before enrichment and outside the registry lock. Each registry instance retains that generation; only a verified transaction rotation publishes a new instance and generation together. Reset refuses a stale generation before opening HID. Missing-generation slots are retired after the metadata retry interval and registered again, never refreshed into permission in place.
+
+Exact-profile Link 390 setting writes compare their cached attachment before opening HID and again on the held handle after the firmware query. Shared ownership prevents these checks from retiring a slot during another configuration transaction. Other device families retain their existing paths.

@@ -28,7 +28,7 @@ type link390Identity struct {
 
 func (i link390Identity) valid() bool {
 	serial := strings.TrimSpace(i.USBSerial)
-	return i.VendorID == jabraVendorID && scopedControlPID(i.ProductID) && i.Firmware == "3.2.0" && i.Variant == "04-10" &&
+	return i.VendorID == jabraVendorID && i.Variant == "04-10" && (scopedControlPID(i.ProductID) && i.Firmware == "3.2.0" || i.ProductID == 0x2e57 && i.Firmware == "1.3.0") &&
 		filepath.IsAbs(i.Port) && filepath.Clean(i.Port) != "/" &&
 		filepath.IsAbs(i.HIDPath) && i.Generation != "" &&
 		serial != "" && serial == i.USBSerial && serial == i.GNPSerial &&
@@ -83,7 +83,7 @@ func runLink390ConfigChange(ctx context.Context, source link390ConfigSource, tar
 	if !known || !definition.allows(desired) {
 		return result.failure(ErrNotSupported)
 	}
-	if !target.valid() {
+	if !target.valid() || target.Firmware != "3.2.0" {
 		return result.failure(errLink390Identity)
 	}
 	if err := ctx.Err(); err != nil {

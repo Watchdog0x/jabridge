@@ -15,6 +15,9 @@ func serviceCapabilities(api API) ServiceCapabilities {
 	c := ServiceCapabilities{Version: 1, Protocol: "JSON-RPC 2.0", Framing: "newline-delimited JSON", KeepaliveSeconds: 15, LossyEvents: true,
 		Reads:   []string{"service.capabilities", "service.ping", "version", "devices.list", "device.battery", "device.firmware", "device.features", "settings.list", "bt.list", "bt.search.results", "bt.autopair", "device.busylight", "history.status"},
 		Changes: []string{"device.select", "settings.set", "bt.connect", "bt.disconnect", "bt.forget", "bt.search", "bt.search.connect", "bt.pair", "bt.autopair", "device.busylight", "device.reset", "service.shutdown"}, Events: []string{"device.attached", "device.detached", "device.battery.update", "device.pairing.update"}}
+	if _, ok := api.(BoundResetAPI); ok {
+		c.Changes = append(c.Changes, "device.reset.bound")
+	}
 	if _, ok := api.(DiagnosticAPI); ok {
 		c.Reads = append(c.Reads, "diagnostics.device")
 	}

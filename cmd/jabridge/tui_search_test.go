@@ -23,7 +23,7 @@ func TestSearchRefreshDoesNotBlockNavigation(t *testing.T) {
 		if !ok {
 			return
 		}
-		defer func() { _ = server.Close() }()
+		// The action client closes after consuming its reply; pipes.Close owns the server endpoint.
 		var request ipc.Request
 		if err := json.NewDecoder(server).Decode(&request); err != nil {
 			return
@@ -138,7 +138,7 @@ func TestDeviceSelectionKeepsUIResponsive(t *testing.T) {
 		if !ok {
 			return
 		}
-		defer func() { _ = server.Close() }()
+		// The action client closes after consuming its reply; pipes.Close owns the server endpoint.
 		var request ipc.Request
 		if err := json.NewDecoder(server).Decode(&request); err != nil {
 			return

@@ -1,6 +1,16 @@
 # Changelog
 
-## 1.6.0 — Unreleased
+## 1.6.0 — 2026-11-02
+
+Enable exact-model equalizer, noise-button cycle and power-saving controls
+without the old preview flag. Add Link 390 wireless range, softphone integration
+and headset ringer for `2e56`/`2e57`, variant `04-10`, firmware `3.2.0`.
+
+Add a separate bound reset for Link 390 `2e57`, variant `04-10`, firmware `1.3.0`.
+Pin confirmations and setting writes to the registered USB attachment. Verify
+return on fresh handles, recover the registry and never replay uncertain writes.
+Reset checks do not claim an empty pairing database. New control/recovery flows
+have software tests; physical testing of this build is still needed.
 
 Keep long device actions separate from TUI status polling so the menu does not
 disconnect while waiting for a reply. Allow more time for pairing state checks.

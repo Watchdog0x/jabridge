@@ -251,7 +251,7 @@ func dialServiceVersion(socket string, timeout time.Duration) (*ipc.Client, stri
 
 func tuiIPCTimeout(method string) time.Duration {
 	switch method {
-	case "settings.list", "settings.set":
+	case "settings.list", "settings.set", "device.reset.bound":
 		return 90 * time.Second
 	// Connect can include a prior disconnect; forget can include both waits.
 	// Commands and the final state reads add time to the nominal wait budgets.
@@ -394,7 +394,7 @@ func replaceTUIDeviceState(infos []ipc.DeviceInfo, pairings []ipc.PairedDeviceIn
 		device := &jabra_DeviceInfo{
 			deviceID: info.ID, deviceName: info.Name, productID: info.PID,
 			instance: info.Instance, controlTopology: info.Topology,
-			vendorID: jabraVendorID, isDongle: info.IsDongle, searchConnect: info.SearchConnect,
+			vendorID: jabraVendorID, isDongle: info.IsDongle, searchConnect: info.SearchConnect, boundReset: info.BoundReset,
 			variantType: info.Variant, firmwareVersion: info.Firmware,
 			firmwareIdentity: info.FirmwareIdentity,
 			deviceConnection: connection, parentDeviceID: info.ParentID,

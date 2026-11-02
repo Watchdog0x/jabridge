@@ -53,6 +53,68 @@ func link390USBIdentity(port, hid string) (link390Identity, error) {
 	return identity, nil
 }
 
+func captureScopedUSBGeneration(device *jabra_DeviceInfo) string {
+	if device == nil || device.vendorID != jabraVendorID || !device.isDongle || device.deviceConnection != deviceConnectionType_USB || !scopedControlPID(device.productID) || device.serialNumber == "" {
+		return ""
+	}
+	port, err := filepath.EvalSymlinks(device.usbDevicePath)
+	if err != nil {
+		return ""
+	}
+	identity, err := link390USBIdentity(port, device.hidrawPath)
+	if err != nil || identity.ProductID != device.productID || identity.USBSerial != device.serialNumber {
+		return ""
+	}
+	return identity.Generation
+}
+
+func compareExactDongleAttachment(device *jabra_DeviceInfo, port, hid string) error {
+	live, err := link390USBIdentity(port, hid)
+	if err != nil {
+		return err
+	}
+	if live.Generation != device.usbGeneration {
+		invalidateLink390Registry(device)
+		return errLink390Changed
+	}
+	if live.ProductID != device.productID || live.USBSerial != device.serialNumber {
+		return errLink390Identity
+	}
+	return nil
+}
+func checkExactDongleBeforeOpen(device *jabra_DeviceInfo) error {
+	if !exactDongleSettingProfile(device) {
+		return nil
+	}
+	port, err := filepath.EvalSymlinks(device.usbDevicePath)
+	if err != nil {
+		return errLink390Identity
+	}
+	permit, err := link390ControlGate.shared(port, false)
+	if err != nil {
+		return err
+	}
+	defer permit.release()
+	return compareExactDongleAttachment(device, port, device.hidrawPath)
+}
+func checkExactDongleHandle(device *jabra_DeviceInfo, h *hidrawConn) error {
+	if !exactDongleSettingProfile(device) {
+		return nil
+	}
+	port, err := filepath.EvalSymlinks(device.usbDevicePath)
+	if err != nil || h == nil || h.controlPort != port {
+		return errLink390Identity
+	}
+	if err := compareExactDongleAttachment(device, port, h.path); err != nil {
+		return err
+	}
+	parent, err := controlUSBParent(h.path)
+	if err != nil || parent != port {
+		return errLink390Identity
+	}
+	return nil
+}
+
 func uniqueLink390USB(identity link390Identity) error {
 	devices, err := enumerateJabraUSB()
 	if err != nil {
@@ -343,6 +405,9 @@ func changeLink390Config(device *jabra_DeviceInfo, definition link390ConfigDefin
 	if err != nil {
 		return verified, err
 	}
+	if target.Generation != device.usbGeneration {
+		return verified, errLink390Changed
+	}
 	if target.ProductID != device.productID || target.USBSerial == "" || target.USBSerial != device.serialNumber {
 		return verified, errLink390Identity
 	}
@@ -414,6 +479,7 @@ func publishLink390ConfigResult(device *jabra_DeviceInfo, target link390Identity
 	stored.hidrawPath = result.Identity.HIDPath
 	if result.Identity.Generation != target.Generation {
 		stored.instance = newDeviceInstance()
+		stored.usbGeneration = result.Identity.Generation
 	}
 	verified.Device = cloneDeviceInfo(stored)
 	deviceStateMu.Unlock()

@@ -10,10 +10,23 @@ const usbMetadataRetryInterval = 30 * time.Second
 func refreshKnownUSBMetadata(usbDevice usbDev, now time.Time) {
 	for _, device := range deviceSnapshots() {
 		if device.deviceConnection == deviceConnectionType_USB && device.usbDevicePath == usbDevice.sysPath && device.productID == usbDevice.productID && device.vendorID == usbDevice.vendorID {
+			if retireSlotMissingGeneration(device, now) {
+				return
+			}
 			retryUSBMetadata(device, now, enrichUSBDevice)
 			return
 		}
 	}
+}
+
+// Do not refresh a missing generation into an already published instance.
+// Retiring it lets normal registration bind a fresh instance to the attachment.
+func retireSlotMissingGeneration(device *jabra_DeviceInfo, now time.Time) bool {
+	if device == nil || device.usbGeneration != "" || !scopedControlPID(device.productID) || now.Sub(device.metadataProbeAt) < usbMetadataRetryInterval || controlDeviceBusy(device) || captureScopedUSBGeneration(device) == "" {
+		return false
+	}
+	invalidateLink390Registry(device)
+	return true
 }
 
 func retryUSBMetadata(device *jabra_DeviceInfo, now time.Time, read func(*jabra_DeviceInfo)) {

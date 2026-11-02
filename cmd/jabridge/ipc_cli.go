@@ -140,7 +140,7 @@ func ipcSocketPath() string {
 
 func ipcCall(client *ipc.Client, method string, params, result any) error {
 	timeout := 5 * time.Second
-	if method == "settings.set" || method == "settings.list" {
+	if method == "settings.set" || method == "settings.list" || method == "device.reset.bound" {
 		timeout = 90 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

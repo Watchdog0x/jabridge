@@ -445,6 +445,14 @@ func (a *busylightAPI) SetSettingTarget(device, key, value string, target ipc.Se
 	return settings.SetSettingTarget(device, key, value, target, previous)
 }
 
+func (a *busylightAPI) FactoryResetBound(target ipc.SettingTarget) (ipc.BoundResetResult, error) {
+	reset, ok := a.API.(ipc.BoundResetAPI)
+	if !ok {
+		return ipc.BoundResetResult{}, errors.New("device-bound reset is not available")
+	}
+	return reset.FactoryResetBound(target)
+}
+
 func (a *busylightAPI) SetBusylightMode(mode string) error {
 	parsed, err := ParseBusylightMode(mode)
 	if err != nil {

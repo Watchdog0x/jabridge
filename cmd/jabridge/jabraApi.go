@@ -40,8 +40,10 @@ type jabra_DeviceInfo struct {
 	vendorID         uint16
 	deviceName       string
 	usbDevicePath    string
+	usbGeneration    string // Kernel attachment for this instance; never refreshed in place.
 	isDongle         bool
 	searchConnect    bool // Effective daemon permission; display only, never authorization.
+	boundReset       bool // UI hint only; the server checks the current target again.
 	serialNumber     string
 	variantType      string
 	firmwareVersion  string
@@ -845,6 +847,8 @@ func registerUSBDevice(usbDevice usbDev) (*jabra_DeviceInfo, bool) {
 	if !isNewDevice(device) {
 		return nil, false
 	}
+
+	device.usbGeneration = captureScopedUSBGeneration(device)
 
 	// Publish the sysfs identity before optional protocol enrichment. Devices
 	// such as Speak 510 do not answer headset GNP addresses; their absence must

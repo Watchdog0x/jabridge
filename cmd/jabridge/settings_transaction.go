@@ -48,6 +48,9 @@ func withProfiledSettingTransport(device *jabra_DeviceInfo, key string, override
 	if err := currentSettingDevice(device); err != nil {
 		return err
 	}
+	if err := checkExactDongleBeforeOpen(device); err != nil {
+		return err
+	}
 	h, destination, err := settingPartTransport(device, key, override)
 	if err != nil {
 		return err
@@ -73,6 +76,9 @@ func withProfiledSettingHandle(device *jabra_DeviceInfo, key string, override by
 		return err
 	}
 	if err := currentSettingDevice(device); err != nil {
+		return err
+	}
+	if err := checkExactDongleHandle(device, h); err != nil {
 		return err
 	}
 	return action(h, destination)

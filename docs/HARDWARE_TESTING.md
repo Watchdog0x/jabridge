@@ -97,9 +97,9 @@ connect attempts timed out with `headset did not connect before timeout`, and
 enabling auto pairing did not pair within 45 seconds. After unplugging and
 re-inserting the dongle and restarting the headset, the dongle connected the
 headset on its own and search and connect restored the record name. Factory
-reset is therefore not verified as a clean reset on this dongle; a physical
-reconnect was needed before it would pair again, and factory reset keeps its
-Link 380-only allowlist.
+reset was not verified as a clean reset in that test; a physical reconnect was
+needed before pairing worked again. That build kept the Link 380-only reset
+allowlist.
 
 On 2026-10-26 the same tester compared Jabra Direct and Jabridge without
 updating the dongle's 1.3.0 firmware. In two Jabra Direct tests, settings returned
@@ -124,13 +124,14 @@ address-only entry with a named connected entry, without unplugging USB.
 The first search returned no results; the next search succeeded. That single
 miss is unexplained and does not identify a device or software fault.
 This qualifies the reported pairing recovery on that setup. Jabridge's own
-factory reset remains disabled and unqualified; this test did not run it.
+reset route was disabled in that build; this test did not run it.
 Use the [separate review-build instructions](TEST_LINK390.md) for optional
 hardware checks.
 
 Not verified: Bluetooth radio, softphone integration, prioritize-computer-audio
 and dedicated-call writes, and firmware updates. Bluetooth radio and softphone
-integration stay read-only on Link 390 until their writes are tested. The other
+integration remain read-only on the reported 1.3.0 profile. The separate 3.2.0
+model-backed settings below have software tests but no physical write report. The other
 Link 390 USB IDs `0b0e:2e50` and `0b0e:2e51` remain outside the pairing
 allowlist. ID `0b0e:2e56` list, search, pairing and remembered-device writes remain
 disabled in this release.
@@ -399,3 +400,33 @@ two fresh matching reads at least one second apart. These delays are software
 policy, not measured hardware timing. Fault tests exercise actual GNP exchanges
 and registry recovery using fake OS boundaries; they do not prove USB/GNP serial
 equality, physical effects, or persistence after a later restart on real units.
+
+### Link 390 reset in 1.6.0
+
+The separate bound reset route is limited to USB `0b0e:2e57`, literal variant
+`04-10`, firmware `1.3.0`. The older reports above establish the command and
+USB restart on that profile. They do not establish a factory-clean database.
+The current recovery flow has passed software tests only.
+
+The request pins the selected device instance and sends one empty `0D/13`
+command at the dongle address. It sends no configuration permission or END.
+Registration records the kernel attachment generation; a stale confirmation is
+refused before HID opens, including a fast replug with the same serial and node
+name. Fresh handles must confirm the same identity on one new generation twice,
+at least one second apart, within the 45-second return budget. The service then
+publishes a new instance/path and drops stale headset and pairing caches.
+
+A lost ACK stays unknown even if USB returns. Requested/unknown resets cannot
+be replayed on that generation. An ACK with no confirmed restart is requested,
+not verified. Pairing and range checks remain separate from this outcome.
+Address-only records may remain, and an empty display list proves no erasure.
+The strict reader cannot yet qualify an empty namespace's NAK or zero-address
+reply, so incomplete summaries show unavailable. Range was not qualified as a
+read on 1.3.0; an unsupported reply does not fail reset.
+
+Software cases include denied/rejected operations, lost replies, delayed return,
+wrong serial/firmware, renumbered nodes, stale targets, generation changes,
+leases/search ownership and registry recovery without restarting the service.
+They do not prove current-build physical timing or audible pairing recovery.
+If the dongle stays missing, reconnect USB. Stop calls and audio before reset;
+headsets may need pairing again. Link 380's older reset route is unchanged.

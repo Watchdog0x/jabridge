@@ -231,3 +231,27 @@ for `settings.set` and `settings.list`. A successful configuration change return
 the verified setting and its current target directly. Do not automatically retry
 failed writes: an unknown result may mean the setting changed but verification
 could not finish. `mayRestart` marks range and softphone integration changes.
+
+### Bound Link 390 reset
+
+`devices.list` includes `boundReset` only when the selected device is eligible.
+It is a UI hint; the server checks its current instance and attachment again.
+Only Link 390 `2e57`, variant `04-10`, firmware `1.3.0` uses this route.
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"device.reset.bound","params":{"confirm":"RESET_LINK390_DONGLE","target":{"id":7,"instance":"<32 hex characters>","topology":""}}}
+```
+
+Allow 90 seconds for the reply. This is serialized with other mutations and
+sends one reset without retry. The result includes `outcome`, `attempted`,
+`reconnected`, `message` and separate `checks`. Outcomes are `refused`,
+`rejected`, `unknown`, `requested` and `restart-verified`. A lost ACK remains
+unknown even when the device returns. A verified restart does not prove erased
+pairings or defaults. Check states are `pass`, `differs`, `not-proven` and
+`unavailable`; partial pairing reads never pass.
+
+Stop calls/audio before requesting reset. Settings may return to defaults,
+headsets may need pairing again, and an address-only record can remain. Read
+state before retrying an uncertain result; the current generation cannot be
+reset twice by the same service. `device.reset` keeps its existing Link 380
+confirmation and behavior.

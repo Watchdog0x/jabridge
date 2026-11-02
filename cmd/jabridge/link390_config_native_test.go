@@ -26,6 +26,7 @@ type link390Sim struct {
 	frames                  []string
 	reads, handles, unowned int
 	peers                   []*os.File
+	extraCommand            func(byte, byte, byte, []byte, func(byte, byte, []byte)) bool
 	onFrame                 func(string)
 	onRead                  func(int)
 	dropInfo                int
@@ -56,13 +57,21 @@ func (s *link390Sim) list() string {
 	return strings.Join(s.frames, ",")
 }
 
-// USB re-enumeration: old descriptors die, attachment and node number changeLink390Sim.
+// A restart closes old handles and changes the USB attachment and HID path.
 func (s *link390Sim) restart(path string) {
 	s.mu.Lock()
 	peers := s.peers
 	s.peers = nil
 	s.hid = path
 	s.mu.Unlock()
+	s.advanceGeneration()
+	for _, p := range peers {
+		_ = p.Close()
+	}
+}
+
+// Change only kernel metadata so a post-ACK test can still read the reply.
+func (s *link390Sim) advanceGeneration() {
 	raw, _ := os.ReadFile(filepath.Join(s.port, "devnum"))
 	var n int
 	if _, err := fmt.Sscanf(string(raw), "%d", &n); err != nil {
@@ -81,9 +90,6 @@ func (s *link390Sim) restart(path string) {
 	}
 	if err = os.Rename(tmp.Name(), filepath.Join(s.port, "devnum")); err != nil {
 		panic(err)
-	}
-	for _, p := range peers {
-		_ = p.Close()
 	}
 }
 
@@ -194,6 +200,9 @@ func (s *link390Sim) serve(peer *os.File, id int) {
 				reply(seq, 0xfe, 9, nil)
 			}
 		default:
+			if s.extraCommand != nil && s.extraCommand(flags, class, op, payload, func(class, op byte, data []byte) { reply(seq, class, op, data) }) {
+				continue
+			}
 			if flags == gnpFlagCmd {
 				s.frame(fmt.Sprintf("UNEXPECTED-CMD:%x/%x", class, op))
 			}
@@ -262,6 +271,11 @@ func installLink390Sim(t *testing.T, sims ...*link390Sim) {
 func link390SimRegistry(t *testing.T, s *link390Sim) *jabra_DeviceInfo {
 	live := &jabra_DeviceInfo{deviceID: 7, instance: "inst-1", productID: 0x2e57, vendorID: jabraVendorID, isDongle: true, deviceConnection: deviceConnectionType_USB, usbDevicePath: s.port, hidrawPath: s.hid, serialNumber: "SERIAL-A", firmwareVersion: "3.2.0", variantType: "04-10", featureFlags: &featureFlags{}}
 	child := &jabra_DeviceInfo{deviceID: 8, instance: "child", productID: 0x4100, vendorID: jabraVendorID, deviceConnection: deviceConnectionType_BT, parentDeviceID: 7, hidrawPath: s.hid, batteryStatus: &batteryStatus{levelInPercent: 61, component: batteryHeadband}, featureFlags: &featureFlags{}}
+	identity, err := link390USBIdentity(s.port, s.hid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live.usbGeneration = identity.Generation
 	withDeviceState(t, devices{7: live, 8: child}, 8, 7)
 	return cloneDeviceInfo(live)
 }

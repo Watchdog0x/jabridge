@@ -295,6 +295,7 @@ func (j *jabraAPIBridge) ListDevices() []ipc.DeviceInfo {
 			Selected:         int(dev.deviceID) == activeDongle || int(dev.deviceID) == activeHeadset,
 			Parts:            ipcControlParts(dev),
 			SearchConnect:    pairingPolicyFor(dev).SearchConnect,
+			BoundReset:       eligibleLink390Reset(dev),
 		}
 		if dev.batteryStatus != nil {
 			d.Battery = ipcBatteryInfo(dev.batteryStatus)
