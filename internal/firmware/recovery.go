@@ -1,6 +1,7 @@
 package firmware
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -38,6 +39,7 @@ type firmwareRecoveryState struct {
 	Conexant                 *conexantRecovery    `json:"conexant,omitempty"`
 	SitelOTA                 *sitelOTARecovery    `json:"sitelOta,omitempty"`
 	SitelDECT                *sitelDECTRecovery   `json:"sitelDect,omitempty"`
+	SitelDECTV2              *engage75RecoveryV2  `json:"sitelDectV2,omitempty"`
 	Camera                   *cameraRecovery      `json:"camera,omitempty"`
 	UVCCamera                *uvcCameraRecovery   `json:"uvcCamera,omitempty"`
 	PanaCast50               *panacast50Recovery  `json:"panaCast50,omitempty"`
@@ -50,6 +52,9 @@ type firmwareTransferPreparation struct {
 }
 
 func prepareFirmwareTransfer(path string, manifest *BuildVector) (firmwareTransferPreparation, error) {
+	if err := refuseEngage75Pending(); err != nil {
+		return firmwareTransferPreparation{}, err
+	}
 	if manifest == nil {
 		return firmwareTransferPreparation{}, errors.New("firmware manifest is missing")
 	}
@@ -73,6 +78,9 @@ func prepareFirmwareTransfer(path string, manifest *BuildVector) (firmwareTransf
 	}
 	if err != nil {
 		return firmwareTransferPreparation{}, err
+	}
+	if previous.SitelDECTV2 != nil {
+		return firmwareTransferPreparation{}, errors.New("unfinished Engage 75 preview; automatic recovery is disabled because dock continuity must be checked")
 	}
 	if !sameFirmwareRecoveryTarget(previous, wanted) {
 		return firmwareTransferPreparation{}, fmt.Errorf(
@@ -157,7 +165,8 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 		return firmwareRecoveryState{}, err
 	}
 	defer func() { _ = file.Close() }()
-	decoder := json.NewDecoder(io.LimitReader(file, 16*1024+1))
+	var encoded bytes.Buffer
+	decoder := json.NewDecoder(io.TeeReader(io.LimitReader(file, 16*1024+1), &encoded))
 	decoder.DisallowUnknownFields()
 	var state firmwareRecoveryState
 	if err := decoder.Decode(&state); err != nil {
@@ -165,6 +174,14 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 	}
 	if decoder.Decode(&struct{}{}) != io.EOF {
 		return firmwareRecoveryState{}, errors.New("firmware recovery state has trailing data")
+	}
+	if hasEngage75V2Field(encoded.Bytes()) {
+		if err := rejectEngage75DuplicateJSON(encoded.Bytes()); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+		if state.SitelDECTV2 == nil {
+			return firmwareRecoveryState{}, errors.New("null Engage 75 V2 recovery evidence")
+		}
 	}
 	if state.FormatVersion != firmwareRecoveryStateVersion || len(state.ArchiveSHA256) != sha256.Size*2 ||
 		state.ProductName == "" || state.FirmwareVersion == "" || len(state.TargetUSBPIDs) == 0 || state.Attempt < 1 {
@@ -180,7 +197,11 @@ func loadFirmwareRecoveryState() (firmwareRecoveryState, error) {
 			return firmwareRecoveryState{}, err
 		}
 	}
-	if state.Protocol == 4 && state.SitelDECT != nil {
+	if state.SitelDECTV2 != nil {
+		if err := validEngage75RecoveryV2(state); err != nil {
+			return firmwareRecoveryState{}, err
+		}
+	} else if state.Protocol == 4 && state.SitelDECT != nil {
 		if err := validSitelDECTRecovery(state); err != nil {
 			return firmwareRecoveryState{}, err
 		}
@@ -256,6 +277,12 @@ func saveFirmwareRecoveryState(state firmwareRecoveryState) error {
 	if err != nil {
 		return err
 	}
+	return saveFirmwareStateFile(path, state)
+}
+
+// Both install authority and the separate inspection journal must be durable
+// before hardware is changed. Sharing persistence does not share their schema.
+func saveFirmwareStateFile(path string, state any) error {
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("refusing non-regular firmware recovery state %s", path)

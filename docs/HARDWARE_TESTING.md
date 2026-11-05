@@ -468,3 +468,20 @@ leases/search ownership and registry recovery without restarting the service.
 They do not prove current-build physical timing or audible pairing recovery.
 If the dongle stays missing, reconnect USB. Stop calls and audio before reset;
 headsets may need pairing again. Link 380's older reset route is unchanged.
+
+## Engage 75 issue #62 compatibility candidate
+
+The latest physical report measured headset image `0b0e:1116` in Main mode.
+The display rejected its runtime image request; no repeat report is needed.
+The default-disabled compatibility executor now reads the display in the base
+update transport, before any child transition or transfer. Its supported
+reported modes are explicitly loader0/Main1; modes2/3 are refused.
+
+Simulation is not physical qualification. The software models distinguish
+runtime decoded65536/write1001 from freshly advertised loader geometry, and
+check both radio revisions, identity failures, cancellation and replay guards.
+A stored head serial cannot detect an unobservable same-model swap while the
+base remains attached. Across-process dock continuity is lost, so neither the
+pending journal nor V2 record permits automatic continuation. Different or
+missing USB serials across modes are unresolved. No intact-old-display abort
+or manual recovery procedure is claimed; physical use is still disabled.

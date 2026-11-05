@@ -1,5 +1,9 @@
 # Engage 75 component check
 
+The requested report has now been returned for issue #62. Do not repeat this
+check. The instructions below document that diagnostic build. The newer
+compatibility executor is disabled and has no approved hardware trial yet.
+
 This candidate checks another way to read the missing firmware image IDs for
 issue #62. It only sends information requests. It does not ask the headset to
 restart or update. **The firmware update is still not fixed.** Keep the headset

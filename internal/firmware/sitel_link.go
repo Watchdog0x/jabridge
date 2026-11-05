@@ -247,7 +247,7 @@ func (s *sitelRequester) request(ctx context.Context, opcode byte, payload []byt
 			continue
 		}
 		if reply[4] == 0xfe {
-			return nil, fmt.Errorf("sitel request %02x rejected", opcode)
+			return nil, &sitelFWURejected{opcode: opcode}
 		}
 		if reply[4] != 15 || reply[5] != opcode {
 			continue
@@ -263,3 +263,10 @@ func (s *sitelRequester) request(ctx context.Context, opcode byte, payload []byt
 		return append([]byte(nil), reply[6:]...), nil
 	}
 }
+
+type sitelFWURejected struct{ opcode byte }
+
+func (e *sitelFWURejected) Error() string {
+	return fmt.Sprintf("sitel request %02x rejected", e.opcode)
+}
+func (e *sitelFWURejected) Unwrap() error { return errSitelRejected }

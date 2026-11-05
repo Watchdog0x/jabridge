@@ -353,14 +353,24 @@ display before switching a child or selecting a target area. Missing or
 mismatched information stops preparation. This is a validation barrier, not a
 qualified fix for updating the reporter's old firmware.
 
-Native planning now recognizes the measured old-firmware rejection pattern
-without inventing a runtime PID, boot ID or display serial. A fresh headset
-GetInfo match is retained as image evidence. The missing display result returns
-`NeedsBootloaderIdentity` before any recovery save or mode change. This does not
-enable firmware installation on that device: display identity, versioned
-recovery binding and the safe original-application return still need completion
-and qualification.
+Native planning recognizes the measured old-firmware rejection pattern
+without inventing a runtime PID, boot ID or display serial. Normal builds still
+stop before changing modes.
 
+A separate compatibility preview now enters the known base loader, reads the
+actual display ID there and checks all three image IDs before writing. It verifies that the headset has
+returned to Main before restarting the base, then checks again after restart. It
+requires a specially enabled build, a separate preview option and explicit
+firmware-risk acceptance. Official builds leave it disabled. This source
+candidate has not been tested on the older physical Engage 75.
+
+Its pending inspection file cannot authorize firmware writes. A separate V2
+record is created only after the image checks. Interrupted or ambiguous steps
+are kept for investigation; the app will not blindly retry them after restart.
+The headset must stay docked. Losing continuity, an unknown mode or a changed
+identity stops the preview. A failed mode change may leave the device in update
+mode; returning an untouched old display has not been physically qualified.
+No firmware trial instructions are provided until the candidate is reviewed.
 
 The archive contains nine components. They are installed in this order:
 headset firmware, headset sounds, Bluetooth firmware, Bluetooth settings,

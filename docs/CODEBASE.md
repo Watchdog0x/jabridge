@@ -136,14 +136,37 @@ address/class/opcode, outcome and value are recorded separately; private serials
 are never included in the error text. Fresh attachment checks surround reads,
 and a changed binding discards the assessment.
 
-This case returns `NeedsBootloaderIdentity` for the unverified display before
-recovery binding, checkpointing or entry. It never returns a new ready identity
-or fills expected IDs into missing fields. The retry wrapper does not repeat
-this definite incomplete result for 15 seconds. Other blocked and supported
-strict paths retain their previous behavior. Existing recovery formats and hash
-comparisons are unchanged; a versioned selected-field scheme is still required
-before any future alternate-identity path may become ready. The ordinary debug
-verdict is labelled as the strict class-2 check, not this complete planner.
+The ordinary installer still returns `NeedsBootloaderIdentity` before entry.
+It does not manufacture missing runtime IDs. The default strict collector,
+legacy recovery hashes and background diagnostics keep their prior behavior.
+
+`engage75_preview*.go` implements a separate, default-disabled compatibility
+executor for the measured 1113/4.4.1 tuple. An enabled trial build, the separate
+preview option and the explicit firmware-risk flag are all required. File-only
+preflight rejects disabled previews before interrupting the running service.
+The private pending-inspection journal is persisted before one base entry;
+it is never install authority. On the bound new attachment, op0 measures base,
+headset and display image IDs before any child transition or target selection.
+Only then is the fixed selected-field V2 recovery record saved. Missing runtime
+IDENT values remain unavailable; image IDs do not become runtime PIDs.
+
+The preview supports reported loader0/Main1 explicitly and refuses modes2/3.
+Fresh loader geometry, image and mode checks guard preparation, HEX effects
+and radio operations. Radio progress fields are shared with the existing
+transfer without manufacturing a legacy DECT identity. All nine components,
+CRC/settings checks and strict final versions remain required. Return is
+headset before base. A fresh headset image/Main observation is required before
+the base return, and is repeated in final runtime; neither an ACK nor base
+reappearance alone is success. Changed Main geometry is allowed. New runtime PID mappings
+that were not established in the original observations remain unresolved.
+
+Both journal and V2 records refuse automatic cross-process replay: stored
+headset serials cannot prove fresh dock continuity. Within a single execution,
+the headset must stay docked; an unobservable same-model swap is not detected.
+USB transitions require the same nonempty serial and topology; a different
+serial format is unresolved rather than guessed. Failures retain evidence;
+there is no guessed MMI reset or claimed intact-application abort recovery.
+The preview is not enabled in official builds or approved for physical use.
 
 ### Firmware files by job
 
