@@ -273,8 +273,38 @@ changes, bootloader entry, recovery records or firmware transfers are exposed.
 Per-query and total budgets are 3 and 25 seconds, after at most 5 seconds waiting
 for port ownership. One attempt can pass even if a later installer attempt
 fails; diagnostic results are never cached as installation authorization.
+Additional observations describe headset presence from its existing version
+reply and list later identity blockers. These reuse collected replies, disclose
+no serials, add no queries and do not change the installer's verdict.
 
 An older service does not advertise the method and returns method-not-found if
 called. Candidate clients require matching versions, check capabilities, and
 print NOT TESTED when the matching service is unavailable. Other IPC methods,
 clients and automatic discovery keep their existing behavior.
+
+### Opt-in runtime image information
+
+`diagnostics.dect_image_info` accepts only `{"id": 0}` and returns
+`DiagnosticCheck[]`. It is advertised separately in `service.capabilities.reads`.
+This operation uses a dedicated connection and requires a future
+`deadline_unix_nano` integer in the JSON-RPC request envelope, outside `params`.
+The Go client uses `DialPeer` and `CallScoped`; the connection closes after the
+result or cancellation. The deadline reaches device ownership and core reads.
+EOF or an unexpected extra request cancels the inspection. The service also
+caps the complete operation at 30 seconds. Legacy methods keep their existing
+connection behavior and request format.
+It is limited to a registered direct runtime USB `1113` base. Busy or stale
+requests send no extra device queries. It uses the same fresh binding and port
+ownership as the component check, with a 25-second service budget.
+
+Only class 15/opcode 0, with no arguments, is sent once to each of addresses
+1, 10 and 3. The normal management connection is used; there are no mode changes,
+HP setup, boot commands, target selection, flash or recovery writes. Results
+describe measured image information or unavailable/unrecognized replies. An
+image ID is not a runtime PID or update approval. No other method, installer
+decision or ordinary debug query is changed.
+
+The client opts in with `debug --dect-image-info` and requires a matching
+candidate service advertising this method. Older services are NOT TESTED; no
+fallback request or direct client-side hardware opening is attempted. Physical
+runtime support on firmware `4.4.1` is unknown until the test is run.

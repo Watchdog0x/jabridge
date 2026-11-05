@@ -91,6 +91,40 @@ func newClient(conn net.Conn) *Client {
 func ClientFromConnection(conn net.Conn) *Client { return newClient(conn) }
 
 func (client *Client) Call(ctx context.Context, method string, params, result any) (callErr error) {
+	return client.call(ctx, method, params, result, false)
+}
+
+// DialPeer opens an independent connection to the same Unix socket. Scoped
+// diagnostics close their connection on completion or cancellation.
+func (client *Client) DialPeer(ctx context.Context) (*Client, error) {
+	if client == nil || client.conn == nil {
+		return nil, errors.New("IPC client is not connected")
+	}
+	address, ok := client.conn.RemoteAddr().(*net.UnixAddr)
+	if !ok || address.Net != "unix" || address.Name == "" {
+		return nil, errors.New("IPC peer has no Unix socket address")
+	}
+	return Dial(ctx, address.Name)
+}
+
+// CallScoped is deliberately limited to the context-aware image diagnostic.
+// Use a dedicated connection: cancellation and completion both close it.
+func (client *Client) CallScoped(ctx context.Context, method string, params, result any) error {
+	if method != "diagnostics.dect_image_info" {
+		return errors.New("method does not support scoped calls")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return errors.New("scoped IPC calls require a deadline")
+	}
+	defer func() { _ = client.Close() }()
+	err := client.call(ctx, method, params, result, true)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+func (client *Client) call(ctx context.Context, method string, params, result any, scoped bool) (callErr error) {
 	started := time.Now()
 	entry := history.Event{Component: "ipc-client", Action: "request", Method: method, Operation: history.NextOperation()}
 	trace := history.TraceMethod(method)
@@ -127,6 +161,10 @@ func (client *Client) Call(ctx context.Context, method string, params, result an
 	idText := strconv.FormatUint(id, 10)
 	idJSON := json.RawMessage(idText)
 	request := Request{JSONRPC: "2.0", ID: idJSON, Method: method}
+	if scoped {
+		deadline, _ := ctx.Deadline()
+		request.DeadlineUnixNano = deadline.UnixNano()
+	}
 	if params != nil {
 		encoded, err := json.Marshal(params)
 		if err != nil {
@@ -160,6 +198,9 @@ func (client *Client) Call(ctx context.Context, method string, params, result an
 			return errors.New("IPC connection closed")
 		}
 	case response = <-responseChannel:
+	}
+	if scoped && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if response.Error != nil {
 		return &RemoteError{Code: response.Error.Code, Message: response.Error.Message}

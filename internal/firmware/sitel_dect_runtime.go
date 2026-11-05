@@ -244,13 +244,18 @@ func (nativeSitelDECTBackend) runtime(ctx context.Context, device USBDevice, arc
 func retryDECTIdentity(ctx context.Context, probe func(context.Context) (sitelDECTIdentity, error), pause func(context.Context) error) (sitelDECTIdentity, error) {
 	var first, last error
 	finish := func(cause error) (sitelDECTIdentity, error) {
+		guidance := ""
+		var failure *dectIdentityError
+		if errors.As(first, &failure) && failure.role == "headset" {
+			guidance = ". Run jabridge debug for a read-only component check."
+		}
 		if first == nil {
 			return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: %w", cause)
 		}
 		if sameDECTFailure(first, last) {
-			return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: failure: %v: %w", first, cause)
+			return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: failure: %v: %w%s", first, cause, guidance)
 		}
-		return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: first failure: %v; last failure: %v: %w", first, last, cause)
+		return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: first failure: %v; last failure: %v: %w%s", first, last, cause, guidance)
 	}
 	for {
 		if err := ctx.Err(); err != nil {

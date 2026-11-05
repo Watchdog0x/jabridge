@@ -229,5 +229,8 @@
   "InstallerIdentity": "one installer identity attempt would pass with these replies (sound-prompt regions are checked against the archive at install time)",
   "FirstFailure": "",
   "LastFailure": "",
-  "IdentityPassed": true
+  "IdentityPassed": true,
+  "HeadsetPresenceState": "INFO",
+  "HeadsetPresence": "measured: answered at address 10 (version reply); docked per its version reply",
+  "LaterIdentityBlockers": ""
 }

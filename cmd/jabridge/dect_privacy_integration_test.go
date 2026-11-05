@@ -64,6 +64,54 @@ func TestDECTRealResultPrivacyThroughRPCDebugAndHistory(t *testing.T) {
 	if calls != 1 || !strings.Contains(debug.String(), "one installer identity attempt would pass") || strings.Contains(debug.String(), "PRIVATE") {
 		t.Fatal("real result was lost or leaked", calls, debug.String())
 	}
+	data, err = os.ReadFile("../../internal/firmware/testdata/dect-reporter-public-result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &actual); err != nil {
+		t.Fatal(err)
+	}
+	var reporterDebug bytes.Buffer
+	writeNativeDiagnostic(&reporterDebug, backend.client)
+	for _, want := range []string{"answered its version (4.4.1)", "DECT headset presence", "docked per its version reply", "DECT later identity blockers", "display 3 serial (0x01)"} {
+		if !strings.Contains(reporterDebug.String(), want) {
+			t.Errorf("reporter evidence missing after service/RPC/debug: %s", want)
+		}
+	}
+	if calls != 2 || strings.Contains(reporterDebug.String(), "PRIVATE") || strings.Contains(reporterDebug.String(), "SENTINEL") || strings.Contains(reporterDebug.String(), "check that the headset is docked") {
+		t.Fatal("reporter result leaked or mislabelled", calls, reporterDebug.String())
+	}
+
+	data, err = os.ReadFile("../../internal/firmware/testdata/dect-image-info-public-result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imageChecks []firmwaretool.DECTComponentCheck
+	if err := json.Unmarshal(data, &imageChecks); err != nil {
+		t.Fatal(err)
+	}
+	oldImageInfo := inspectDECTImageInfo
+	t.Cleanup(func() { inspectDECTImageInfo = oldImageInfo })
+	imageCalls := 0
+	inspectDECTImageInfo = func(context.Context, *firmwaretool.ControlBinding) ([]firmwaretool.DECTComponentCheck, error) {
+		imageCalls++
+		return imageChecks, nil
+	}
+	var defaultDebug bytes.Buffer
+	writeNativeDiagnostic(&defaultDebug, backend.client)
+	if imageCalls != 0 || strings.Contains(defaultDebug.String(), "runtime GetInfo") {
+		t.Fatal("ordinary debug added image requests", defaultDebug.String())
+	}
+	var imageDebug bytes.Buffer
+	writeNativeDiagnosticWithOptions(&imageDebug, backend.client, debugOptions{DECTImageInfo: true})
+	for _, want := range []string{"measured runtime GetInfo image ID 0b0e:1116", "expected image 0b0e:1117", "observation only", "No restart or firmware update was requested"} {
+		if !strings.Contains(imageDebug.String(), want) {
+			t.Errorf("image observation lost through RPC/debug: %s", want)
+		}
+	}
+	if imageCalls != 1 || strings.Contains(imageDebug.String(), "PRIVATE") || strings.Contains(imageDebug.String(), "SENTINEL") {
+		t.Fatal("image observation leaked or repeated", imageCalls, imageDebug.String())
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	var result []ipc.DiagnosticCheck
@@ -88,7 +136,7 @@ func TestDECTRealResultPrivacyThroughRPCDebugAndHistory(t *testing.T) {
 			recorded.Write(data)
 		}
 	}
-	if !strings.Contains(recorded.String(), `"method":"other"`) || !strings.Contains(recorded.String(), `"rpcCode":-32603`) || strings.Contains(recorded.String(), "PRIVATE") {
+	if !strings.Contains(recorded.String(), `"method":"other"`) || !strings.Contains(recorded.String(), `"rpcCode":-32603`) || strings.Contains(recorded.String(), "PRIVATE") || strings.Contains(recorded.String(), "SENTINEL") {
 		t.Fatal("history control missing or private values leaked", recorded.String())
 	}
 }

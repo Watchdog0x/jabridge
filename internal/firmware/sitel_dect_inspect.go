@@ -85,11 +85,7 @@ func (e *dectIdentityError) Error() string {
 	case errors.As(e.cause, &errno):
 		cause = "transport error: " + errno.Error()
 	}
-	hint := ""
-	if e.role == "headset" && (errors.Is(e.cause, context.DeadlineExceeded) || errors.Is(e.cause, errSitelRejected)) {
-		hint = "; check that the headset is docked"
-	}
-	return fmt.Sprintf("DECT %s (address %d) %s (0x%02x): %s%s", e.role, e.address, dectQueryName(e.op), e.op, cause, hint)
+	return fmt.Sprintf("DECT %s (address %d) %s (0x%02x): %s", e.role, e.address, dectQueryName(e.op), e.op, cause)
 }
 func dectFailure(role string, address, op byte, err error) error {
 	return &dectIdentityError{role: role, address: address, op: op, cause: err}
@@ -180,6 +176,64 @@ type DECTComponentReport struct {
 	Checks                                       []DECTComponentCheck
 	InstallerIdentity, FirstFailure, LastFailure string
 	IdentityPassed                               bool
+	HeadsetPresenceState, HeadsetPresence        string
+	LaterIdentityBlockers                        string
+}
+
+// Summarize replies already collected, never issue another query or use these
+// labels to authorize an installation. A cradle version reply is the vendor's
+// first presence check; a rejected PID alone says nothing about docking.
+func (r *DECTComponentReport) summarizeEvidence(stop error) {
+	versions := map[string]string{}
+	headAttempts, headAnswers := 0, 0
+	for _, check := range r.Checks {
+		if check.State == "PASS" && check.Query == "version (0x03)" {
+			versions[check.Role] = check.Detail
+		}
+		if check.Role == "headset" && (check.State == "PASS" || check.State == "BLOCKED") {
+			headAttempts++
+			if check.State == "PASS" {
+				headAnswers++
+			}
+		}
+	}
+	r.HeadsetPresenceState = "INFO"
+	switch {
+	case versions["headset"] != "":
+		r.HeadsetPresence = "measured: answered at address 10 (version reply); docked per its version reply"
+	case headAttempts > 0 && headAnswers == 0:
+		r.HeadsetPresenceState = "BLOCKED"
+		r.HeadsetPresence = "no successful headset identity read at address 10; check docking and connection"
+	default:
+		r.HeadsetPresence = "headset presence unknown; no valid version reply was measured"
+	}
+	var failure *dectIdentityError
+	if !errors.As(stop, &failure) {
+		return
+	}
+	if version := versions[failure.role]; version != "" && errors.Is(failure.cause, errSitelRejected) &&
+		(failure.role == "headset" || failure.role == "display") &&
+		(failure.op == 0x11 || failure.op == 0x13 || failure.role == "display" && failure.op == 1) {
+		r.InstallerIdentity += fmt.Sprintf(". The component answered its version (%s) but does not report this identity value, so the installer cannot confirm its firmware image and stops before writing.", version)
+	}
+	first := -1
+	for i, check := range r.Checks {
+		if check.State == "BLOCKED" && check.Role == failure.role && check.Address == failure.address && check.Query == fmt.Sprintf("%s (0x%02x)", dectQueryName(failure.op), failure.op) {
+			first = i
+			break
+		}
+	}
+	// A failed base probe is an INFO row: either address can establish the
+	// base. If both fail, all subsequent BLOCKED component rows are later.
+	var later []string
+	for _, check := range r.Checks[first+1:] {
+		if check.State == "BLOCKED" {
+			later = append(later, fmt.Sprintf("%s %d %s", check.Role, check.Address, check.Query))
+		}
+	}
+	if len(later) > 0 {
+		r.LaterIdentityBlockers = "measured: " + strings.Join(later, ", ")
+	}
 }
 
 var ErrDECTInspectionChanged = errors.New("device changed during check")
@@ -482,6 +536,7 @@ func inspectDECTComponents(ctx context.Context, device USBDevice, io csrStageIO,
 		d.report.IdentityPassed = true
 		d.report.InstallerIdentity = "one installer identity attempt would pass with these replies (sound-prompt regions are checked against the archive at install time)"
 	}
+	d.report.summarizeEvidence(d.stop)
 	return d.report, nil
 }
 

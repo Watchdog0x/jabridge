@@ -322,25 +322,39 @@ does not establish physical coverage for every Evolve 75 variant.
 
 ### Engage 75
 
-Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62) supplies a physical
-report for USB `1113`: service and access work, but DECT identity preparation
-fails before transfer. The service configured address 3 (the display controller), reported firmware
-`4.4.1` and variant `03-04`, and failed the model lookup. Firmware reads can
-fall back to another address, so these fields do not establish the main base's
-firmware or a coherent base identity.
+Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62#issuecomment-6664657865)
+now has three matching docked component reports and one undocked report for
+USB `1113`. All four components report firmware `4.4.1` directly:
 
-A candidate component diagnostic is covered by software fixtures, including the
-reporter's report-5/33-byte management layout. Physical candidate results are
-still pending. This is not a successful update, recovery, or old-firmware
-compatibility qualification. See [the read-only check](TEST_ENGAGE75.md).
+| Component | Measured replies | Rejected queries |
+| --- | --- | --- |
+| Base 1 | PID `1113`, boot ID `1111`, variant `001b`, protocol 4, resources | None |
+| Docked headset 10 | Serial present, variant `0148`, version, sound prompts | Product ID, boot ID |
+| Display 3 | Variant `0304`, version | Product ID, serial, boot ID |
+| Radio 2 | Version | None tested beyond version |
 
+Undocking makes every headset query fail. A rejected headset product ID alone
+therefore does not mean it is undocked. The catalog variant `01-48` matches the
+headset, not the base; moving metadata discovery to the base alone would not
+resolve the catalog mismatch. Settings permissions remain unchanged.
+
+The candidate's read-only check has now run on hardware. Firmware installation,
+recovery and old-firmware update compatibility remain unverified and blocked by
+the missing identity replies. See [the read-only check](TEST_ENGAGE75.md).
+
+The next candidate adds an explicitly opt-in runtime GetInfo experiment. Software
+fixtures cover the normal 33-byte management frames, strict 17/19-byte replies,
+failure/cancellation, ownership and forbidden-command rejection. Whether the
+reporter's firmware returns useful image information on this transport is
+unknown. It sends no restart or firmware-update request and does not change the
+installer or its recovery checks. This is not an update qualification.
 
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full
 firmware package for both Bluetooth chip variants. Tests cover all nine
 components, interrupted updates, recovery and final version checks.
 
-No physical Engage 75 or 75 SE was available. These results do not establish
-physical flash timing or USB reliability. See [firmware coverage](https://github.com/Watchdog0x/jabridge/blob/main/docs/FIRMWARE.md)
+Firmware transfers were not tested on a physical Engage 75 or 75 SE. Simulator
+results do not establish physical flash timing or USB reliability. See [firmware coverage](https://github.com/Watchdog0x/jabridge/blob/main/docs/FIRMWARE.md)
 for the other update paths and their test limits.
 
 ## How to test

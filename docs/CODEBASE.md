@@ -65,6 +65,11 @@ A failed base-component PID read also skips all later base steps. A missing
 radio version is distinguished from passing identity reads: a fresh install
 would stop unless it has an unfinished, bound recovery record.
 Serial values remain private. A changed binding discards the entire result.
+Presence labels reuse the collected headset-version reply. A rejected PID or
+boot ID alone never gives docking advice; only a run with no successful headset
+reply suggests checking the dock. Reports distinguish an answering component
+with missing identity values and list the later measured blockers. This is
+presentation only: the installer still refuses those replies.
 
 `diagnostics.dect_components` is an optional read-only IPC method, forwarded by
 `daemon.busylightAPI`. `cmd/jabridge/dect_components.go` owns the service bridge
@@ -80,12 +85,35 @@ new request, with a separate 35-second timeout. Older services produce a
 NOT TESTED instruction, never a substitute request. Existing background and
 `diagnostics.device` query sequences are unchanged. Address-role labels make
 clear when the existing metadata came from the display controller. Moving
-primary discovery from the display to the base is deferred until the physical
-component report is available; it must not silently unlock setting writes.
+primary discovery from the display to the base remains deferred: issue #62's
+physical reports show that the catalog variant belongs to the headset, not the
+base. A metadata change must not silently unlock setting writes.
 
 The component report is evidence from one attempt. It neither authorizes
 installation nor changes any PID, boot-ID, serial, variant, region, downgrade,
 recovery or firmware-write guard. See [the candidate test](TEST_ENGAGE75.md).
+
+`debug --dect-image-info` additionally requests the optional
+`diagnostics.dect_image_info` method for the reported direct USB `1113` variant.
+`sitel_dect_info.go` permits only empty-payload class 15/opcode 0 reads at
+addresses 1, 10 and 3 through the bound normal management adapter. It never
+opens the HP link, enters a bootloader, selects targets or creates recovery
+state. Each address gets one attempt, with 3-second queries and a 25-second
+total limit. The client shares the existing native-debug deadline. Ordinary
+debug and class-2 query sequences are unchanged.
+The opt-in check opens its own IPC connection and sends that absolute deadline
+in the request envelope. `handleScopedImageInfo` cancels the request on EOF,
+deadline expiry or an unexpected pipelined request; the context is forwarded
+through the daemon wrapper, port acquisition and core read. `CallScoped` closes
+only this dedicated connection on cancellation. Other RPCs and the main debug
+connection retain their existing behavior.
+
+Replies use the existing strict 17/19-byte `decodeSitelInfo` parser, without
+changing installer parsing. Image IDs, modes and geometry are observations;
+expected image IDs are labelled separately. They are not runtime PIDs, and
+neither matches nor failures change the installer's original verdict. Support
+for this read on the reporter's firmware is still untested. Changed bindings
+discard all image observations; errors and reports omit serials and raw bytes.
 
 ### Firmware files by job
 

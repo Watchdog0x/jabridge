@@ -9,6 +9,7 @@ package ipc
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,6 +133,10 @@ type DECTComponentAPI interface {
 	DECTComponents(id uint16) ([]DiagnosticCheck, error)
 }
 
+type DECTImageInfoAPI interface {
+	DECTImageInfo(ctx context.Context, id uint16) ([]DiagnosticCheck, error)
+}
+
 // API is the interface the handler calls to interact with the device layer.
 // This decouples the IPC handler from jabraApi.go globals, making it testable.
 type API interface {
@@ -216,6 +221,10 @@ func HandleConnectionWithBus(conn net.Conn, api API, bus *EventBus, idleTimeout 
 			}
 			continue
 		}
+		if req.Method == "diagnostics.dect_image_info" {
+			handleScopedImageInfo(conn, scanner, req, api, writeResponse)
+			return
+		}
 
 		if req.Method == "subscribe" {
 			if bus == nil {
@@ -243,6 +252,40 @@ func HandleConnectionWithBus(conn net.Conn, api API, bus *EventBus, idleTimeout 
 		if err != nil {
 			return
 		}
+	}
+}
+
+// This optional diagnostic exclusively owns its connection after dispatch.
+// Reading EOF (or any unexpected pipelined request) cancels device work; all
+// ordinary methods retain their existing synchronous connection behavior.
+func handleScopedImageInfo(conn net.Conn, scanner *bufio.Scanner, req Request, api API, writeResponse func(Response) error) {
+	deadline := time.Unix(0, req.DeadlineUnixNano)
+	if req.DeadlineUnixNano <= 0 || !deadline.After(time.Now()) {
+		_ = writeResponse(ErrorResponse(req.ID, ErrCodeInvalidP, "image inspection requires a future request deadline"))
+		return
+	}
+	parent, cancelParent := context.WithDeadline(context.Background(), deadline)
+	defer cancelParent()
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopClose()
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		return
+	}
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		_ = scanner.Scan()
+		cancel()
+	}()
+	defer func() { _ = conn.Close(); <-readerDone }()
+	if ctx.Err() != nil {
+		return
+	}
+	response := dispatchContext(ctx, req, api)
+	if ctx.Err() == nil {
+		_ = writeResponse(response)
 	}
 }
 
@@ -288,6 +331,10 @@ func decodeParams(raw json.RawMessage, target any) error {
 var mutationMu sync.Mutex
 
 func dispatch(req Request, api API) (response Response) {
+	return dispatchContext(context.Background(), req, api)
+}
+
+func dispatchContext(ctx context.Context, req Request, api API) (response Response) {
 	// Serialize entire mutation/read-back transactions across clients. The
 	// transport lock alone only protects one packet exchange at a time.
 	switch req.Method {
@@ -349,6 +396,25 @@ func dispatch(req Request, api API) (response Response) {
 			return ErrorResponse(req.ID, ErrCodeMethodNF, "DECT component check unavailable in this service")
 		}
 		checks, err := api.DECTComponents(*params.ID)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, checks)
+	case "diagnostics.dect_image_info":
+		if _, ok := ctx.Deadline(); !ok || ctx.Err() != nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "image inspection requires a live scoped connection")
+		}
+		var params struct {
+			ID *uint16 `json:"id"`
+		}
+		if err := decodeParams(req.Params, &params); err != nil || params.ID == nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "diagnostics.dect_image_info requires numeric id")
+		}
+		api, ok := api.(DECTImageInfoAPI)
+		if !ok {
+			return ErrorResponse(req.ID, ErrCodeMethodNF, "DECT runtime image check unavailable in this service")
+		}
+		checks, err := api.DECTImageInfo(ctx, *params.ID)
 		if err != nil {
 			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
 		}

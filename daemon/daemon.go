@@ -576,3 +576,11 @@ func (a *busylightAPI) DECTComponents(id uint16) ([]ipc.DiagnosticCheck, error) 
 	}
 	return diagnostics.DECTComponents(id)
 }
+
+func (a *busylightAPI) DECTImageInfo(ctx context.Context, id uint16) ([]ipc.DiagnosticCheck, error) {
+	diagnostics, ok := a.API.(ipc.DECTImageInfoAPI)
+	if !ok {
+		return nil, errors.New("DECT runtime image check unavailable")
+	}
+	return diagnostics.DECTImageInfo(ctx, id)
+}

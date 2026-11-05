@@ -1,0 +1,236 @@
+{
+  "Checks": [
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "product ID (0x11)",
+      "Step": "base probe",
+      "State": "PASS",
+      "Detail": "0x1113",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "product ID (0x11)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1113",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "serial",
+      "Step": "component identity",
+      "State": "INFO",
+      "Detail": "present (bound USB serial; no serial query sent)",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "variant (0x02)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "001b",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "version (0x03)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "4.4.1",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "boot ID (0x13)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1111",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "protocols (0x14)",
+      "Step": "base protocols",
+      "State": "PASS",
+      "Detail": "protocol 4 advertised",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "product ID (0x11)",
+      "Step": "component identity",
+      "State": "BLOCKED",
+      "Detail": "DECT headset (address 10) product ID (0x11): rejected",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "serial (0x01)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "present",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "variant (0x02)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0148",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "version (0x03)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "4.4.1",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "boot ID (0x13)",
+      "Step": "component identity",
+      "State": "BLOCKED",
+      "Detail": "DECT headset (address 10) boot ID (0x13): rejected",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "product ID (0x11)",
+      "Step": "component identity",
+      "State": "BLOCKED",
+      "Detail": "DECT display (address 3) product ID (0x11): rejected",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "serial (0x01)",
+      "Step": "component identity",
+      "State": "BLOCKED",
+      "Detail": "DECT display (address 3) serial (0x01): rejected",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "variant (0x02)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0304",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "version (0x03)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "4.4.1",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "boot ID (0x13)",
+      "Step": "component identity",
+      "State": "BLOCKED",
+      "Detail": "DECT display (address 3) boot ID (0x13): rejected",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "radio",
+      "Address": 2,
+      "Query": "version (0x03)",
+      "Step": "radio version",
+      "State": "PASS",
+      "Detail": "4.4.1",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "graphics (0x09)",
+      "Step": "base resources",
+      "State": "PASS",
+      "Detail": "4.4.1",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "language (0x06)",
+      "Step": "base resources",
+      "State": "PASS",
+      "Detail": "4.4.1",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "language region (0x07)",
+      "Step": "base resources",
+      "State": "PASS",
+      "Detail": "7",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "sound-prompt region (0x22)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "1 (checked against the archive at install time)",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "sound-prompt version (0x21)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "1.7.7",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "sound-prompt region (0x22)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "1 (checked against the archive at install time)",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "sound-prompt version (0x21)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "1.7.7",
+      "ElapsedMS": 0
+    }
+  ],
+  "InstallerIdentity": "would stop at DECT headset (address 10) product ID (0x11): rejected. The component answered its version (4.4.1) but does not report this identity value, so the installer cannot confirm its firmware image and stops before writing.",
+  "FirstFailure": "DECT headset (address 10) product ID (0x11): rejected",
+  "LastFailure": "DECT display (address 3) boot ID (0x13): rejected",
+  "IdentityPassed": false,
+  "HeadsetPresenceState": "INFO",
+  "HeadsetPresence": "measured: answered at address 10 (version reply); docked per its version reply",
+  "LaterIdentityBlockers": "measured: headset 10 boot ID (0x13), display 3 product ID (0x11), display 3 serial (0x01), display 3 boot ID (0x13)"
+}

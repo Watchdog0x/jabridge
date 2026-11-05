@@ -326,18 +326,21 @@ physical results separately.
 
 ## Engage 75 and 75 SE
 
-Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62) reports an identity
-failure before transfer on USB `1113`. The service's address-3 firmware reading
-can belong to the display controller, rather than the main DECT base. The
-installer independently reads its components, so that metadata issue alone
-does not explain the update failure.
+Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62) supplies matching
+docked reports for USB `1113` on firmware `4.4.1`. The headset answers its version
+and serial but rejects product-ID and boot-ID queries. The display also rejects
+its product ID, serial and boot ID. These required checks stop the installer
+before any transfer. No working update from this firmware is established.
 
 The official package routes base DECT and resources to address 1, the display
 to 3, the Bluetooth radio to 2 and the docked headset to 10. Candidate builds
 add an explicit, read-only component section to debug reports and name the
 component, address and query in installer identity errors. First and last
 readiness failures are retained instead of replacing them with one generic
-docking message. No identity check or firmware permission is relaxed.
+docking message. A rejected identity query alone no longer gives docking
+advice. The existing headset-version reply provides a separate presence label,
+following the vendor's check order (headset version first). Later blocking replies are
+listed too. These labels add no queries and relax no installation checks.
 
 Use [the candidate check](TEST_ENGAGE75.md) to obtain component details before
 another installation attempt. It does not prove a working firmware update.
@@ -364,8 +367,8 @@ read each component's version.
 
 Validation uses a simulator, including the original package's two radio
 variants, HID and SPI packets, modeled flash operations, settings and recovery
-faults. No Engage 75 or 75 SE was physically available. The simulator does not
-establish real oscillator timing, analog flash behavior or USB hardware
+faults. Physical testing so far covers read-only component checks, not firmware
+transfers. The simulator does not establish real oscillator timing, analog flash behavior or USB hardware
 reliability. No JabraCLI package, executable or vendor flash-loader blob is
 needed at runtime.
 

@@ -65,7 +65,7 @@ func TestDECTIdentityErrorsNameComponent(t *testing.T) {
 		want        []string
 		dock        bool
 	}{
-		{"headset-timeout", 10, 0x11, 1, "timeout", []string{"headset", "address 10", "0x11", "timeout"}, true},
+		{"headset-timeout", 10, 0x11, 1, "timeout", []string{"headset", "address 10", "0x11", "timeout"}, false},
 		{"base-second-PID", 1, 0x11, 2, "extra-byte", []string{"base", "address 1", "0x11", "3 bytes, expected 2"}, false},
 		{"display-boot-rejected", 3, 0x13, 1, "nak", []string{"engage 75 display identity:", "display", "address 3", "0x13", "rejected"}, false},
 	} {
