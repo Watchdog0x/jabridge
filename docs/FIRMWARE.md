@@ -326,6 +326,23 @@ physical results separately.
 
 ## Engage 75 and 75 SE
 
+Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62) reports an identity
+failure before transfer on USB `1113`. The service's address-3 firmware reading
+can belong to the display controller, rather than the main DECT base. The
+installer independently reads its components, so that metadata issue alone
+does not explain the update failure.
+
+The official package routes base DECT and resources to address 1, the display
+to 3, the Bluetooth radio to 2 and the docked headset to 10. Candidate builds
+add an explicit, read-only component section to debug reports and name the
+component, address and query in installer identity errors. First and last
+readiness failures are retained instead of replacing them with one generic
+docking message. No identity check or firmware permission is relaxed.
+
+Use [the candidate check](TEST_ENGAGE75.md) to obtain component details before
+another installation attempt. It does not prove a working firmware update.
+
+
 The archive contains nine components. They are installed in this order:
 headset firmware, headset sounds, Bluetooth firmware, Bluetooth settings,
 display firmware, base firmware, language files, graphics and base sounds.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Watchdog0x/jabridge/daemon/ipc"
+	firmwaretool "github.com/Watchdog0x/jabridge/internal/firmware"
 	"github.com/Watchdog0x/jabridge/internal/headsetvolume"
 	"github.com/Watchdog0x/jabridge/internal/modelcatalog"
 )
@@ -58,7 +59,15 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 		if device.deviceConnection == deviceConnectionType_BT {
 			address = 4
 		}
-		add("native control", "INFO", fmt.Sprintf("daemon endpoint=%s address=%d; individual reads tested below", filepath.Base(management.hidrawPath), address))
+		role := firmwaretool.DECTComponentRole(device.productID, address)
+		roleNote := ""
+		if role != "" {
+			roleNote = " (" + role + " on this model)"
+			if role != "base" {
+				roleNote = " (" + role + " on this model; the base is address 1)"
+			}
+		}
+		add("native control", "INFO", fmt.Sprintf("daemon endpoint=%s address=%d%s; individual reads tested below", filepath.Base(management.hidrawPath), address, roleNote))
 		if version, err := readFirmwareVersion(device); err == nil {
 			if safeFirmwareDiagnostic(version) == "version format unrecognized" {
 				add("native installed firmware", "FAIL", "response version format unrecognized")
@@ -67,7 +76,11 @@ func (j *jabraAPIBridge) DiagnoseDevice(id uint16) ([]ipc.DiagnosticCheck, error
 				updateDeviceSnapshot(device, func(current *jabra_DeviceInfo) {
 					current.firmwareVersion = version
 				})
-				add("native installed firmware", "PASS", safeFirmwareDiagnostic(version))
+				detail := safeFirmwareDiagnostic(version)
+				if role != "" {
+					detail += fmt.Sprintf(" (configured endpoint: %s, address %d; this read may use a fallback address)", role, address)
+				}
+				add("native installed firmware", "PASS", detail)
 			}
 		} else {
 			add("native installed firmware", "FAIL", protocolDiagnosticError(err))

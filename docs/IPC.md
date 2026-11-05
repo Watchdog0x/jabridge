@@ -256,3 +256,25 @@ headsets may need pairing again, and an address-only record can remain. Read
 state before retrying an uncertain result; the current generation cannot be
 reset twice by the same service. `device.reset` keeps its existing Link 380
 confirmation and behavior.
+
+## Engage 75 component check
+
+`diagnostics.dect_components` accepts `{"id": 0}` for a registered, directly
+connected Engage 75 runtime base and returns `DiagnosticCheck[]` (`feature`,
+`state`, `detail`). It is advertised in `service.capabilities.reads`. The service
+wrapper forwards this optional interface. Unsupported IDs, dongles, wireless
+children and the bootloader are refused before management I/O.
+
+The service owns a fresh USB binding and exclusive port lease. Busy requests
+return a BUSY observation without querying the device; a changed registry
+instance, attachment or available serial discards the result. Only fixed
+class-2 identity queries are permitted. No serial values, raw packets, mode
+changes, bootloader entry, recovery records or firmware transfers are exposed.
+Per-query and total budgets are 3 and 25 seconds, after at most 5 seconds waiting
+for port ownership. One attempt can pass even if a later installer attempt
+fails; diagnostic results are never cached as installation authorization.
+
+An older service does not advertise the method and returns method-not-found if
+called. Candidate clients require matching versions, check capabilities, and
+print NOT TESTED when the matching service is unavailable. Other IPC methods,
+clients and automatic discovery keep their existing behavior.

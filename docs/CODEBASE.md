@@ -52,6 +52,41 @@ and `sitel_ota_install.go` checks both devices after the service handoff. Its
 wireless channel shares Sitel framing and CRC checks but has its own mode and
 recovery sequence.
 
+### Engage 75 component diagnostics
+
+`internal/firmware/sitel_dect_inspect.go` shares strict identity decoders with
+`sitel_dect_runtime.go`. An explicit component check uses only allowlisted
+class-2 IDENT reads on a freshly bound attachment: base 1 (compatibility probe
+8), headset 10, display 3 and radio 2. The base probe and component identity
+are separate logical PID reads; failed steps are never resent. Each query has
+3 seconds and the whole inspection has 25 seconds. A timed-out component's
+remaining steps are skipped while independent components are still checked.
+A failed base-component PID read also skips all later base steps. A missing
+radio version is distinguished from passing identity reads: a fresh install
+would stop unless it has an unfinished, bound recovery record.
+Serial values remain private. A changed binding discards the entire result.
+
+`diagnostics.dect_components` is an optional read-only IPC method, forwarded by
+`daemon.busylightAPI`. `cmd/jabridge/dect_components.go` owns the service bridge
+and debug formatting. It drains existing management handles with the physical
+port gate, waits up to 5 seconds for ownership, and rejects stale registry
+instances or USB serials. `controlPortScopedPID` adds ownership for the existing
+Engage 75 runtime IDs; `scopedControlPID` retains its Link 390-only reset,
+settings and generation meaning. Known other ports remain independent;
+unresolved management parents are refused while an exclusive owner is active.
+
+The debug client checks service version and capabilities before making the
+new request, with a separate 35-second timeout. Older services produce a
+NOT TESTED instruction, never a substitute request. Existing background and
+`diagnostics.device` query sequences are unchanged. Address-role labels make
+clear when the existing metadata came from the display controller. Moving
+primary discovery from the display to the base is deferred until the physical
+component report is available; it must not silently unlock setting writes.
+
+The component report is evidence from one attempt. It neither authorizes
+installation nor changes any PID, boot-ID, serial, variant, region, downgrade,
+recovery or firmware-write guard. See [the candidate test](TEST_ENGAGE75.md).
+
 ### Firmware files by job
 
 | Job | Files in `internal/firmware` |

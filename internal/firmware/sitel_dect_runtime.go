@@ -1,9 +1,7 @@
 package firmware
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -25,60 +23,96 @@ func (r *sitelRuntime) identifyDECT(ctx context.Context, device USBDevice, archi
 		return identity, errors.New("not a bound DECT base")
 	}
 	var address byte
+	var attempts []error
 	for _, candidate := range []byte{1, 8} {
 		data, err := r.query(ctx, candidate, 0x11)
-		if err == nil && len(data) == 2 && (binary.LittleEndian.Uint16(data) == device.ProductID || binary.LittleEndian.Uint16(data) == profile.BootPID) {
+		if err == nil {
+			var pid uint16
+			pid, err = decodeDECTProductID(data)
+			if err == nil && pid != device.ProductID && pid != profile.BootPID {
+				err = dectValueError("base identity does not match USB")
+			}
+		}
+		if err == nil {
 			address = candidate
 			break
 		}
+		attempts = append(attempts, dectFailure("base", candidate, 0x11, err))
 	}
 	if address == 0 {
-		return identity, errors.New("DECT base identity does not match USB")
+		return identity, fmt.Errorf("DECT base identity does not match USB: %w", errors.Join(attempts...))
 	}
 	readComponent := func(address byte, expectedBoot uint16, usb bool) (sitelIdentity, error) {
+		role := "base"
+		switch address {
+		case dectHeadsetAddress:
+			role = "headset"
+		case engage75DisplayAddress:
+			role = "display"
+		case engage75RadioAddress:
+			role = "USB controller"
+		}
+		fail := func(op byte, err error) error { return dectFailure(role, address, op, err) }
 		id := sitelIdentity{Address: address, Port: device.SysPath, Instance: device.attachment.fingerprint}
 		pid, err := r.query(ctx, address, 0x11)
-		if err != nil || len(pid) != 2 {
-			return id, errors.New("DECT component identity is unavailable; dock the headset in its base")
+		if err != nil {
+			return id, fail(0x11, err)
 		}
-		id.PID = binary.LittleEndian.Uint16(pid)
-		if id.PID == 0 || id.PID == 0xffff {
-			return id, errors.New("DECT component returned an invalid product ID")
+		id.PID, err = decodeDECTProductID(pid)
+		if err != nil {
+			return id, fail(0x11, err)
 		}
 		if usb {
 			id.PID = device.ProductID
 			id.Serial = device.Serial
 		}
+		serialRejected := false
 		if id.Serial == "" {
-			id.Serial, err = r.serial(ctx, address)
-			if err != nil {
-				return id, err
+			data, readErr := r.query(ctx, address, 1)
+			if errors.Is(readErr, errSitelRejected) {
+				serialRejected = true
+			} else {
+				if readErr != nil {
+					return id, fail(1, readErr)
+				}
+				id.Serial, err = decodeDECTSerial(data)
+				if err != nil {
+					return id, fail(1, err)
+				}
 			}
 		}
 		if id.Serial == "" && !profile.Legacy {
-			return id, errors.New("DECT component has no readable serial")
+			if serialRejected {
+				return id, fail(1, errSitelRejected)
+			}
+			return id, fail(1, dectValueError("component has no readable serial"))
 		}
-		id.Variant, err = r.variant(ctx, address)
+		variant, err := r.query(ctx, address, 2)
 		if err != nil {
-			return id, err
+			return id, fail(2, err)
+		}
+		id.Variant, err = decodeDECTVariant(variant)
+		if err != nil {
+			return id, fail(2, err)
 		}
 		id.Version, err = r.text(ctx, address, 3)
 		if err != nil {
-			return id, err
+			return id, fail(3, err)
 		}
-		if _, err := parseVersionTriplet(id.Version); err != nil {
-			return id, err
+		if err = validateDECTVersion(id.Version); err != nil {
+			return id, fail(3, err)
 		}
 		boot, err := r.query(ctx, address, 0x13)
 		if profile.Legacy && errors.Is(err, errSitelRejected) {
 			id.BootPID = expectedBoot
-		} else if err != nil || len(boot) != 2 {
-			return id, errors.New("DECT bootloader identity is unavailable")
 		} else {
-			id.BootPID = binary.LittleEndian.Uint16(boot)
-		}
-		if id.BootPID != expectedBoot {
-			return id, errors.New("DECT component firmware identity does not match its archive")
+			if err != nil {
+				return id, fail(0x13, err)
+			}
+			id.BootPID, err = decodeDECTBootID(boot, expectedBoot)
+			if err != nil {
+				return id, fail(0x13, err)
+			}
 		}
 		return id, nil
 	}
@@ -88,47 +122,62 @@ func (r *sitelRuntime) identifyDECT(ctx context.Context, device USBDevice, archi
 		return identity, err
 	}
 	protocols, err := r.query(ctx, address, 0x14)
-	if (!profile.Legacy || !errors.Is(err, errSitelRejected)) && (err != nil || !bytes.Contains(protocols, []byte{4})) {
-		return identity, errors.New("DECT base does not report Sitel firmware support")
+	if !profile.Legacy || !errors.Is(err, errSitelRejected) {
+		if err == nil {
+			err = validateDECTProtocols(protocols)
+		}
+		if err != nil {
+			return identity, dectFailure("base", address, 0x14, err)
+		}
 	}
-	identity.Headset, err = readComponent(10, profile.HeadsetImagePID, false)
+	identity.Headset, err = readComponent(dectHeadsetAddress, profile.HeadsetImagePID, false)
 	if err != nil {
 		return identity, err
 	}
 	if profile.USBImagePID != 0 {
-		identity.USB, err = readComponent(2, profile.USBImagePID, false)
+		identity.USB, err = readComponent(engage75RadioAddress, profile.USBImagePID, false)
 		if err != nil {
 			return identity, fmt.Errorf("DECT USB controller identity: %w", err)
 		}
 	}
 	if archive.Engage75 != nil {
-		identity.MMI, err = readComponent(3, profile.MMIImagePID, false)
+		identity.MMI, err = readComponent(engage75DisplayAddress, profile.MMIImagePID, false)
 		if err != nil {
 			return identity, fmt.Errorf("engage 75 display identity: %w", err)
 		}
 		for _, item := range []struct {
 			address, op byte
 			value       *string
-		}{{2, 3, &identity.RadioVersion}, {address, 9, &identity.Graphics}, {address, 6, &identity.Language}} {
+		}{{engage75RadioAddress, 3, &identity.RadioVersion}, {address, 9, &identity.Graphics}, {address, 6, &identity.Language}} {
 			*item.value, err = r.text(ctx, item.address, item.op)
-			if err != nil && item.address == 2 {
+			if err != nil && item.address == engage75RadioAddress {
 				// An interrupted radio may not start its application. Only an
 				// already-bound recovery may accept this missing version later.
 				identity.RadioVersion = ""
 				continue
 			}
-			if err != nil {
-				return identity, err
+			role := "base"
+			if item.address == engage75RadioAddress {
+				role = "radio"
 			}
-			if _, err := parseVersionTriplet(*item.value); err != nil {
-				return identity, err
+			if err != nil {
+				return identity, dectFailure(role, item.address, item.op, err)
+			}
+			if err := validateDECTVersion(*item.value); err != nil {
+				return identity, dectFailure(role, item.address, item.op, err)
 			}
 		}
 		region, err := r.query(ctx, address, 7)
-		if err != nil || len(region) != 1 || region[0] != 7 {
-			return identity, errors.New("engage 75 language region does not match its archive")
+		if err != nil {
+			return identity, dectFailure("base", address, 7, err)
 		}
-		identity.LanguageRegion = region[0]
+		identity.LanguageRegion, err = decodeDECTRegion(region)
+		if err != nil {
+			return identity, dectFailure("base", address, 7, err)
+		}
+		if identity.LanguageRegion != 7 {
+			return identity, dectFailure("base", address, 7, dectValueError("engage 75 language region does not match its archive"))
+		}
 	}
 	for _, image := range archive.Images {
 		if image.File.Content != "tunepack" {
@@ -136,27 +185,35 @@ func (r *sitelRuntime) identifyDECT(ctx context.Context, device USBDevice, archi
 		}
 		component := identity.Base.Address
 		if image.File.Target == "headset" {
-			component = 10
+			component = dectHeadsetAddress
 		}
 		region, err := r.query(ctx, component, 0x22)
-		if err != nil || len(region) != 1 {
-			return identity, errors.New("DECT sound-prompt region is unavailable")
+		role := "base"
+		if component == dectHeadsetAddress {
+			role = "headset"
+		}
+		if err != nil {
+			return identity, dectFailure(role, component, 0x22, err)
+		}
+		observedRegion, err := decodeDECTRegion(region)
+		if err != nil {
+			return identity, dectFailure(role, component, 0x22, err)
 		}
 		wanted, err := strconv.ParseUint(image.File.RegionID, 10, 8)
-		if err != nil || region[0] != byte(wanted) {
-			return identity, errors.New("DECT sound-prompt region does not match this firmware")
+		if err != nil || observedRegion != byte(wanted) {
+			return identity, dectFailure(role, component, 0x22, dectValueError("sound-prompt region does not match this firmware"))
 		}
 		version, err := r.text(ctx, component, 0x21)
 		if err != nil {
-			return identity, err
+			return identity, dectFailure(role, component, 0x21, err)
 		}
-		if _, err := parseVersionTriplet(version); err != nil {
-			return identity, err
+		if err := validateDECTVersion(version); err != nil {
+			return identity, dectFailure(role, component, 0x21, err)
 		}
-		if component == 10 {
-			identity.HeadsetRegion, identity.HeadsetTunes = region[0], version
+		if component == dectHeadsetAddress {
+			identity.HeadsetRegion, identity.HeadsetTunes = observedRegion, version
 		} else {
-			identity.BaseRegion, identity.BaseTunes = region[0], version
+			identity.BaseRegion, identity.BaseTunes = observedRegion, version
 		}
 	}
 	return identity, nil
@@ -174,18 +231,41 @@ type nativeSitelDECTBackend struct{}
 func (nativeSitelDECTBackend) runtime(ctx context.Context, device USBDevice, archive *sitelDECTArchive) (sitelDECTIdentity, error) {
 	ready, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	for {
+	return retryDECTIdentity(ready, func(ctx context.Context) (sitelDECTIdentity, error) {
 		r, closeConnection, err := openSitelRuntime(device)
-		if err == nil {
-			id, readErr := r.identifyDECT(ready, device, archive)
-			_ = closeConnection()
-			if readErr == nil {
-				return id, nil
-			}
-			err = readErr
+		if err != nil {
+			return sitelDECTIdentity{}, err
 		}
-		if waitErr := waitDFU(ready, 100*time.Millisecond); waitErr != nil {
-			return sitelDECTIdentity{}, fmt.Errorf("DECT base and docked headset did not become ready: %v: %w", err, waitErr)
+		defer func() { _ = closeConnection() }()
+		return r.identifyDECT(ctx, device, archive)
+	}, func(ctx context.Context) error { return waitDFU(ctx, 100*time.Millisecond) })
+}
+
+func retryDECTIdentity(ctx context.Context, probe func(context.Context) (sitelDECTIdentity, error), pause func(context.Context) error) (sitelDECTIdentity, error) {
+	var first, last error
+	finish := func(cause error) (sitelDECTIdentity, error) {
+		if first == nil {
+			return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: %w", cause)
+		}
+		if sameDECTFailure(first, last) {
+			return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: failure: %v: %w", first, cause)
+		}
+		return sitelDECTIdentity{}, fmt.Errorf("DECT components did not become ready within 15s: first failure: %v; last failure: %v: %w", first, last, cause)
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return finish(err)
+		}
+		id, err := probe(ctx)
+		if err == nil {
+			return id, nil
+		}
+		if first == nil {
+			first = err
+		}
+		last = err
+		if err := pause(ctx); err != nil {
+			return finish(err)
 		}
 	}
 }

@@ -128,6 +128,10 @@ type DiagnosticAPI interface {
 	DiagnoseDevice(id uint16) ([]DiagnosticCheck, error)
 }
 
+type DECTComponentAPI interface {
+	DECTComponents(id uint16) ([]DiagnosticCheck, error)
+}
+
 // API is the interface the handler calls to interact with the device layer.
 // This decouples the IPC handler from jabraApi.go globals, making it testable.
 type API interface {
@@ -333,6 +337,22 @@ func dispatch(req Request, api API) (response Response) {
 		return dispatchHeadsetVolumeRead(req, api)
 	case "history.status":
 		return SuccessResponse(req.ID, history.LiveStatus())
+	case "diagnostics.dect_components":
+		var params struct {
+			ID *uint16 `json:"id"`
+		}
+		if err := decodeParams(req.Params, &params); err != nil || params.ID == nil {
+			return ErrorResponse(req.ID, ErrCodeInvalidP, "diagnostics.dect_components requires numeric id")
+		}
+		api, ok := api.(DECTComponentAPI)
+		if !ok {
+			return ErrorResponse(req.ID, ErrCodeMethodNF, "DECT component check unavailable in this service")
+		}
+		checks, err := api.DECTComponents(*params.ID)
+		if err != nil {
+			return ErrorResponse(req.ID, ErrCodeInternal, err.Error())
+		}
+		return SuccessResponse(req.ID, checks)
 	case "diagnostics.device":
 		var params struct {
 			ID *uint16 `json:"id"`

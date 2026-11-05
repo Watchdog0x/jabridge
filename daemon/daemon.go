@@ -568,3 +568,11 @@ func (a *busylightAPI) HeadsetVolumeCapabilities(target ipc.SettingTarget) (head
 	}
 	return volume.HeadsetVolumeCapabilities(target)
 }
+
+func (a *busylightAPI) DECTComponents(id uint16) ([]ipc.DiagnosticCheck, error) {
+	diagnostics, ok := a.API.(ipc.DECTComponentAPI)
+	if !ok {
+		return nil, errors.New("DECT component check unavailable")
+	}
+	return diagnostics.DECTComponents(id)
+}

@@ -1,0 +1,17 @@
+{
+  "Packets": [
+    "BQMAIEYSAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "BQMAIUYCAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "BQMAIkYSAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+  ],
+  "Writable": [
+    "sidetone:read-only",
+    "in-call-busylight:read-only",
+    "on-head-detection:read-only",
+    "music-mode:read-only",
+    "auto-answer-on-head:read-only",
+    "auto-pause-music:read-only",
+    "reverse-stereo:read-only",
+    "smart-ringer:read-only"
+  ]
+}

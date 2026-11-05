@@ -44,7 +44,7 @@ func controlPortClass(port string) (bool, bool) {
 	if vidErr != nil || pidErr != nil {
 		return false, false
 	}
-	return vid == jabraVendorID && scopedControlPID(pid), true
+	return vid == jabraVendorID && controlPortScopedPID(pid), true
 }
 
 func controlDevicePermit(device *jabra_DeviceInfo, search bool) (*controlPermit, error) {

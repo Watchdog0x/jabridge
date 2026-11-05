@@ -350,6 +350,7 @@ func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) (pids []uint16
 			fmt.Fprintln(out, "NOT TESTED: diagnostic device/time budget reached")
 			continue
 		}
+		writeDECTComponentDiagnostic(ctx, out, client, device, version.Version == buildinfo.Version)
 		var checks []ipc.DiagnosticCheck
 		if err := client.Call(ctx, "diagnostics.device", map[string]uint16{"id": device.ID}, &checks); err != nil {
 			fmt.Fprintln(out, "BLOCKED:", ipcDiagnosticFailure(err))

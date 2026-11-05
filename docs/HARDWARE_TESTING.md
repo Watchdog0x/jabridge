@@ -322,6 +322,19 @@ does not establish physical coverage for every Evolve 75 variant.
 
 ### Engage 75
 
+Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62) supplies a physical
+report for USB `1113`: service and access work, but DECT identity preparation
+fails before transfer. The service configured address 3 (the display controller), reported firmware
+`4.4.1` and variant `03-04`, and failed the model lookup. Firmware reads can
+fall back to another address, so these fields do not establish the main base's
+firmware or a coherent base identity.
+
+A candidate component diagnostic is covered by software fixtures, including the
+reporter's report-5/33-byte management layout. Physical candidate results are
+still pending. This is not a successful update, recovery, or old-firmware
+compatibility qualification. See [the read-only check](TEST_ENGAGE75.md).
+
+
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full
 firmware package for both Bluetooth chip variants. Tests cover all nine
 components, interrupted updates, recovery and final version checks.
