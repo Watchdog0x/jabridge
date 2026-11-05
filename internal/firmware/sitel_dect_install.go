@@ -162,6 +162,16 @@ type sitelDECTPrepared struct {
 }
 
 func prepareSitelDECTTransfer(ctx context.Context, backend sitelDECTBackend, connection *sitelDECTConnection, archive *sitelDECTArchive) ([]sitelDECTPrepared, error) {
+	verified := map[byte]sitelDECTImageObservation{}
+	if archive.Engage75 != nil {
+		observations, err := collectEngage75ImageInfo(ctx, connection)
+		if err != nil {
+			return nil, err
+		}
+		for _, observation := range observations {
+			verified[observation.Address] = observation
+		}
+	}
 	byTarget := map[byte]sitelDECTPrepared{}
 	for _, address := range archive.Profile.endpoints() {
 		peer := connection.peer(address)
@@ -176,6 +186,12 @@ func prepareSitelDECTTransfer(ctx context.Context, backend sitelDECTBackend, con
 			expectedPID = archive.Profile.USBImagePID
 		}
 		var info sitelDeviceInfo
+		observation, haveInfo := verified[address]
+		if haveInfo {
+			// Keep the peer's sequence, but never treat an earlier image or
+			// mode observation as current authorization for an effect.
+			peer = observation.peer
+		}
 		ready, cancel := context.WithTimeout(ctx, 15*time.Second)
 		switched := false
 		for {

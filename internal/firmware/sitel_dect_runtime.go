@@ -237,7 +237,8 @@ func (nativeSitelDECTBackend) runtime(ctx context.Context, device USBDevice, arc
 			return sitelDECTIdentity{}, err
 		}
 		defer func() { _ = closeConnection() }()
-		return r.identifyDECT(ctx, device, archive)
+		assessment, err := r.assessDECTRuntime(ctx, device, archive, func() error { return validateUSBDevice(device) })
+		return assessment.Identity, err
 	}, func(ctx context.Context) error { return waitDFU(ctx, 100*time.Millisecond) })
 }
 
@@ -264,6 +265,12 @@ func retryDECTIdentity(ctx context.Context, probe func(context.Context) (sitelDE
 		id, err := probe(ctx)
 		if err == nil {
 			return id, nil
+		}
+		var assessment *dectRuntimeAssessmentError
+		if errors.As(err, &assessment) && assessment.Assessment.State == dectAssessmentNeedsBootloaderIdentity {
+			// A recognized incomplete assessment is not a transient dock
+			// timeout and cannot become eligible by repeating the same NAKs.
+			return id, err
 		}
 		if first == nil {
 			first = err

@@ -112,8 +112,38 @@ Replies use the existing strict 17/19-byte `decodeSitelInfo` parser, without
 changing installer parsing. Image IDs, modes and geometry are observations;
 expected image IDs are labelled separately. They are not runtime PIDs, and
 neither matches nor failures change the installer's original verdict. Support
-for this read on the reporter's firmware is still untested. Changed bindings
+for this read is now measured on the reporter's firmware: the headset returns
+image `1116`, while the base and display reject it. This does not supply the
+display's image ID or qualify an update. Changed bindings
 discard all image observations; errors and reports omit serials and raw bytes.
+
+`sitel_dect_image_barrier.go` separates Engage 75 FWU image identification from
+preparation. On an already-open, bound FWU connection, it reads only op0 for the
+base, headset and display and checks every actual image ID against the archive
+profile. Only after the complete sweep succeeds may preparation switch a child
+or select an area. The same peers/sequences are retained, but preparation reads
+and validates each component again before using its current ID, mode or geometry.
+Information after a mode switch is also read again. Other DECT profiles
+retain their prior preparation sequence. This does not enter update mode,
+relax missing runtime identity checks or authorize an old-firmware upgrade.
+
+`sitel_dect_assessment.go` adds a private typed assessment to native installer
+planning. The existing strict collector remains unchanged. Only the measured
+USB `1113` / variants `001b`, `0148`, `0304` / firmware `4.4.1` rejection pattern
+can collect the later independent observations. The headset's GetInfo image ID
+remains separate from rejected runtime PID and IDENT boot-ID fields. Query
+address/class/opcode, outcome and value are recorded separately; private serials
+are never included in the error text. Fresh attachment checks surround reads,
+and a changed binding discards the assessment.
+
+This case returns `NeedsBootloaderIdentity` for the unverified display before
+recovery binding, checkpointing or entry. It never returns a new ready identity
+or fills expected IDs into missing fields. The retry wrapper does not repeat
+this definite incomplete result for 15 seconds. Other blocked and supported
+strict paths retain their previous behavior. Existing recovery formats and hash
+comparisons are unchanged; a versioned selected-field scheme is still required
+before any future alternate-identity path may become ready. The ordinary debug
+verdict is labelled as the strict class-2 check, not this complete planner.
 
 ### Firmware files by job
 

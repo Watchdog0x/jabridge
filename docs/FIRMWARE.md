@@ -345,6 +345,22 @@ listed too. These labels add no queries and relax no installation checks.
 Use [the candidate check](TEST_ENGAGE75.md) to obtain component details before
 another installation attempt. It does not prove a working firmware update.
 
+The latest physical check reads the headset image ID `0b0e:1116`. The display
+still rejects the runtime query. The updater must verify its actual image in
+the update transport; it cannot substitute the archive's expected ID. Engage 75
+preparation now has a separate information-only sweep of base, headset and
+display before switching a child or selecting a target area. Missing or
+mismatched information stops preparation. This is a validation barrier, not a
+qualified fix for updating the reporter's old firmware.
+
+Native planning now recognizes the measured old-firmware rejection pattern
+without inventing a runtime PID, boot ID or display serial. A fresh headset
+GetInfo match is retained as image evidence. The missing display result returns
+`NeedsBootloaderIdentity` before any recovery save or mode change. This does not
+enable firmware installation on that device: display identity, versioned
+recovery binding and the safe original-application return still need completion
+and qualification.
+
 
 The archive contains nine components. They are installed in this order:
 headset firmware, headset sounds, Bluetooth firmware, Bluetooth settings,

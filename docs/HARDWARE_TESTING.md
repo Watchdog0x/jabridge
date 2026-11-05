@@ -342,12 +342,21 @@ The candidate's read-only check has now run on hardware. Firmware installation,
 recovery and old-firmware update compatibility remain unverified and blocked by
 the missing identity replies. See [the read-only check](TEST_ENGAGE75.md).
 
-The next candidate adds an explicitly opt-in runtime GetInfo experiment. Software
+The candidate adds an explicitly opt-in runtime GetInfo experiment. Software
 fixtures cover the normal 33-byte management frames, strict 17/19-byte replies,
-failure/cancellation, ownership and forbidden-command rejection. Whether the
-reporter's firmware returns useful image information on this transport is
-unknown. It sends no restart or firmware-update request and does not change the
+failure/cancellation, ownership and forbidden-command rejection. Physical support is
+limited to the measured headset result described below; base and display still
+reject it. It sends no restart or firmware-update request and does not change the
 installer or its recovery checks. This is not an update qualification.
+
+The physical result in [#62](https://github.com/Watchdog0x/jabridge/issues/62#issuecomment-6668692402)
+now confirms runtime GetInfo image `0b0e:1116` on the headset, numeric mode 1,
+decoded sector size 65536 and write block size 1001. Base and display reject
+that query; base identity remains available through the original reads. The
+raw sector/version representation and loader geometry are not established by
+that report. New software tests preserve these distinctions and require every
+Engage 75 image ID before preparation sends mode or area commands. Physical
+entry, return and firmware installation remain unqualified.
 
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full
 firmware package for both Bluetooth chip variants. Tests cover all nine

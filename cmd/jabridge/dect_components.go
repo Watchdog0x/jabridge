@@ -105,7 +105,7 @@ func dectComponentChecks(report firmwaretool.DECTComponentReport) []ipc.Diagnost
 	if report.IdentityPassed {
 		state = "INFO"
 	}
-	checks := []ipc.DiagnosticCheck{{Feature: "DECT installer identity", State: state, Detail: report.InstallerIdentity},
+	checks := []ipc.DiagnosticCheck{{Feature: "DECT strict class-2 identity", State: state, Detail: report.InstallerIdentity},
 		{Feature: "DECT inspection attempt", State: "INFO", Detail: "The installer repeats this check for up to 15 s; a fault that comes and goes between attempts may not show here."}}
 	for _, check := range report.Checks {
 		checks = append(checks, ipc.DiagnosticCheck{Feature: fmt.Sprintf("DECT %s address %d %s [%s]", check.Role, check.Address, check.Query, check.Step), State: check.State, Detail: fmt.Sprintf("%s; %d ms", check.Detail, check.ElapsedMS)})
