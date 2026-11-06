@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      engage75_test:
+        description: Build the explicitly accepted Engage 75 hardware test bundle
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -59,3 +65,52 @@ jobs:
           name: jabridge-linux-${{ matrix.arch }}-review
           path: dist/bin/jabridge
           retention-days: 7
+
+  engage75-test:
+    if: github.event_name == 'workflow_dispatch' && inputs.engage75_test
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      GOMAXPROCS: '4'
+      GOFLAGS: '-p=4'
+      GOOS: linux
+      GOARCH: amd64
+      GOAMD64: v1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 51ccda9c34901ea420e950b406d1654458ff3fdd
+          path: engine
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: handoff
+          sparse-checkout: |
+            scripts/engage75-test.sh
+            scripts/test-engage75-wrapper.py
+            docs/TEST_ENGAGE75.md
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: engine/.go-version
+          cache-dependency-path: engine/go.sum
+      - name: Build the reviewed test engine
+        run: |
+          flags="-X github.com/Watchdog0x/jabridge/internal/buildinfo.SelfUpdate=disabled -X github.com/Watchdog0x/jabridge/internal/buildinfo.Setup=disabled -X github.com/Watchdog0x/jabridge/internal/firmware.Engage75Compatibility=enabled"
+          make -C engine build VERSION=1.6.2-issue62.8 BUILD_DIR="$RUNNER_TEMP/engage75-test" EXTRA_LDFLAGS="$flags"
+          test "$(sha256sum "$RUNNER_TEMP/engage75-test/jabridge" | cut -d ' ' -f 1)" = '985e87eef43bf10fa75a2ef79741cd1e7c8078b591b5f08994735003b9809158'
+      - name: Check the handoff without hardware
+        run: |
+          curl --proto '=https' --proto-redir '=https' --location --fail --silent --show-error --max-time 600 --output "$RUNNER_TEMP/engage75-fixture.zip" 'https://sdkbackend.jabra.com/v4/download/1113/5.20.1'
+          python3 handoff/scripts/test-engage75-wrapper.py "$RUNNER_TEMP/engage75-fixture.zip" --report "$RUNNER_TEMP/engage75-wrapper-tests.json"
+      - name: Package the one-command test
+        run: |
+          cp handoff/scripts/engage75-test.sh "$RUNNER_TEMP/engage75-test/test-engage75.sh"
+          cp handoff/docs/TEST_ENGAGE75.md "$RUNNER_TEMP/engage75-test/README.md"
+          cp engine/LICENSE "$RUNNER_TEMP/engage75-test/LICENSE"
+          "$RUNNER_TEMP/engage75-test/jabridge" --licenses > "$RUNNER_TEMP/engage75-test/THIRD_PARTY_NOTICES.txt"
+          cd "$RUNNER_TEMP/engage75-test"
+          sha256sum jabridge test-engage75.sh README.md LICENSE THIRD_PARTY_NOTICES.txt > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jabridge-engage75-test-linux-amd64
+          path: ${{ runner.temp }}/engage75-test/
+          retention-days: 30

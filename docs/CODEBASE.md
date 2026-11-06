@@ -614,3 +614,17 @@ connection handling.
 For scoped dongles, registration captures the kernel USB generation before enrichment and outside the registry lock. Each registry instance retains that generation; only a verified transaction rotation publishes a new instance and generation together. Reset refuses a stale generation before opening HID. Missing-generation slots are retired after the metadata retry interval and registered again, never refreshed into permission in place.
 
 Exact-profile Link 390 setting writes compare their cached attachment before opening HID and again on the held handle after the firmware query. Shared ownership prevents these checks from retiring a slot during another configuration transaction. Other device families retain their existing paths.
+
+### Engage 75 hardware-test bundle
+
+The manual `engage75_test` input in `ci.yml` defaults off. After native CI
+passes, its separate job builds pinned engine commit `51ccda9`, verifies the
+reviewed binary hash and packages `scripts/engage75-test.sh`. Normal PR and
+release builds keep the compatibility preview disabled. The helper verifies
+files, requires typed acceptance, downloads the exact official firmware,
+records one result and refuses a second run. Exclusive folder ownership is
+reserved before shared-file changes, so concurrent windows cannot overwrite
+the first result.
+`scripts/test-engage75-wrapper.py` exercises this wrapper with fake commands
+and the checked archive as data; it does not access hardware. It does not install the app or
+change device-access rules. See `TEST_ENGAGE75.md` for the human test steps.

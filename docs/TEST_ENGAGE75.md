@@ -1,68 +1,21 @@
-# Engage 75 component check
+# Engage 75 firmware test
 
-The requested report has now been returned for issue #62. Do not repeat this
-check. The instructions below document that diagnostic build. The newer
-compatibility executor is disabled and has no approved hardware trial yet.
-
-This candidate checks another way to read the missing firmware image IDs for
-issue #62. It only sends information requests. It does not ask the headset to
-restart or update. **The firmware update is still not fixed.** Keep the headset
-docked and use the same base. Run this check once.
-
-Download the reviewed candidate for your CPU into a separate folder. Compare
-its SHA-256 with the value in the test-build comment:
+Use the **Engage 75 test download linked in issue #62**. Extract the ZIP, then
+open a terminal in the extracted folder and run:
 
 ```sh
-sha256sum ./jabridge
-chmod +x ./jabridge
-./jabridge --version
+bash test-engage75.sh
 ```
 
-Do not run setup, update, or firmware install from this candidate. Keep your
-installed app. Close other Jabra tools and end calls before checking.
+Keep the headset docked and the base plugged in. End calls and close other
+Jabra tools. The script gets the correct firmware, checks the files and saves
+one result file. It asks you to type `UPDATE` before starting.
 
-Stop the installed service. Package-managed users should use their package's
-service instructions; for the normal user service:
+This test can install firmware **5.20.1** and restart the device. If it fails,
+the base may stay in update mode. A recovery method for firmware 4.4.1 has not
+been confirmed. This is a hardware test, not a confirmed fix. Your installed
+Jabridge app is not replaced. Do not run setup or app update from this build.
 
-```sh
-systemctl --user stop jabridge.service
-```
-
-In the candidate folder, start its service in a foreground terminal:
-
-```sh
-JABRIDGE_SOCKET="$XDG_RUNTIME_DIR/jabridge-engage75-check.sock" ./jabridge --daemon
-```
-
-Leave that terminal open. In a second terminal in the same folder, run:
-
-```sh
-JABRIDGE_SOCKET="$XDG_RUNTIME_DIR/jabridge-engage75-check.sock" \
-  ./jabridge debug --buttons=false --dect-image-info --output jabridge-engage75-image-info.txt
-```
-
-The report should say the service matches the app version and contain
-**DECT runtime image information**. A NOT TESTED message
-asking for the candidate service means the client reached an older service.
-The report does not include serial numbers or raw device packets.
-
-The headset-presence line uses the version reply already read by this check.
-An answering headset can still reject the identity checks needed for an update.
-The report names those blockers; it does not treat them as proof of undocking
-or skip them. Docking advice appears only when no headset query succeeded.
-
-The extra check reads the base, headset and display once each. A rejected,
-timed-out or unrecognized reply is useful information too. Image IDs are not
-the same thing as runtime USB IDs. Even a matching result is not permission to
-try firmware installation with this candidate. Do not repeat the test unless
-asked.
-
-When finished, press Ctrl-C in the candidate service terminal, then restart the
-installed service using its normal method:
-
-```sh
-systemctl --user start jabridge.service
-```
-
-Attach only `jabridge-engage75-image-info.txt` to #62. No screenshots, repeat
-runs or undocked test are needed.
+When it finishes or stops, attach **jabridge-engage75-result.txt** to issue #62.
+If it stops, leave the base connected and do not run the test again.
+No repeat of the old diagnostic check is needed.
