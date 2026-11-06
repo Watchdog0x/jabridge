@@ -322,12 +322,48 @@ does not establish physical coverage for every Evolve 75 variant.
 
 ### Engage 75
 
+Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62#issuecomment-6664657865)
+now has three matching docked component reports and one undocked report for
+USB `1113`. All four components report firmware `4.4.1` directly:
+
+| Component | Measured replies | Rejected queries |
+| --- | --- | --- |
+| Base 1 | PID `1113`, boot ID `1111`, variant `001b`, protocol 4, resources | None |
+| Docked headset 10 | Serial present, variant `0148`, version, sound prompts | Product ID, boot ID |
+| Display 3 | Variant `0304`, version | Product ID, serial, boot ID |
+| Radio 2 | Version | None tested beyond version |
+
+Undocking makes every headset query fail. A rejected headset product ID alone
+therefore does not mean it is undocked. The catalog variant `01-48` matches the
+headset, not the base; moving metadata discovery to the base alone would not
+resolve the catalog mismatch. Settings permissions remain unchanged.
+
+The candidate's read-only check has now run on hardware. Firmware installation,
+recovery and old-firmware update compatibility remain unverified and blocked by
+the missing identity replies. See [the read-only check](TEST_ENGAGE75.md).
+
+The candidate adds an explicitly opt-in runtime GetInfo experiment. Software
+fixtures cover the normal 33-byte management frames, strict 17/19-byte replies,
+failure/cancellation, ownership and forbidden-command rejection. Physical support is
+limited to the measured headset result described below; base and display still
+reject it. It sends no restart or firmware-update request and does not change the
+installer or its recovery checks. This is not an update qualification.
+
+The physical result in [#62](https://github.com/Watchdog0x/jabridge/issues/62#issuecomment-6668692402)
+now confirms runtime GetInfo image `0b0e:1116` on the headset, numeric mode 1,
+decoded sector size 65536 and write block size 1001. Base and display reject
+that query; base identity remains available through the original reads. The
+raw sector/version representation and loader geometry are not established by
+that report. New software tests preserve these distinctions and require every
+Engage 75 image ID before preparation sends mode or area commands. Physical
+entry, return and firmware installation remain unqualified.
+
 Engage 75 and 75 SE firmware updates were tested in a simulator with the full
 firmware package for both Bluetooth chip variants. Tests cover all nine
 components, interrupted updates, recovery and final version checks.
 
-No physical Engage 75 or 75 SE was available. These results do not establish
-physical flash timing or USB reliability. See [firmware coverage](https://github.com/Watchdog0x/jabridge/blob/main/docs/FIRMWARE.md)
+Firmware transfers were not tested on a physical Engage 75 or 75 SE. Simulator
+results do not establish physical flash timing or USB reliability. See [firmware coverage](https://github.com/Watchdog0x/jabridge/blob/main/docs/FIRMWARE.md)
 for the other update paths and their test limits.
 
 ## How to test
@@ -432,3 +468,20 @@ leases/search ownership and registry recovery without restarting the service.
 They do not prove current-build physical timing or audible pairing recovery.
 If the dongle stays missing, reconnect USB. Stop calls and audio before reset;
 headsets may need pairing again. Link 380's older reset route is unchanged.
+
+## Engage 75 issue #62 compatibility candidate
+
+The latest physical report measured headset image `0b0e:1116` in Main mode.
+The display rejected its runtime image request; no repeat report is needed.
+The default-disabled compatibility executor now reads the display in the base
+update transport, before any child transition or transfer. Its supported
+reported modes are explicitly loader0/Main1; modes2/3 are refused.
+
+Simulation is not physical qualification. The software models distinguish
+runtime decoded65536/write1001 from freshly advertised loader geometry, and
+check both radio revisions, identity failures, cancellation and replay guards.
+A stored head serial cannot detect an unobservable same-model swap while the
+base remains attached. Across-process dock continuity is lost, so neither the
+pending journal nor V2 record permits automatic continuation. Different or
+missing USB serials across modes are unresolved. No intact-old-display abort
+or manual recovery procedure is claimed; physical use is still disabled.

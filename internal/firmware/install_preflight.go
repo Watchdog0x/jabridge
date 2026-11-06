@@ -13,6 +13,13 @@ func ValidateInstallInput(args []string) error {
 		return err
 	}
 	args = remaining
+	args, preview, err := extractEngage75Preview(args)
+	if err != nil {
+		return err
+	}
+	if preview && language != 0 {
+		return fmt.Errorf("engage 75 preview requires the complete firmware package")
+	}
 	path, _, err := parseInstallArgs(args)
 	if err != nil {
 		return err
@@ -23,6 +30,19 @@ func ValidateInstallInput(args []string) error {
 	}
 	defer func() { _ = snapshot.Close() }()
 	path = snapshot.path
+	if preview {
+		if err := checkEngage75PreviewStart(); err != nil {
+			return err
+		}
+		archive, err := loadSitelDECTArchive(path)
+		if err != nil {
+			return err
+		}
+		if archive.Engage75 == nil || archive.Manifest.ProductName != "Jabra_Engage_75" || archive.Manifest.Version != "5.20.1" {
+			return fmt.Errorf("engage 75 preview requires its complete original 5.20.1 archive")
+		}
+		return nil
+	}
 	if language != 0 {
 		if err := checkCSRLanguageOptIn(); err != nil {
 			return err

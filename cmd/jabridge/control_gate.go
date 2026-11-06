@@ -5,6 +5,8 @@ import (
 	"errors"
 	"path/filepath"
 	"sync"
+
+	firmwaretool "github.com/Watchdog0x/jabridge/internal/firmware"
 )
 
 var (
@@ -45,6 +47,11 @@ type controlPermit struct {
 var link390ControlGate controlGate
 
 func scopedControlPID(pid uint16) bool { return pid == 0x2e56 || pid == 0x2e57 }
+
+// Port ownership is broader than Link 390 reset/settings qualification.
+func controlPortScopedPID(pid uint16) bool {
+	return scopedControlPID(pid) || firmwaretool.DECTInspectionSupported(pid)
+}
 
 func (g *controlGate) active() bool {
 	g.mu.Lock()

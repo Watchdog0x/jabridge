@@ -43,6 +43,10 @@ func transferDECTPrepared(ctx context.Context, image sitelDECTPrepared, progress
 }
 
 func transferEngage75Components(ctx context.Context, backend sitelDECTBackend, connection *sitelDECTConnection, archive *sitelDECTArchive, prepared []sitelDECTPrepared, state *firmwareRecoveryState, save func() error, progress func(byte, int, int)) error {
+	radioRevision, settingsVerified, err := engage75RadioFields(state)
+	if err != nil {
+		return err
+	}
 	spi, err := newSitelSPI(connection.Root, 23, 0)
 	if err != nil {
 		return err
@@ -55,11 +59,11 @@ func transferEngage75Components(ctx context.Context, backend sitelDECTBackend, c
 	if err != nil {
 		return err
 	}
-	if state.SitelDECT.RadioRevision != 0 && state.SitelDECT.RadioRevision != revision {
+	if *radioRevision != 0 && *radioRevision != revision {
 		return errors.New("engage 75 radio changed during recovery")
 	}
-	state.SitelDECT.RadioRevision = revision
-	state.SitelDECT.SettingsVerified = false
+	*radioRevision = revision
+	*settingsVerified = false
 	if err := save(); err != nil {
 		return err
 	}
@@ -100,9 +104,9 @@ func transferEngage75Components(ctx context.Context, backend sitelDECTBackend, c
 			if err := applySitelPSR(ctx, mailbox, chip, archive.Engage75.Settings[chip], func(int) error { return save() }, stageProgress); err != nil {
 				return err
 			}
-			state.SitelDECT.SettingsVerified = true
+			*settingsVerified = true
 			if err := save(); err != nil {
-				state.SitelDECT.SettingsVerified = false
+				*settingsVerified = false
 				return err
 			}
 		default:
@@ -116,4 +120,16 @@ func transferEngage75Components(ctx context.Context, backend sitelDECTBackend, c
 		}
 	}
 	return nil
+}
+
+// Share only radio progress fields, never legacy identity authority. The V2
+// path does not manufacture a legacy sitelDECTRecovery to reuse the transfer.
+func engage75RadioFields(state *firmwareRecoveryState) (*uint16, *bool, error) {
+	if state != nil && state.SitelDECT != nil && state.SitelDECTV2 == nil {
+		return &state.SitelDECT.RadioRevision, &state.SitelDECT.SettingsVerified, nil
+	}
+	if state != nil && state.SitelDECTV2 != nil && state.SitelDECT == nil {
+		return &state.SitelDECTV2.RadioRevision, &state.SitelDECTV2.SettingsVerified, nil
+	}
+	return nil, nil, errors.New("missing or conflicting Engage 75 radio checkpoint")
 }

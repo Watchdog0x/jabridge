@@ -326,6 +326,52 @@ physical results separately.
 
 ## Engage 75 and 75 SE
 
+Issue [#62](https://github.com/Watchdog0x/jabridge/issues/62) supplies matching
+docked reports for USB `1113` on firmware `4.4.1`. The headset answers its version
+and serial but rejects product-ID and boot-ID queries. The display also rejects
+its product ID, serial and boot ID. These required checks stop the installer
+before any transfer. No working update from this firmware is established.
+
+The official package routes base DECT and resources to address 1, the display
+to 3, the Bluetooth radio to 2 and the docked headset to 10. Candidate builds
+add an explicit, read-only component section to debug reports and name the
+component, address and query in installer identity errors. First and last
+readiness failures are retained instead of replacing them with one generic
+docking message. A rejected identity query alone no longer gives docking
+advice. The existing headset-version reply provides a separate presence label,
+following the vendor's check order (headset version first). Later blocking replies are
+listed too. These labels add no queries and relax no installation checks.
+
+Use [the candidate check](TEST_ENGAGE75.md) to obtain component details before
+another installation attempt. It does not prove a working firmware update.
+
+The latest physical check reads the headset image ID `0b0e:1116`. The display
+still rejects the runtime query. The updater must verify its actual image in
+the update transport; it cannot substitute the archive's expected ID. Engage 75
+preparation now has a separate information-only sweep of base, headset and
+display before switching a child or selecting a target area. Missing or
+mismatched information stops preparation. This is a validation barrier, not a
+qualified fix for updating the reporter's old firmware.
+
+Native planning recognizes the measured old-firmware rejection pattern
+without inventing a runtime PID, boot ID or display serial. Normal builds still
+stop before changing modes.
+
+A separate compatibility preview now enters the known base loader, reads the
+actual display ID there and checks all three image IDs before writing. It verifies that the headset has
+returned to Main before restarting the base, then checks again after restart. It
+requires a specially enabled build, a separate preview option and explicit
+firmware-risk acceptance. Official builds leave it disabled. This source
+candidate has not been tested on the older physical Engage 75.
+
+Its pending inspection file cannot authorize firmware writes. A separate V2
+record is created only after the image checks. Interrupted or ambiguous steps
+are kept for investigation; the app will not blindly retry them after restart.
+The headset must stay docked. Losing continuity, an unknown mode or a changed
+identity stops the preview. A failed mode change may leave the device in update
+mode; returning an untouched old display has not been physically qualified.
+No firmware trial instructions are provided until the candidate is reviewed.
+
 The archive contains nine components. They are installed in this order:
 headset firmware, headset sounds, Bluetooth firmware, Bluetooth settings,
 display firmware, base firmware, language files, graphics and base sounds.
@@ -347,8 +393,8 @@ read each component's version.
 
 Validation uses a simulator, including the original package's two radio
 variants, HID and SPI packets, modeled flash operations, settings and recovery
-faults. No Engage 75 or 75 SE was physically available. The simulator does not
-establish real oscillator timing, analog flash behavior or USB hardware
+faults. Physical testing so far covers read-only component checks, not firmware
+transfers. The simulator does not establish real oscillator timing, analog flash behavior or USB hardware
 reliability. No JabraCLI package, executable or vendor flash-loader blob is
 needed at runtime.
 

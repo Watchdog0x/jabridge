@@ -1,0 +1,236 @@
+{
+  "Checks": [
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "product ID (0x11)",
+      "Step": "base probe",
+      "State": "PASS",
+      "Detail": "0x1110",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "product ID (0x11)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1110",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "serial",
+      "Step": "component identity",
+      "State": "INFO",
+      "Detail": "present (bound USB serial; no serial query sent)",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "variant (0x02)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0201",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "version (0x03)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "4.0.0",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "boot ID (0x13)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1111",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "protocols (0x14)",
+      "Step": "base protocols",
+      "State": "PASS",
+      "Detail": "protocol 4 advertised",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "product ID (0x11)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1116",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "serial (0x01)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "present",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "variant (0x02)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "020a",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "version (0x03)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "4.0.0",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "boot ID (0x13)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1116",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "product ID (0x11)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1117",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "serial (0x01)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "present",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "variant (0x02)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0203",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "version (0x03)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "4.0.0",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "display",
+      "Address": 3,
+      "Query": "boot ID (0x13)",
+      "Step": "component identity",
+      "State": "PASS",
+      "Detail": "0x1117",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "radio",
+      "Address": 2,
+      "Query": "version (0x03)",
+      "Step": "radio version",
+      "State": "PASS",
+      "Detail": "5.10.0",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "graphics (0x09)",
+      "Step": "base resources",
+      "State": "PASS",
+      "Detail": "4.0.0",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "language (0x06)",
+      "Step": "base resources",
+      "State": "PASS",
+      "Detail": "4.0.0",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "language region (0x07)",
+      "Step": "base resources",
+      "State": "PASS",
+      "Detail": "7",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "sound-prompt region (0x22)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "1 (checked against the archive at install time)",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "headset",
+      "Address": 10,
+      "Query": "sound-prompt version (0x21)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "4.0.0",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "sound-prompt region (0x22)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "1 (checked against the archive at install time)",
+      "ElapsedMS": 0
+    },
+    {
+      "Role": "base",
+      "Address": 1,
+      "Query": "sound-prompt version (0x21)",
+      "Step": "sound prompts",
+      "State": "PASS",
+      "Detail": "4.0.0",
+      "ElapsedMS": 0
+    }
+  ],
+  "InstallerIdentity": "one installer identity attempt would pass with these replies (sound-prompt regions are checked against the archive at install time)",
+  "FirstFailure": "",
+  "LastFailure": "",
+  "IdentityPassed": true,
+  "HeadsetPresenceState": "INFO",
+  "HeadsetPresence": "measured: answered at address 10 (version reply); docked per its version reply",
+  "LaterIdentityBlockers": ""
+}

@@ -18,6 +18,12 @@ func serviceCapabilities(api API) ServiceCapabilities {
 	if _, ok := api.(BoundResetAPI); ok {
 		c.Changes = append(c.Changes, "device.reset.bound")
 	}
+	if _, ok := api.(DECTComponentAPI); ok {
+		c.Reads = append(c.Reads, "diagnostics.dect_components")
+	}
+	if _, ok := api.(DECTImageInfoAPI); ok {
+		c.Reads = append(c.Reads, "diagnostics.dect_image_info")
+	}
 	if _, ok := api.(DiagnosticAPI); ok {
 		c.Reads = append(c.Reads, "diagnostics.device")
 	}

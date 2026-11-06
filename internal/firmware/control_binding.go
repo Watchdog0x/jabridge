@@ -73,3 +73,8 @@ func (b *ControlBinding) OpenReader() (*os.File, ControlLayout, error) {
 	}
 	return transport.file, transport.Layout, nil
 }
+
+// MatchesSerial compares private USB identities without exposing either value.
+func (b *ControlBinding) MatchesSerial(cached string) bool {
+	return b != nil && (cached == "" || b.device.Serial == cached)
+}

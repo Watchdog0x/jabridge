@@ -1735,6 +1735,13 @@ func cmdInstallForSelection(args []string, validateTarget func() error, expected
 		die("voice language: %v", languageErr)
 	}
 	args = remaining
+	args, preview, previewErr := extractEngage75Preview(args)
+	if previewErr != nil {
+		die("Engage 75 preview: %v", previewErr)
+	}
+	if preview && (language != 0 || wireless != nil) {
+		die("Engage 75 preview requires the original complete archive and direct USB")
+	}
 	path, accepted, err := parseInstallArgs(args)
 	if err != nil {
 		die("firmware install: %v", err)
@@ -1768,6 +1775,12 @@ func cmdInstallForSelection(args []string, validateTarget func() error, expected
 		die("firmware file changed after selection; select it again")
 	}
 	path = snapshot.path
+	if preview {
+		if err := installEngage75PreviewChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+			die("Engage 75 preview: %v", err)
+		}
+		return
+	}
 	if validateTarget != nil {
 		if err := validateTarget(); err != nil {
 			die("firmware target changed: %v", err)

@@ -1,0 +1,29 @@
+[
+  {
+    "Role": "base",
+    "Address": 1,
+    "Query": "runtime GetInfo (0x0f/0x00)",
+    "Step": "opt-in image observation",
+    "State": "INFO",
+    "Detail": "measured runtime GetInfo image ID 0b0e:1111; mode 1; sector 256 bytes; write block 128 bytes; expected image 0b0e:1111; observation only, not update approval",
+    "ElapsedMS": 0
+  },
+  {
+    "Role": "headset",
+    "Address": 10,
+    "Query": "runtime GetInfo (0x0f/0x00)",
+    "Step": "opt-in image observation",
+    "State": "INFO",
+    "Detail": "measured runtime GetInfo image ID 0b0e:1116; mode 1; sector 256 bytes; write block 128 bytes; expected image 0b0e:1116; observation only, not update approval",
+    "ElapsedMS": 0
+  },
+  {
+    "Role": "display",
+    "Address": 3,
+    "Query": "runtime GetInfo (0x0f/0x00)",
+    "Step": "opt-in image observation",
+    "State": "INFO",
+    "Detail": "measured runtime GetInfo image ID 0b0e:1117; mode 1; sector 256 bytes; write block 128 bytes; expected image 0b0e:1117; observation only, not update approval",
+    "ElapsedMS": 0
+  }
+]

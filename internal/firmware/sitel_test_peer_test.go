@@ -13,6 +13,8 @@ import (
 // Independent wire peer. No production encoder, CRC or reply parser creates
 // its answers. These fixtures model the documented update path, not the CPU.
 type sitelTestDevice struct {
+	sectorSize, writeSize                                          uint32
+	infoVersionZero                                                bool
 	bootDescriptor                                                 []byte
 	bootLayout                                                     *sitelHIDLayout
 	ota                                                            bool
@@ -409,13 +411,17 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 		}
 		binary.LittleEndian.PutUint32(body, id)
 		binary.LittleEndian.PutUint32(body[4:], w.imageInfoOffset)
-		sector := uint32(256)
+		sector := w.testSectorSize()
 		if w.badGeometry {
 			sector = 0
 		}
 		binary.LittleEndian.PutUint32(body[8:], sector)
-		binary.LittleEndian.PutUint32(body[12:], 128)
+		binary.LittleEndian.PutUint32(body[12:], w.testWriteSize())
 		body[17] = 1
+		if w.infoVersionZero {
+			body[17] = 0
+			binary.LittleEndian.PutUint32(body[8:], 4096)
+		}
 		if w.applicationMode {
 			body[16] = 1
 		}
@@ -444,17 +450,17 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 			return nil, errors.New("write outside fixture flash")
 		}
 		if op == 2 {
-			if address%256 != 0 || len(args) != 4 {
+			if address%w.testSectorSize() != 0 || len(args) != 4 {
 				return nil, errors.New("bad erase")
 			}
 			w.erases++
-			for i := uint32(0); i < 256; i++ {
+			for i := uint32(0); i < w.testSectorSize(); i++ {
 				w.memory[address+i] = 255
 			}
 			body = []byte{0}
 		}
 		if op == 3 {
-			if packet[3] != 0x4b || len(args) <= 4 || len(args) > 132 {
+			if packet[3] != 0x4b || len(args) <= 4 || len(args) > 4+int(w.testWriteSize()) {
 				return nil, errors.New("bad variable write request")
 			}
 			w.writes++
@@ -471,7 +477,7 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 				return nil, errors.New("bad CRC request")
 			}
 			count := binary.LittleEndian.Uint32(args[4:])
-			if count > 256 {
+			if count > w.testSectorSize() {
 				return nil, errors.New("CRC exceeded sector")
 			}
 			data := make([]byte, count)
@@ -520,4 +526,17 @@ func (p *sitelBootPeer) handle(packet []byte) ([]byte, error) {
 		sequence = 0
 	}
 	return append([]byte{0, wireAddress, sequence, 0xc0 | byte(6+len(body)), 15, op}, body...), nil
+}
+
+func (w *sitelTestDevice) testSectorSize() uint32 {
+	if w.sectorSize != 0 {
+		return w.sectorSize
+	}
+	return 256
+}
+func (w *sitelTestDevice) testWriteSize() uint32 {
+	if w.writeSize != 0 {
+		return w.writeSize
+	}
+	return 128
 }
