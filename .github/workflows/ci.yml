@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: 51ccda9c34901ea420e950b406d1654458ff3fdd
+          ref: c1cdd843b3174f96f41c83eaf0a9d1304d5f4675
           path: engine
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -95,8 +95,8 @@ jobs:
       - name: Build the reviewed test engine
         run: |
           flags="-X github.com/Watchdog0x/jabridge/internal/buildinfo.SelfUpdate=disabled -X github.com/Watchdog0x/jabridge/internal/buildinfo.Setup=disabled -X github.com/Watchdog0x/jabridge/internal/firmware.Engage75Compatibility=enabled"
-          make -C engine build VERSION=1.6.2-issue62.8 BUILD_DIR="$RUNNER_TEMP/engage75-test" EXTRA_LDFLAGS="$flags"
-          test "$(sha256sum "$RUNNER_TEMP/engage75-test/jabridge" | cut -d ' ' -f 1)" = '985e87eef43bf10fa75a2ef79741cd1e7c8078b591b5f08994735003b9809158'
+          make -C engine build VERSION=1.6.2-issue62.9 BUILD_DIR="$RUNNER_TEMP/engage75-test" EXTRA_LDFLAGS="$flags"
+          test "$(sha256sum "$RUNNER_TEMP/engage75-test/jabridge" | cut -d ' ' -f 1)" = '51d256ae32ff6e1ad9cb15beba1a659a8a0a0e47f85c9d419affb6930c30a3c4'
       - name: Check the handoff without hardware
         run: |
           curl --proto '=https' --proto-redir '=https' --location --fail --silent --show-error --max-time 600 --output "$RUNNER_TEMP/engage75-fixture.zip" 'https://sdkbackend.jabra.com/v4/download/1113/5.20.1'

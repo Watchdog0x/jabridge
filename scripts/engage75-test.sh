@@ -97,7 +97,7 @@ else
 fi
 attempt_args=()
 if [[ "$new_attempt" == true ]]; then attempt_args+=(--new-attempt); fi
-printf '%s\n' "$version" 'Source: 51ccda9c34901ea420e950b406d1654458ff3fdd' > "$report"
+printf '%s\n' "$version" 'Source: c1cdd843b3174f96f41c83eaf0a9d1304d5f4675' > "$report"
 printf '%s\n' 'Getting the official 5.20.1 firmware...' | tee -a "$report"
 download="$(mktemp "$bundle_dir/.engage75-download.XXXXXX")"
 if ! curl --proto '=https' --proto-redir '=https' --location --fail --silent --show-error \
