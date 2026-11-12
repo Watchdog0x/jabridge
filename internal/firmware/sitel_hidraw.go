@@ -147,10 +147,13 @@ func openSitelRuntime(device USBDevice) (*sitelRuntime, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	return sitelRuntimeFromManagement(transport), transport.Close, nil
+}
+
+func sitelRuntimeFromManagement(transport *ControlHidraw) *sitelRuntime {
 	layout := transport.Layout
 	raw := &sitelRawHID{file: transport.file, in: sitelHIDLayout{ReportID: layout.InputID, ReportBytes: layout.InputBytes, MaxMessage: 1024}, out: sitelHIDLayout{ReportID: layout.OutputID, ReportBytes: layout.OutputBytes, MaxMessage: 1024}}
-	io := &sitelManagementIO{raw: raw, assembler: controlAssembler{layout: layout}}
-	return &sitelRuntime{io: io}, transport.Close, nil
+	return &sitelRuntime{io: &sitelManagementIO{raw: raw, assembler: controlAssembler{layout: layout}}}
 }
 
 // Firmware usages FF54/FF55 can label the collection or its byte-array fields.

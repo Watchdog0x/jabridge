@@ -30,7 +30,7 @@ import (
 // Debug reports are assembled from selected fields, never raw logs or packets.
 func runDebug(args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Println("Usage: jabridge debug [--buttons | --guided] [--output FILE]\nCollects device/report layouts, model settings/events/commands, native reads and service history.\nInteractive terminals include a 20-second passive observation; --buttons=false skips it.\n--guided lets you choose the physical controls to test, including no buttons/wheel.\nNormal device controls still act. Private identities, typed text and raw device payloads are omitted.")
+		fmt.Println("Usage: jabridge debug [--buttons | --guided] [--dect-image-info] [--output FILE]\nCollects device/report layouts, model settings/events/commands, native reads and service history.\nInteractive terminals include a 20-second passive observation; --buttons=false skips it.\n--guided lets you choose the physical controls to test, including no buttons/wheel.\n--dect-image-info adds opt-in image information reads for Engage 75 USB 1113; no restart or update is requested.\nNormal device controls still act. Private identities, typed text and raw device payloads are omitted.")
 		return nil
 	}
 	flags := flag.NewFlagSet("debug", flag.ContinueOnError)
@@ -38,6 +38,7 @@ func runDebug(args []string) error {
 	path := flags.String("output", "", "save report")
 	buttons := flags.Bool("buttons", term.IsTerminal(int(os.Stdin.Fd())), "observe button events")
 	guided := flags.Bool("guided", false, "guided button mapping")
+	imageInfo := flags.Bool("dect-image-info", false, "opt-in runtime firmware image reads for Engage 75 USB 1113")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -58,7 +59,7 @@ func runDebug(args []string) error {
 	collect := func(output io.Writer) error {
 		fmt.Fprintln(os.Stderr, "Checking device access, native reads and firmware. This may take a few minutes...")
 		var report bytes.Buffer
-		if err := writeDebugReport(&report); err != nil {
+		if err := writeDebugReportWithOptions(&report, debugOptions{DECTImageInfo: *imageInfo}); err != nil {
 			return err
 		}
 		if *buttons || *guided {
@@ -106,7 +107,9 @@ func diagnosticError(err error) string {
 	}
 }
 
-func writeDebugReport(destination io.Writer) error {
+type debugOptions struct{ DECTImageInfo bool }
+
+func writeDebugReportWithOptions(destination io.Writer, options debugOptions) error {
 	var report bytes.Buffer
 	out := &report
 	fmt.Fprintf(out, "Jabridge debug %s\nGenerated at: %s\nPlatform: %s/%s\n", buildinfo.Version, time.Now().UTC().Format(time.RFC3339), runtime.GOOS, runtime.GOARCH)
@@ -170,7 +173,7 @@ func writeDebugReport(destination io.Writer) error {
 		pids = append(pids, node.PID)
 	}
 	if err == nil {
-		pids = append(pids, writeNativeDiagnostic(out, client)...)
+		pids = append(pids, writeNativeDiagnosticWithOptions(out, client, options)...)
 	} else {
 		fmt.Fprintln(out, "Native device tests: BLOCKED (service unavailable). Follow the service findings below; device-access checks above are separate.")
 	}
@@ -286,6 +289,10 @@ func writeSystemDiagnostic(out *bytes.Buffer) {
 }
 
 func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) (pids []uint16) {
+	return writeNativeDiagnosticWithOptions(out, client, debugOptions{})
+}
+
+func writeNativeDiagnosticWithOptions(out *bytes.Buffer, client *ipc.Client, options debugOptions) (pids []uint16) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	var version struct {
@@ -349,6 +356,10 @@ func writeNativeDiagnostic(out *bytes.Buffer, client *ipc.Client) (pids []uint16
 		if index >= 8 || ctx.Err() != nil {
 			fmt.Fprintln(out, "NOT TESTED: diagnostic device/time budget reached")
 			continue
+		}
+		writeDECTComponentDiagnostic(ctx, out, client, device, version.Version == buildinfo.Version)
+		if options.DECTImageInfo {
+			writeDECTImageInfoDiagnostic(ctx, out, client, device, version.Version == buildinfo.Version)
 		}
 		var checks []ipc.DiagnosticCheck
 		if err := client.Call(ctx, "diagnostics.device", map[string]uint16{"id": device.ID}, &checks); err != nil {

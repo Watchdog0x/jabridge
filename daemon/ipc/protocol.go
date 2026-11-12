@@ -13,6 +13,8 @@ type Request struct {
 	ID      json.RawMessage `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// Used only by request-scoped diagnostics on their own connection.
+	DeadlineUnixNano int64 `json:"deadline_unix_nano,omitempty"`
 }
 
 // Response is a JSON-RPC 2.0 response.

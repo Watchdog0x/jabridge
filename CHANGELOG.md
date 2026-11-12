@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.7.0 — 2026-11-12
+
+Add component diagnostics to debug reports, including a separate firmware-image
+check. Reports identify which device query failed and avoid giving docking
+advice when the headset is already answering.
+
+Correct the experimental Engage 75 reconnect check when update mode omits the
+USB serial number. Keep the original USB port and firmware-image checks, and
+require the original serial when the base returns to normal. Report the exact
+failed check instead of a generic reconnect error.
+
+Allow an explicit new attempt after a fresh check of the original normal-mode
+base, headset and firmware. Keep the earlier record and result file. Reject
+attempts with existing transfer records, changed devices or later update stages.
+
+The Engage 75 compatibility flow remains disabled in normal release builds.
+The separate test download is opt-in; a physical firmware transfer is still
+awaiting confirmation. This release does not claim that update has succeeded.
+
 ## 1.6.1 — 2026-11-02
 
 Fix pairing being blocked by default on the recognized Link 380c USB ID

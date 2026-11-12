@@ -52,6 +52,132 @@ and `sitel_ota_install.go` checks both devices after the service handoff. Its
 wireless channel shares Sitel framing and CRC checks but has its own mode and
 recovery sequence.
 
+### Engage 75 component diagnostics
+
+`internal/firmware/sitel_dect_inspect.go` shares strict identity decoders with
+`sitel_dect_runtime.go`. An explicit component check uses only allowlisted
+class-2 IDENT reads on a freshly bound attachment: base 1 (compatibility probe
+8), headset 10, display 3 and radio 2. The base probe and component identity
+are separate logical PID reads; failed steps are never resent. Each query has
+3 seconds and the whole inspection has 25 seconds. A timed-out component's
+remaining steps are skipped while independent components are still checked.
+A failed base-component PID read also skips all later base steps. A missing
+radio version is distinguished from passing identity reads: a fresh install
+would stop unless it has an unfinished, bound recovery record.
+Serial values remain private. A changed binding discards the entire result.
+Presence labels reuse the collected headset-version reply. A rejected PID or
+boot ID alone never gives docking advice; only a run with no successful headset
+reply suggests checking the dock. Reports distinguish an answering component
+with missing identity values and list the later measured blockers. This is
+presentation only: the installer still refuses those replies.
+
+`diagnostics.dect_components` is an optional read-only IPC method, forwarded by
+`daemon.busylightAPI`. `cmd/jabridge/dect_components.go` owns the service bridge
+and debug formatting. It drains existing management handles with the physical
+port gate, waits up to 5 seconds for ownership, and rejects stale registry
+instances or USB serials. `controlPortScopedPID` adds ownership for the existing
+Engage 75 runtime IDs; `scopedControlPID` retains its Link 390-only reset,
+settings and generation meaning. Known other ports remain independent;
+unresolved management parents are refused while an exclusive owner is active.
+
+The debug client checks service version and capabilities before making the
+new request, with a separate 35-second timeout. Older services produce a
+NOT TESTED instruction, never a substitute request. Existing background and
+`diagnostics.device` query sequences are unchanged. Address-role labels make
+clear when the existing metadata came from the display controller. Moving
+primary discovery from the display to the base remains deferred: issue #62's
+physical reports show that the catalog variant belongs to the headset, not the
+base. A metadata change must not silently unlock setting writes.
+
+The component report is evidence from one attempt. It neither authorizes
+installation nor changes any PID, boot-ID, serial, variant, region, downgrade,
+recovery or firmware-write guard. See [the candidate test](TEST_ENGAGE75.md).
+
+`debug --dect-image-info` additionally requests the optional
+`diagnostics.dect_image_info` method for the reported direct USB `1113` variant.
+`sitel_dect_info.go` permits only empty-payload class 15/opcode 0 reads at
+addresses 1, 10 and 3 through the bound normal management adapter. It never
+opens the HP link, enters a bootloader, selects targets or creates recovery
+state. Each address gets one attempt, with 3-second queries and a 25-second
+total limit. The client shares the existing native-debug deadline. Ordinary
+debug and class-2 query sequences are unchanged.
+The opt-in check opens its own IPC connection and sends that absolute deadline
+in the request envelope. `handleScopedImageInfo` cancels the request on EOF,
+deadline expiry or an unexpected pipelined request; the context is forwarded
+through the daemon wrapper, port acquisition and core read. `CallScoped` closes
+only this dedicated connection on cancellation. Other RPCs and the main debug
+connection retain their existing behavior.
+
+Replies use the existing strict 17/19-byte `decodeSitelInfo` parser, without
+changing installer parsing. Image IDs, modes and geometry are observations;
+expected image IDs are labelled separately. They are not runtime PIDs, and
+neither matches nor failures change the installer's original verdict. Support
+for this read is now measured on the reporter's firmware: the headset returns
+image `1116`, while the base and display reject it. This does not supply the
+display's image ID or qualify an update. Changed bindings
+discard all image observations; errors and reports omit serials and raw bytes.
+
+`sitel_dect_image_barrier.go` separates Engage 75 FWU image identification from
+preparation. On an already-open, bound FWU connection, it reads only op0 for the
+base, headset and display and checks every actual image ID against the archive
+profile. Only after the complete sweep succeeds may preparation switch a child
+or select an area. The same peers/sequences are retained, but preparation reads
+and validates each component again before using its current ID, mode or geometry.
+Information after a mode switch is also read again. Other DECT profiles
+retain their prior preparation sequence. This does not enter update mode,
+relax missing runtime identity checks or authorize an old-firmware upgrade.
+
+`sitel_dect_assessment.go` adds a private typed assessment to native installer
+planning. The existing strict collector remains unchanged. Only the measured
+USB `1113` / variants `001b`, `0148`, `0304` / firmware `4.4.1` rejection pattern
+can collect the later independent observations. The headset's GetInfo image ID
+remains separate from rejected runtime PID and IDENT boot-ID fields. Query
+address/class/opcode, outcome and value are recorded separately; private serials
+are never included in the error text. Fresh attachment checks surround reads,
+and a changed binding discards the assessment.
+
+The ordinary installer still returns `NeedsBootloaderIdentity` before entry.
+It does not manufacture missing runtime IDs. The default strict collector,
+legacy recovery hashes and background diagnostics keep their prior behavior.
+
+`engage75_preview*.go` implements a separate, default-disabled compatibility
+executor for the measured 1113/4.4.1 tuple. An enabled trial build, the separate
+preview option and the explicit firmware-risk flag are all required. File-only
+preflight rejects disabled previews before interrupting the running service.
+The private pending-inspection journal is persisted before one base entry;
+it is never install authority. On the bound new attachment, op0 measures base,
+headset and display image IDs before any child transition or target selection.
+Only then is the fixed selected-field V2 recovery record saved. Missing runtime
+IDENT values remain unavailable; image IDs do not become runtime PIDs.
+
+The preview supports reported loader0/Main1 explicitly and refuses modes2/3.
+Fresh loader geometry, image and mode checks guard preparation, HEX effects
+and radio operations. Radio progress fields are shared with the existing
+transfer without manufacturing a legacy DECT identity. All nine components,
+CRC/settings checks and strict final versions remain required. Return is
+headset before base. A fresh headset image/Main observation is required before
+the base return, and is repeated in final runtime; neither an ACK nor base
+reappearance alone is success. Changed Main geometry is allowed. New runtime PID mappings
+that were not established in the original observations remain unresolved.
+
+Both journal and V2 records refuse automatic cross-process replay: stored
+headset serials cannot prove fresh dock continuity. Within a single execution,
+the headset must stay docked; an unobservable same-model swap is not detected.
+Update-mode transitions accept a missing USB serial, as the native installer
+does, but require the same resolved topology and bus and a new bound instance.
+Any available mismatching serial is refused; normal-mode return requires the
+original nonempty serial. A same-model swap during the expected restart gap
+may therefore be detected only by the final runtime identity check. Failures retain evidence;
+there is no guessed MMI reset or claimed intact-application abort recovery.
+The preview is not enabled in official builds. `engage75_attempt.go` versions
+the pending journal separately: V2 retains the furthest phase, boot serial
+availability and attempt count while reading existing V1 evidence unchanged.
+`--new-attempt` permits only a new qualification from normal mode, never a
+resume: exact archive, no recovery authority, early phase, both returns unsent,
+and two complete fresh original selections. The prior record is archived;
+a staged transaction blocks all installs if its two renames are interrupted.
+A fourth attempt is refused. No state file is deleted to bypass checks.
+
 ### Firmware files by job
 
 | Job | Files in `internal/firmware` |
@@ -498,3 +624,17 @@ connection handling.
 For scoped dongles, registration captures the kernel USB generation before enrichment and outside the registry lock. Each registry instance retains that generation; only a verified transaction rotation publishes a new instance and generation together. Reset refuses a stale generation before opening HID. Missing-generation slots are retired after the metadata retry interval and registered again, never refreshed into permission in place.
 
 Exact-profile Link 390 setting writes compare their cached attachment before opening HID and again on the held handle after the firmware query. Shared ownership prevents these checks from retiring a slot during another configuration transaction. Other device families retain their existing paths.
+
+### Engage 75 hardware-test bundle
+
+The manual `engage75_test` input in `ci.yml` defaults off. After native CI
+passes, its separate job builds pinned engine commit `51ccda9`, verifies the
+reviewed binary hash and packages `scripts/engage75-test.sh`. Normal PR and
+release builds keep the compatibility preview disabled. The helper verifies
+files, requires typed acceptance, downloads the exact official firmware,
+records one result and refuses a second run. Exclusive folder ownership is
+reserved before shared-file changes, so concurrent windows cannot overwrite
+the first result.
+`scripts/test-engage75-wrapper.py` exercises this wrapper with fake commands
+and the checked archive as data; it does not access hardware. It does not install the app or
+change device-access rules. See `TEST_ENGAGE75.md` for the human test steps.

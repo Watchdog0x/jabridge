@@ -162,6 +162,20 @@ type sitelDECTPrepared struct {
 }
 
 func prepareSitelDECTTransfer(ctx context.Context, backend sitelDECTBackend, connection *sitelDECTConnection, archive *sitelDECTArchive) ([]sitelDECTPrepared, error) {
+	return prepareSitelDECTTransferPolicy(ctx, backend, connection, archive, false)
+}
+
+func prepareSitelDECTTransferPolicy(ctx context.Context, backend sitelDECTBackend, connection *sitelDECTConnection, archive *sitelDECTArchive, preview bool) ([]sitelDECTPrepared, error) {
+	verified := map[byte]sitelDECTImageObservation{}
+	if archive.Engage75 != nil {
+		observations, err := collectEngage75ImageInfo(ctx, connection)
+		if err != nil {
+			return nil, err
+		}
+		for _, observation := range observations {
+			verified[observation.Address] = observation
+		}
+	}
 	byTarget := map[byte]sitelDECTPrepared{}
 	for _, address := range archive.Profile.endpoints() {
 		peer := connection.peer(address)
@@ -176,6 +190,16 @@ func prepareSitelDECTTransfer(ctx context.Context, backend sitelDECTBackend, con
 			expectedPID = archive.Profile.USBImagePID
 		}
 		var info sitelDeviceInfo
+		observation, haveInfo := verified[address]
+		if haveInfo {
+			// Keep the peer's sequence, but never treat an earlier image or
+			// mode observation as current authorization for an effect.
+			peer = observation.peer
+		}
+		rawPeer := peer
+		if preview {
+			peer = engage75PreviewPeer{next: peer, address: address, transitionFrom: 1}
+		}
 		ready, cancel := context.WithTimeout(ctx, 15*time.Second)
 		switched := false
 		for {
@@ -192,6 +216,10 @@ func prepareSitelDECTTransfer(ctx context.Context, backend sitelDECTBackend, con
 			if info.ID != uint32(JabraVendorID)<<16|uint32(expectedPID) {
 				cancel()
 				return nil, errors.New("DECT bootloader component image ID mismatch")
+			}
+			if preview && info.Mode > 1 {
+				cancel()
+				return nil, errors.New("unsupported Engage 75 preview program mode")
 			}
 			if info.Mode != 1 {
 				break
@@ -213,6 +241,9 @@ func prepareSitelDECTTransfer(ctx context.Context, backend sitelDECTBackend, con
 			}
 		}
 		cancel()
+		if preview {
+			peer = engage75PreviewPeer{next: rawPeer, address: address, loaderInfo: &info}
+		}
 		var images []sitelPlannedImage
 		for _, image := range archive.Images {
 			if image.File.GNPAddress == strconv.Itoa(int(address)) {
