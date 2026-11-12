@@ -46,6 +46,16 @@ showing confirmation. The installer checks them again. An unplugged device
 or changed file requires a new selection.
 
 Use [the firmware guide](FIRMWARE.md) for individual protocols and model checks.
+The menu and CLI use the same official-release check for shared CSR packages.
+A manifest may name a canonical USB ID while the selected UC/MS/Data variant
+has another ID. `validatedCSRProtocol` requires the exact published checksum,
+release version, one supported protocol and explicit catalog coverage of both
+IDs. Archive validation and the selected-device digest remain in place; the
+native updater and final verification use the actual selected USB ID.
+`PreparedInstall` re-captures the USB attachment before installation. Its private
+per-plan enumeration seam lets tests replace sysfs discovery while retaining
+the production fingerprint and comparison code.
+
 Wireless Engage adds a paired headset to that binding. The service supplies an
 identity digest, `interactive_wireless_install.go` captures its USB parent,
 and `sitel_ota_install.go` checks both devices after the service handoff. Its

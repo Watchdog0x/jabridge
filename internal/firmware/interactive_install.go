@@ -20,9 +20,16 @@ type PreparedInstall struct {
 	archiveSHA string
 	wireless   *WirelessFirmwareSelection
 	language   uint16
+	enumerate  func() ([]USBDevice, error)
 }
 
 func PrepareInteractiveInstall(path string, pid uint16, attachment string) (*PreparedInstall, error) {
+	return prepareInteractiveInstall(path, pid, attachment, nil)
+}
+
+// Only discovery is replaceable in tests. Selection, attachment fingerprinting
+// and install-time comparisons use the same production implementation.
+func prepareInteractiveInstall(path string, pid uint16, attachment string, enumerate func() ([]USBDevice, error)) (*PreparedInstall, error) {
 	if attachment == "" {
 		return nil, errors.New("no selected USB attachment")
 	}
@@ -35,11 +42,20 @@ func PrepareInteractiveInstall(path string, pid uint16, attachment string) (*Pre
 		return nil, err
 	}
 	defer func() { _ = snapshot.Close() }()
-	binding, err := interactiveInstallBinding(snapshot.path, pid)
+	var binding string
+	if enumerate == nil {
+		binding, err = interactiveInstallBinding(snapshot.path, pid)
+	} else {
+		var devices []USBDevice
+		devices, err = enumerate()
+		if err == nil {
+			binding, err = interactiveInstallBindingForDevices(snapshot.path, pid, devices)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
-	plan := &PreparedInstall{path: path, pid: pid, binding: binding, attachment: attachment, archiveSHA: snapshot.digest}
+	plan := &PreparedInstall{path: path, pid: pid, binding: binding, attachment: attachment, archiveSHA: snapshot.digest, enumerate: enumerate}
 	if err := plan.validate(); err != nil {
 		return nil, err
 	}
@@ -53,14 +69,22 @@ func (p *PreparedInstall) validate() error {
 	if p == nil || p.binding == "" {
 		return errors.New("no firmware target prepared")
 	}
-	attachment, err := CaptureInstallAttachment(p.pid)
+	discover := p.enumerate
+	if discover == nil {
+		discover = enumerateUSB
+	}
+	devices, err := discover()
+	if err != nil {
+		return err
+	}
+	attachment, err := captureInstallAttachmentFrom(devices, p.pid)
 	if err != nil {
 		return err
 	}
 	if attachment != p.attachment {
 		return errors.New("selected USB device changed; select it again before updating")
 	}
-	devices, err := enumerateUSB()
+	devices, err = discover()
 	if err != nil {
 		return err
 	}
@@ -92,6 +116,10 @@ func CaptureInstallAttachment(pid uint16) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return captureInstallAttachmentFrom(devices, pid)
+}
+
+func captureInstallAttachmentFrom(devices []USBDevice, pid uint16) (string, error) {
 	device, err := selectInteractiveUSBTarget(devices, pid)
 	if err != nil {
 		return "", err
@@ -235,9 +263,6 @@ func interactiveInstallBindingForDevices(path string, pid uint16, devices []USBD
 		// Sibling PIDs need explicit official release evidence, not a name
 		// match. The selected PID is also passed to the installer itself.
 		if pids[0] != pid {
-			if !isExtendedCSRManifest(manifest) {
-				return "", errors.New("this archive cannot be routed to the selected device by the native installer")
-			}
 			if _, err := validatedCSRProtocol(path, device); err != nil {
 				return "", err
 			}

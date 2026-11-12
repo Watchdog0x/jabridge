@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.1 — 2026-11-12
+
+Fix the firmware menu refusing an official shared package for Evolve2 65 Flex
+MS (`2519`) because its manifest names the UC variant (`2517`). The menu now
+uses the same checksum, model and protocol checks as the installer (#65).
+
+Record the reported Link 380 and Evolve2 65 setup, including pairing, buttons,
+playback and setting read-back, in the tested-device notes (#64).
+
 ## 1.7.0 — 2026-11-12
 
 Add component diagnostics to debug reports, including a separate firmware-image
