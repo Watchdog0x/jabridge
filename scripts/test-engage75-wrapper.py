@@ -16,11 +16,12 @@ with tempfile.TemporaryDirectory(prefix='engage75-wrapper-fixtures-') as tmp:
   fake=bundle/'jabridge';fake.write_text('''#!/usr/bin/env bash
 set -eu
 if [[ "$1" == --version ]];then
- if [[ "${MOCK_CASE}" == wrong-version ]];then printf 'Jabridge wrong\\n';else printf 'Jabridge 1.6.2-issue62.8\\n';fi
+ if [[ "${MOCK_CASE}" == wrong-version ]];then printf 'Jabridge wrong\\n';else printf 'Jabridge 1.6.2-issue62.9\\n';fi
  exit 0
 fi
-[[ "$#" == 5 && "$1" == firmware && "$2" == install && "$3" == "$MOCK_BUNDLE/Jabra_Engage_75_5.20.1.zip" && "$4" == --preview-engage75-legacy && "$5" == --i-accept-risk ]] || exit 71
+[[ ( "$#" == 5 || ( "$#" == 6 && "$6" == --new-attempt ) ) && "$1" == firmware && "$2" == install && "$3" == "$MOCK_BUNDLE/Jabra_Engage_75_5.20.1.zip" && "$4" == --preview-engage75-legacy && "$5" == --i-accept-risk ]] || exit 71
 printf 'install\\n' >> "$MOCK_TRACE"
+if [[ "$#" == 6 ]];then printf 'new-attempt-flag\\n' >> "$MOCK_TRACE";fi
 printf 'Simulated installer output\\n'
 exit "${MOCK_INSTALL_CODE:-0}"
 ''')
@@ -39,7 +40,7 @@ if [[ "$MOCK_CASE" == bad-firmware ]];then printf 'wrong bytes' > "$out";else cp
   if case=='bad-binary':fake.write_text(fake.read_text()+'# changed bytes\n')
   if case=='linked-report':(bundle/'jabridge-engage75-result.txt').symlink_to(base/'untouched')
   env={**os.environ,'PATH':str(tools)+os.pathsep+os.environ['PATH'],'MOCK_CASE':case,'MOCK_TRACE':str(trace),'MOCK_BUNDLE':str(bundle),'MOCK_FIRMWARE':str(firmware),'MOCK_INSTALL_CODE':'9' if case=='install-fail' else '0'}
-  answer='\n' if case=='cancel' else '' if case=='eof' else 'UPDATE\n'
+  answer='\n\n' if case=='cancel' else '' if case=='eof' else '\nUPDATE\n'
   proc=subprocess.run(['bash',str(bundle/'test-engage75.sh')],input=answer,text=True,capture_output=True,env=env,timeout=20)
   calls=trace.read_text().splitlines() if trace.exists() else []
   marker=(bundle/'.engage75-test-started').exists()
@@ -53,8 +54,17 @@ if [[ "$MOCK_CASE" == bad-firmware ]];then printf 'wrong bytes' > "$out";else cp
   else:
    assert proc.returncode==(9 if case=='install-fail' else 0) and calls==['download','install'] and marker,(case,proc.stdout,proc.stderr,calls)
    report=(bundle/'jabridge-engage75-result.txt').read_bytes();assert b'Simulated installer output' in report
-   rerun=subprocess.run(['bash',str(bundle/'test-engage75.sh')],input='UPDATE\n',text=True,capture_output=True,env=env,timeout=20)
+   rerun=subprocess.run(['bash',str(bundle/'test-engage75.sh')],input='\nUPDATE\n',text=True,capture_output=True,env=env,timeout=20)
    assert rerun.returncode==1 and trace.read_text().splitlines()==calls and (bundle/'jabridge-engage75-result.txt').read_bytes()==report
+   if case=='success':
+    declined=subprocess.run(['bash',str(bundle/'test-engage75.sh')],input='NEW ATTEMPT\n\n',text=True,capture_output=True,env=env,timeout=20)
+    assert declined.returncode==0 and trace.read_text().splitlines()==calls
+    retry=subprocess.run(['bash',str(bundle/'test-engage75.sh')],input='NEW ATTEMPT\nUPDATE\n',text=True,capture_output=True,env=env,timeout=20)
+    assert retry.returncode==0,(retry.stdout,retry.stderr)
+    assert (bundle/'jabridge-engage75-result.txt').read_bytes()==report
+    assert len(list(bundle.glob('jabridge-engage75-result-new.*.txt')))==1
+    assert trace.read_text().splitlines()==calls+['download','install','new-attempt-flag']
+
   results.append({'case':case,'exit':proc.returncode,'calls':calls,'passed':True})
  # Reproduce the review's exact two-window ordering: both instances start
  # before acceptance; first finishes; second receives late UPDATE. It must
@@ -80,6 +90,7 @@ if [[ "$MOCK_CASE" == bad-firmware ]];then printf 'wrong bytes' > "$out";else cp
  first=subprocess.Popen(['bash',str(bundle/'test-engage75.sh')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env=env)
  second=None
  try:
+  first.stdin.write(b'\n');first.stdin.flush()
   first_output,first_prompt=observe_prompt_or_exit(first);assert first_prompt,first_output
   second=subprocess.Popen(['bash',str(bundle/'test-engage75.sh')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env=env)
   second_output,second_prompt=observe_prompt_or_exit(second)

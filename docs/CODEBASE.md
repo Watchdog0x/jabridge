@@ -163,10 +163,20 @@ that were not established in the original observations remain unresolved.
 Both journal and V2 records refuse automatic cross-process replay: stored
 headset serials cannot prove fresh dock continuity. Within a single execution,
 the headset must stay docked; an unobservable same-model swap is not detected.
-USB transitions require the same nonempty serial and topology; a different
-serial format is unresolved rather than guessed. Failures retain evidence;
+Update-mode transitions accept a missing USB serial, as the native installer
+does, but require the same resolved topology and bus and a new bound instance.
+Any available mismatching serial is refused; normal-mode return requires the
+original nonempty serial. A same-model swap during the expected restart gap
+may therefore be detected only by the final runtime identity check. Failures retain evidence;
 there is no guessed MMI reset or claimed intact-application abort recovery.
-The preview is not enabled in official builds or approved for physical use.
+The preview is not enabled in official builds. `engage75_attempt.go` versions
+the pending journal separately: V2 retains the furthest phase, boot serial
+availability and attempt count while reading existing V1 evidence unchanged.
+`--new-attempt` permits only a new qualification from normal mode, never a
+resume: exact archive, no recovery authority, early phase, both returns unsent,
+and two complete fresh original selections. The prior record is archived;
+a staged transaction blocks all installs if its two renames are interrupted.
+A fourth attempt is refused. No state file is deleted to bypass checks.
 
 ### Firmware files by job
 

@@ -16,21 +16,22 @@ import (
 
 type engage75PreviewWorld struct {
 	*engage75World
-	runtimeDevice                                USBDevice
-	assessmentPeer                               *dectAssessmentPeer
-	assessments                                  int
-	pending                                      engage75Pending
-	recovery                                     *firmwareRecoveryState
-	phases                                       []string
-	entryErr                                     error
-	fault                                        string
-	packets                                      [][]byte
-	afterPacket                                  func([]byte)
-	afterEntry                                   func()
-	successfulSPIPackets                         int
-	nakReplies, ambiguousReturns, returnRequests []byte
-	entryCalls, finalChecks                      int
-	saveFailure                                  string
+	runtimeDevice                                             USBDevice
+	assessmentPeer                                            *dectAssessmentPeer
+	assessments                                               int
+	pending                                                   engage75Pending
+	recovery                                                  *firmwareRecoveryState
+	phases                                                    []string
+	entryErr                                                  error
+	fault                                                     string
+	packets                                                   [][]byte
+	afterPacket                                               func([]byte)
+	afterEntry                                                func()
+	successfulSPIPackets                                      int
+	nakReplies, ambiguousReturns, returnRequests              []byte
+	entryCalls, finalChecks                                   int
+	bootWithoutSerial, returnWithoutSerial, returnWrongSerial bool
+	saveFailure                                               string
 }
 
 func newEngage75PreviewWorld(archive *sitelDECTArchive, revision uint16) *engage75PreviewWorld {
@@ -70,6 +71,8 @@ func newEngage75PreviewWorld(archive *sitelDECTArchive, revision uint16) *engage
 	ap.ident.world = w
 	w.headSerial = "REPORTER_HEAD_SERIAL_SENTINEL"
 	device := w.base.device()
+	device.attachment.realPath = device.SysPath
+	device.attachment.bus = 1
 	// A nonempty serial is measured independently in both USB modes by this
 	// model; the real transition is deliberately not assumed to use this format.
 	p := &engage75PreviewWorld{engage75World: w, runtimeDevice: device, assessmentPeer: ap}
@@ -122,7 +125,30 @@ func (w *engage75PreviewWorld) wait(ctx context.Context, previous USBDevice, pid
 	if w.fault == "serial-change" {
 		d.Serial = "loader-serial-unqualified"
 	}
-	return d, err
+	if err != nil {
+		return d, err
+	}
+	d.attachment.realPath = d.SysPath
+	d.attachment.bus = 1
+	if pid == 0x1111 && w.bootWithoutSerial {
+		d.Serial = ""
+	}
+	if pid == 0x1113 && w.returnWithoutSerial {
+		d.Serial = ""
+	}
+	if pid == 0x1113 && w.returnWrongSerial {
+		d.Serial = "other-runtime-serial"
+	}
+	return waitSitelDevice(ctx, engage75NativeWaitResult{device: d}, previous, pid)
+}
+
+type engage75NativeWaitResult struct {
+	nativeSitelBackend
+	device USBDevice
+}
+
+func (b engage75NativeWaitResult) wait(context.Context, USBDevice, uint16) (USBDevice, error) {
+	return b.device, nil
 }
 func (w *engage75PreviewWorld) boot(ctx context.Context, _ USBDevice) (*sitelDECTConnection, error) {
 	plain := &sitelBootPeer{world: w.base, endpoints: map[byte]*sitelTestDevice{1: w.base, 10: w.head, 3: w.mmi}, onBoot: func(address byte) error {
@@ -514,6 +540,7 @@ func TestEngage75PreviewJournalAndV2CannotAuthorizeRestart(t *testing.T) {
 		t.Fatal("pending allowed entry replay")
 	}
 	// A crash after intent is never treated as definitely unsent on reload.
+	got.Version, got.Attempt, got.LastPhase, got.BootSerial = 1, 0, "", ""
 	got.Phase, got.Entry = "entry-intent", "intent"
 	got.HeadReturn, got.BaseReturn = "not-sent", "not-sent"
 	got.HeadMainVerified = false
@@ -581,6 +608,7 @@ func TestLocalEngage75PreviewWholeArchive(t *testing.T) {
 	for _, revision := range []uint16{0x28, 0x35} {
 		t.Run(fmt.Sprintf("%02x", revision), func(t *testing.T) {
 			w := newEngage75PreviewWorld(archive, revision)
+			w.bootWithoutSerial = true
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer cancel()
 			if err := w.run(ctx); err != nil {
@@ -675,6 +703,7 @@ func TestEngage75PreviewPendingSchemaNeverLoadsAsInstallAuthority(t *testing.T) 
 	}
 	for _, phase := range []string{"entry-intent", "bound-boot-attachment", "images-verified", "recovery-bound", "transfer", "returning", "unresolved"} {
 		p := w.pending
+		p.Version, p.Attempt, p.LastPhase, p.BootSerial = 1, 0, "", ""
 		p.Phase = phase
 		p.Entry = "possibly-sent"
 		p.Unresolved = phase == "unresolved"
@@ -876,5 +905,21 @@ func TestEngage75PreviewNullAliasCannotHideV2InsideValidLegacy(t *testing.T) {
 	}
 	if _, err := loadFirmwareRecoveryState(); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatal("null alias hid the V2 marker and fell back to valid legacy", err)
+	}
+}
+
+func TestEngage75PreviewAbsentBootSerialPassesNativeWaitAndFullTransfer(t *testing.T) {
+	enableEngage75PreviewTest(t)
+	for _, revision := range []uint16{0x28, 0x35} {
+		t.Run(fmt.Sprintf("%02x", revision), func(t *testing.T) {
+			w := newEngage75PreviewWorld(syntheticEngage75PreviewArchive(), revision)
+			w.bootWithoutSerial = true
+			if err := w.run(context.Background()); err != nil {
+				t.Fatal("native reconnect accepts absent boot serial, preview must continue", err)
+			}
+			if w.pending.Phase != "final-verified" || !slices.Equal(w.stages, engage75TargetOrder) || w.finalChecks != 1 {
+				t.Fatal("did not verify all components", w.stages, w.pending.Phase)
+			}
+		})
 	}
 }

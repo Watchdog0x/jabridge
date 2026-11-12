@@ -485,3 +485,13 @@ base remains attached. Across-process dock continuity is lost, so neither the
 pending journal nor V2 record permits automatic continuation. Different or
 missing USB serials across modes are unresolved. No intact-old-display abort
 or manual recovery procedure is claimed; physical use is still disabled.
+
+## Engage 75 reconnect test, issue #62
+
+[@mtalexan's 1.6.2-issue62.8 result](https://github.com/Watchdog0x/jabridge/issues/62#issuecomment-6746553895)
+stopped at the update-mode reconnect identity check before the image sweep or
+firmware transfer. [The follow-up](https://github.com/Watchdog0x/jabridge/issues/62#issuecomment-6782438972)
+reports that removing base power for a few minutes restored its normal screen.
+The missing boot serial is inferred from the native wait/binder difference;
+the old result did not record which identity field failed. No physical firmware
+transfer has been confirmed by this test.

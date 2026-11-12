@@ -361,8 +361,8 @@ A separate compatibility preview now enters the known base loader, reads the
 actual display ID there and checks all three image IDs before writing. It verifies that the headset has
 returned to Main before restarting the base, then checks again after restart. It
 requires a specially enabled build, a separate preview option and explicit
-firmware-risk acceptance. Official builds leave it disabled. This source
-candidate has not been tested on the older physical Engage 75.
+firmware-risk acceptance. Official builds leave it disabled. The older physical Engage 75 reached update mode in the first test; its
+reconnect check stopped before firmware transfer.
 
 Its pending inspection file cannot authorize firmware writes. A separate V2
 record is created only after the image checks. Interrupted or ambiguous steps
@@ -370,7 +370,21 @@ are kept for investigation; the app will not blindly retry them after restart.
 The headset must stay docked. Losing continuity, an unknown mode or a changed
 identity stops the preview. A failed mode change may leave the device in update
 mode; returning an untouched old display has not been physically qualified.
-No firmware trial instructions are provided until the candidate is reviewed.
+Some update-mode devices do not report a USB serial. The preview keeps the
+original serial as normal-mode evidence, accepts its absence only in update
+mode on the original resolved USB topology and bus, and checks all three
+actual image IDs before any child switch or transfer. Available mismatches
+still refuse. A same-model device swapped onto that port during restart can
+be detected only at final identity verification; leave the base connected.
+
+For the failed initial test, the reporter restored the normal screen by
+removing base power for a few minutes. A new attempt uses `--new-attempt` only
+after normal-mode identity, versions, archive and the entire original selection
+match again and no recovery authority exists. It archives the old journal and
+keeps a separate result; it does not resume unknown progress or remove state
+files. V2 pending records retain the furthest phase and permit at most three
+attempts. Later stages, unknown records and any transfer authority remain
+blocked. This power-cycle observation does not qualify interrupted-flash recovery.
 
 The archive contains nine components. They are installed in this order:
 headset firmware, headset sounds, Bluetooth firmware, Bluetooth settings,

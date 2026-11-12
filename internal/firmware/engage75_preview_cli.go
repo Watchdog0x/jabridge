@@ -6,16 +6,21 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
 
-func installEngage75PreviewChecked(snapshot *firmwareSnapshot, accepted bool, validateTarget func() error, preferredPID uint16) error {
+func installEngage75PreviewChecked(snapshot *firmwareSnapshot, accepted bool, validateTarget func() error, preferredPID uint16, newAttempt bool) error {
 	if Engage75Compatibility != "enabled" || !accepted {
 		return errors.New("engage 75 preview requires an enabled trial build and the explicit firmware-risk flag")
 	}
-	if err := checkEngage75PreviewStart(); err != nil {
+	previous, err := loadEngage75PreviewStart(newAttempt)
+	if err != nil {
 		return err
+	}
+	if previous != nil && previous.ArchiveSHA256 != snapshot.digest {
+		return errors.New("the new attempt needs the exact original firmware archive")
 	}
 	archive, err := loadSitelDECTArchive(snapshot.path)
 	if err != nil {
@@ -28,14 +33,9 @@ func installEngage75PreviewChecked(snapshot *firmwareSnapshot, accepted bool, va
 	if err != nil {
 		return err
 	}
-	var matches []USBDevice
-	for _, device := range devices {
-		if device.VendorID == JabraVendorID && device.ProductID == 0x1113 && !device.ViaDongle && (preferredPID == 0 || preferredPID == device.ProductID) {
-			matches = append(matches, device)
-		}
-	}
-	if len(matches) != 1 {
-		return fmt.Errorf("engage 75 preview needs one directly connected 1113 base; found %d", len(matches))
+	device, err := selectEngage75PreviewDevice(devices, previous, newAttempt, preferredPID)
+	if err != nil {
+		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -54,9 +54,17 @@ func installEngage75PreviewChecked(snapshot *firmwareSnapshot, accepted bool, va
 	}
 	commandLineRiskAccepted.Store(true)
 	defer commandLineRiskAccepted.Store(false)
-	fmt.Fprintln(os.Stderr, "Engage 75 compatibility preview. Leave the headset docked and base connected.\nThis changes firmware modes. A failed attempt may leave the device in update mode. Automatic retry is disabled.")
+	fmt.Fprintln(os.Stderr, "Engage 75 firmware test. Keep the headset docked and base connected.\nThe base restarts and reconnects during the update. Saved attempts are checked before a new attempt.")
 	lastTarget, lastPercent := byte(0), -1
-	err = runEngage75Preview(ctx, nativeSitelDECTBackend{}, matches[0], archive, snapshot.digest, engage75PreviewStore{pending: saveEngage75Pending, recovery: saveFirmwareRecoveryState}, func(target byte, done, total int) {
+	err = runEngage75Preview(ctx, nativeSitelDECTBackend{}, device, archive, snapshot.digest, engage75PreviewStore{pending: func(p engage75Pending) error {
+		if err := saveEngage75Pending(p); err != nil {
+			return err
+		}
+		if p.Phase == "bound-boot-attachment" && p.BootSerial == "absent" {
+			fmt.Fprintln(os.Stderr, "Base reconnected in update mode without a USB serial. Checking its firmware image IDs.")
+		}
+		return nil
+	}, recovery: saveFirmwareRecoveryState, previous: previous, supersede: supersedeEngage75Pending}, func(target byte, done, total int) {
 		percent := done * 100 / total
 		if target != lastTarget || percent != lastPercent {
 			fmt.Fprintf(os.Stderr, "\r%s: %3d%%", dectComponentLabel(target), percent)
@@ -79,4 +87,27 @@ func installEngage75PreviewChecked(snapshot *firmwareSnapshot, accepted bool, va
 	}
 	fmt.Fprintln(os.Stderr, "Engage 75 firmware installed. All component versions and selected identities verified.")
 	return nil
+}
+
+func selectEngage75PreviewDevice(devices []USBDevice, previous *engage75Pending, newAttempt bool, preferredPID uint16) (USBDevice, error) {
+	var bases []USBDevice
+	for _, device := range devices {
+		if device.VendorID == JabraVendorID && !device.ViaDongle && (engage75Profile.runtime(device.ProductID) || device.ProductID == engage75Profile.BootPID) {
+			bases = append(bases, device)
+		}
+	}
+	if len(bases) != 1 {
+		return USBDevice{}, fmt.Errorf("connect only one Engage 75 base for this test; found %d", len(bases))
+	}
+	device := bases[0]
+	if device.ProductID == engage75Profile.BootPID {
+		if newAttempt && previous != nil && filepath.Base(device.SysPath) == previous.Selected.USBPort {
+			return USBDevice{}, errors.New("the base is still in update mode; switch its power off for a few minutes, reconnect it and wait for its normal screen before a new attempt")
+		}
+		return USBDevice{}, errors.New("the base is not in normal mode; keep the existing result for checking")
+	}
+	if device.ProductID != 0x1113 || preferredPID != 0 && preferredPID != device.ProductID {
+		return USBDevice{}, errors.New("this test needs the original directly connected 1113 base")
+	}
+	return device, nil
 }

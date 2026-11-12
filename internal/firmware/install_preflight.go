@@ -13,7 +13,8 @@ func ValidateInstallInput(args []string) error {
 		return err
 	}
 	args = remaining
-	args, preview, err := extractEngage75Preview(args)
+	args, previewOptions, err := extractEngage75Options(args)
+	preview := previewOptions.preview
 	if err != nil {
 		return err
 	}
@@ -31,8 +32,12 @@ func ValidateInstallInput(args []string) error {
 	defer func() { _ = snapshot.Close() }()
 	path = snapshot.path
 	if preview {
-		if err := checkEngage75PreviewStart(); err != nil {
+		previous, err := loadEngage75PreviewStart(previewOptions.newAttempt)
+		if err != nil {
 			return err
+		}
+		if previous != nil && previous.ArchiveSHA256 != snapshot.digest {
+			return fmt.Errorf("the new attempt needs the exact original firmware archive")
 		}
 		archive, err := loadSitelDECTArchive(path)
 		if err != nil {

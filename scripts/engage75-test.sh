@@ -11,7 +11,7 @@ active="$bundle_dir/.engage75-test-running"
 download=''
 archive="$bundle_dir/Jabra_Engage_75_5.20.1.zip"
 firmware_sha='210d0402470502aa28716a98a67a4343e6f29d98f0b7681b676e66a12d2c3a98'
-version='Jabridge 1.6.2-issue62.8'
+version='Jabridge 1.6.2-issue62.9'
 
 if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
   printf '%s\n' 'This test build needs Linux on an Intel or AMD 64-bit computer.'
@@ -23,11 +23,6 @@ for program in sha256sum curl tee; do
     exit 1
   fi
 done
-if [[ -e "$marker" || -L "$marker" ]]; then
-  printf '%s\n' 'This test has already started. Do not run it again.' \
-    'Send jabridge-engage75-result.txt and leave the base connected.'
-  exit 1
-fi
 if ! sha256sum --check --status SHA256SUMS; then
   printf '%s\n' 'The test files did not pass their checks. Download and extract them again.'
   exit 1
@@ -44,11 +39,6 @@ cleanup() {
   rmdir -- "$active" 2>/dev/null || true
 }
 trap cleanup EXIT
-# The permanent marker may have appeared between the first check and ownership.
-if [[ -e "$marker" || -L "$marker" ]]; then
-  printf '%s\n' 'This test has already started. Send the existing result file instead.'
-  exit 1
-fi
 # GitHub ZIP extraction may not retain executable permission; only this local
 # test copy is changed. Setup/self-update are disabled in the packaged binary.
 chmod u+x ./jabridge
@@ -56,12 +46,31 @@ if [[ "$(./jabridge --version)" != "$version" ]]; then
   printf '%s\n' 'This is not the expected test build. Please send me this message.'
   exit 1
 fi
+printf '\n%s\n' 'For a first test, press Enter.' \
+  'If an earlier test stopped, power the base off for a few minutes, reconnect it and wait for its normal screen.'
+printf '%s' 'For that checked new attempt, type NEW ATTEMPT: '
+mode=''
+new_attempt=false
+if ! IFS= read -r mode; then printf '%s\n' 'Cancelled. No firmware update was started.'; exit 0; fi
+case "$mode" in
+  '') ;;
+  'NEW ATTEMPT') new_attempt=true ;;
+  *) printf '%s\n' 'Cancelled. No firmware update was started.'; exit 0 ;;
+esac
+if [[ "$new_attempt" == false && ( -e "$marker" || -L "$marker" || -e "$report" ) ]]; then
+  printf '%s\n' 'An earlier result is saved. Start again only with NEW ATTEMPT after the base is back to normal.'
+  exit 1
+fi
+if [[ -L "$marker" || ( -e "$marker" && ! -d "$marker" ) ]]; then
+  printf '%s\n' 'The saved attempt folder needs checking. Keep the earlier result.'
+  exit 1
+fi
 printf '\n%s\n' \
   'This test installs Engage 75 firmware 5.20.1.' \
   'Keep the headset docked and the base plugged in. End calls and close other Jabra tools.' \
   'The device will restart during the update.' \
-  'If the test fails, the base may stay in update mode.' \
-  'A recovery method for the old 4.4.1 firmware has not been confirmed.' \
+  'The base reconnects as a different USB device during the update.' \
+  'Recovery after a partially written update has not been tested.' \
   'Your installed Jabridge app will not be replaced.'
 printf '\nType UPDATE to accept this firmware test, or press Enter to cancel: '
 answer=''
@@ -74,12 +83,20 @@ if [[ -L "$report" || -L "$archive" ]]; then
   printf '%s\n' 'The result or firmware file is a link. Extract the test into a fresh folder.'
   exit 1
 fi
-# Reserve the accepted attempt before any shared result/archive mutation.
-# Keep this marker even if download fails; never silently retry an accepted test.
-if ! mkdir -- "$marker"; then
-  printf '%s\n' 'The test could not be reserved. No firmware update was started.'
-  exit 1
+# Keep every accepted attempt and result. Native validation decides whether
+# the saved device/firmware state permits a new attempt; this is no resume.
+if [[ "$new_attempt" == true ]]; then
+  if [[ ! -d "$marker" ]]; then mkdir -- "$marker"; fi
+  mktemp -d "$marker/new-attempt.XXXXXX" >/dev/null
+  report="$(mktemp "$bundle_dir/jabridge-engage75-result-new.XXXXXX.txt")"
+else
+  if ! mkdir -- "$marker"; then
+    printf '%s\n' 'The test could not be reserved. No firmware update was started.'
+    exit 1
+  fi
 fi
+attempt_args=()
+if [[ "$new_attempt" == true ]]; then attempt_args+=(--new-attempt); fi
 printf '%s\n' "$version" 'Source: 51ccda9c34901ea420e950b406d1654458ff3fdd' > "$report"
 printf '%s\n' 'Getting the official 5.20.1 firmware...' | tee -a "$report"
 download="$(mktemp "$bundle_dir/.engage75-download.XXXXXX")"
@@ -96,11 +113,12 @@ fi
 mv -- "$download" "$archive"
 printf '%s\n' 'Starting the firmware test. Leave the base connected and headset docked.' | tee -a "$report"
 export JABRIDGE_HISTORY=off
-if ./jabridge firmware install "$archive" --preview-engage75-legacy --i-accept-risk 2>&1 | tee -a "$report"; then
-  printf '\n%s\n' 'The test finished. Please attach jabridge-engage75-result.txt to issue #62.' | tee -a "$report"
+if ./jabridge firmware install "$archive" --preview-engage75-legacy --i-accept-risk "${attempt_args[@]}" 2>&1 | tee -a "$report"; then
+  printf '\nThe test finished. Please attach %s to issue #62.\n' "$(basename -- "$report")" | tee -a "$report"
 else
   result=$?
   printf '\n%s\n' 'The test stopped. Leave the base connected and headset docked.' \
-    'Do not run it again. Please attach jabridge-engage75-result.txt to issue #62.' | tee -a "$report"
+    'Keep this result before trying anything else.' | tee -a "$report"
+  printf 'Attach %s to issue #62.\n' "$(basename -- "$report")" | tee -a "$report"
   exit "$result"
 fi

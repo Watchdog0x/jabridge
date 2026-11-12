@@ -65,6 +65,9 @@ type engage75RecoveryV2 struct {
 
 type engage75Pending struct {
 	Version          int                      `json:"version"`
+	Attempt          int                      `json:"attempt,omitempty"`
+	LastPhase        string                   `json:"lastPhase,omitempty"`
+	BootSerial       string                   `json:"bootSerial,omitempty"`
 	Purpose          string                   `json:"purpose"`
 	ArchiveSHA256    string                   `json:"archiveSha256"`
 	Phase            string                   `json:"phase"`
@@ -150,7 +153,7 @@ func validEngage75RecoveryV2(state firmwareRecoveryState) error {
 	return nil
 }
 
-func (p engage75Pending) validate() error {
+func (p engage75Pending) validateV1() error {
 	if p.Version != 1 || p.Purpose != "engage75-pending-inspection" || !validEngage75Digest(p.ArchiveSHA256) || p.Selected.validate() != nil {
 		return errors.New("invalid Engage 75 pending inspection")
 	}
@@ -230,6 +233,19 @@ func loadEngage75Pending() (engage75Pending, error) {
 	if decoder.Decode(&struct{}{}) != io.EOF {
 		return p, errors.New("trailing Engage 75 pending data")
 	}
+	if p.Version == 1 {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			return p, err
+		}
+		for key := range fields {
+			for _, reserved := range []string{"attempt", "lastPhase", "bootSerial"} {
+				if strings.EqualFold(key, reserved) {
+					return p, errors.New("version 1 inspection contains version 2 fields")
+				}
+			}
+		}
+	}
 	return p, p.validate()
 }
 
@@ -245,6 +261,9 @@ func saveEngage75Pending(p engage75Pending) error {
 }
 
 func refuseEngage75Pending() error {
+	if err := refuseEngage75AttemptTransaction(); err != nil {
+		return err
+	}
 	_, err := loadEngage75Pending()
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil

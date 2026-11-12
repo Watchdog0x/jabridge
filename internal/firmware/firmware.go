@@ -1735,7 +1735,8 @@ func cmdInstallForSelection(args []string, validateTarget func() error, expected
 		die("voice language: %v", languageErr)
 	}
 	args = remaining
-	args, preview, previewErr := extractEngage75Preview(args)
+	args, previewOptions, previewErr := extractEngage75Options(args)
+	preview := previewOptions.preview
 	if previewErr != nil {
 		die("Engage 75 preview: %v", previewErr)
 	}
@@ -1776,7 +1777,7 @@ func cmdInstallForSelection(args []string, validateTarget func() error, expected
 	}
 	path = snapshot.path
 	if preview {
-		if err := installEngage75PreviewChecked(snapshot, accepted, validateTarget, preferredPID); err != nil {
+		if err := installEngage75PreviewChecked(snapshot, accepted, validateTarget, preferredPID, previewOptions.newAttempt); err != nil {
 			die("Engage 75 preview: %v", err)
 		}
 		return
