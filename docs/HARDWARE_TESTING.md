@@ -53,10 +53,10 @@ Testing a device does not mean every feature or firmware update has been tested.
 
 | Device |
 | --- |
-| Jabra Link 380 |
+| [Jabra Link 380](#link-380-with-evolve2-65) |
 | [Jabra Link 390](#link-390-pairing-and-dongle-write-test) |
 | [Jabra Evolve2 55 (through Link 390)](#link-390-pairing-and-dongle-write-test) |
-| Jabra Evolve2 65 |
+| [Jabra Evolve2 65 (through Link 380)](#link-380-with-evolve2-65) |
 | [Jabra Evolve2 85](#evolve2-85-noise-control-test) |
 | Jabra Evolve3 85 |
 | Jabra Speak 510 |
@@ -65,6 +65,29 @@ Testing a device does not mean every feature or firmware update has been tested.
 
 Tested another device? [Open an issue](https://github.com/Watchdog0x/jabridge/issues/new)
 with its name, what worked and your debug report so we can add it to this list.
+
+## Link 380 with Evolve2 65
+
+On 2026-11-06, [@akaguny reported](https://github.com/Watchdog0x/jabridge/issues/64)
+this setup working with Jabridge 1.6.1 on Ubuntu 24.04.4 LTS:
+
+| Device | USB ID | Variant | Firmware |
+| --- | --- | --- | --- |
+| Link 380 | `0b0e:24c7` | `04-0B` | `1.16.0` |
+| Evolve2 65 through the dongle | `0b0e:24a3` | `01-63` | `2.7.7` |
+
+Search and pairing connected the headset. Device and setting reads worked,
+along with physical mute, volume and call buttons and audible playback.
+The in-call busylight setting acknowledged a change and read back the requested
+value; the physical light during a call was not separately checked.
+Firmware status reads worked. EQ stayed read-only because the catalog profile
+was 2.9.2 while the installed headset firmware was 2.7.7, as expected.
+
+The remembered-device screen opened and removal was attempted, but the stored
+list was not read again. Stored-pairing deletion was not confirmed.
+Microphone capture, other setting writes, reset, forget/reconnect, firmware
+updates and direct USB/Bluetooth were not checked. The attached `c0dd`
+deskstand was not the audio endpoint tested.
 
 ## Link 390 pairing and dongle write test
 
